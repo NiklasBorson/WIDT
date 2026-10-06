@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'">
+  <title>WIDT Rehearsal Results</title>
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="results.js"></script>
+</head>
+<body>
+  <main class="page">
+    <header class="site-header">
+      <div>
+        <p class="eyebrow">Whidbey Island Dance Theatre</p>
+        <h1>Rehearsal Results</h1>
+      </div>
+      <nav class="header-links" aria-label="Page links">
+        <a id="edit-query-link" href="index.html">Edit query</a>
+        <a href="https://www.widtonline.org/backstage">WIDT Backstage</a>
+      </nav>
+    </header>
+
+    <section id="status-panel" class="panel" aria-live="polite">
+      <p id="status" class="message">Loading rehearsals...</p>
+    </section>
+
+    <section id="summary-panel" class="panel" hidden>
+      <h2 id="result-summary"></h2>
+      <p id="date-range"></p>
+      <details>
+        <summary>Query rules</summary>
+        <ul id="active-rules" class="rule-list"></ul>
+      </details>
+    </section>
+
+    <div id="results" class="results" hidden></div>
+  </main>
+</body>
+</html>

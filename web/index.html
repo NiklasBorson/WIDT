@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'">
+  <title>WIDT Rehearsal Finder</title>
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="editor.js"></script>
+</head>
+<body>
+  <main class="page">
+    <header class="site-header">
+      <div>
+        <p class="eyebrow">Whidbey Island Dance Theatre</p>
+        <h1>Rehearsal Finder</h1>
+      </div>
+      <a href="https://www.widtonline.org/backstage">WIDT Backstage</a>
+    </header>
+
+    <section class="panel">
+      <h2>Build a query</h2>
+      <p>Enter one rule per line. An event matches if any rule matches.</p>
+
+      <form id="query-form">
+        <label for="rules">Filter rules</label>
+        <textarea
+          id="rules"
+          rows="10"
+          spellcheck="false"
+          placeholder="Name:Alice&#10;Group.Name:Understudies.Alice&#10;Title:Living Room"
+        ></textarea>
+        <p class="field-help">Blank lines and lines beginning with <code>#</code> are ignored.</p>
+        <p id="editor-error" class="message error" role="alert" hidden></p>
+        <button type="submit">Show rehearsals</button>
+      </form>
+    </section>
+
+    <section class="panel documentation" aria-labelledby="rule-format-heading">
+      <h2 id="rule-format-heading">Rule format</h2>
+      <p>Each rule has the form <code>Kind:Value</code>. Multiple rules of the same kind are allowed.</p>
+
+      <dl>
+        <dt><code>Title:&lt;text&gt;</code></dt>
+        <dd>
+          Matches when the normalized event title starts with the normalized text.
+          Normalization replaces punctuation with spaces, collapses whitespace, and ignores case.
+        </dd>
+
+        <dt><code>Name:&lt;name&gt;</code></dt>
+        <dd>
+          Matches an individual name anywhere in the event's name lists.
+          The match is exact and case-insensitive.
+        </dd>
+
+        <dt><code>Group.Name:&lt;group&gt;.&lt;name&gt;</code></dt>
+        <dd>
+          Matches a name listed beneath the specified group heading. For example,
+          <code>Group.Name:Uncles.Bob</code> matches Bob beneath an <q>Uncles</q> heading.
+          Group names are lowercased and depluralized before comparison.
+        </dd>
+
+        <dt><code>FullText:&lt;text&gt;</code></dt>
+        <dd>
+          Matches normalized text anywhere in the event title or description.
+        </dd>
+      </dl>
+    </section>
+  </main>
+</body>
+</html>
