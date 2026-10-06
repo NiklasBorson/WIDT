@@ -25,7 +25,8 @@ a:hover {
 a:focus-visible,
 button:focus-visible,
 textarea:focus-visible,
-summary:focus-visible {
+summary:focus-visible,
+[role="tabpanel"]:focus-visible {
   outline: 3px solid #e3a72f;
   outline-offset: 3px;
 }
@@ -120,6 +121,23 @@ button:hover {
   background: #173f50;
 }
 
+.secondary-button {
+  border: 1px solid #285f76;
+  color: #285f76;
+  background: #fff;
+}
+
+.secondary-button:hover {
+  color: #fff;
+  background: #173f50;
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
 code {
   font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", monospace;
 }
@@ -197,6 +215,120 @@ code {
   color: #5f6368;
 }
 
+.view-details-button {
+  margin-top: 0.85rem;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.92rem;
+}
+
+.event-dialog {
+  width: min(calc(100% - 2rem), 48rem);
+  height: min(80vh, 42rem);
+  height: min(80dvh, 42rem);
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
+  border: 1px solid #8c8982;
+  border-radius: 0.65rem;
+  padding: clamp(1rem, 4vw, 1.5rem);
+  color: #202124;
+  background: #fff;
+  box-shadow: 0 1rem 3rem rgb(0 0 0 / 30%);
+}
+
+.event-dialog[open] {
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+}
+
+.event-dialog::backdrop {
+  background: rgb(23 63 80 / 55%);
+}
+
+.dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.dialog-header > div {
+  min-width: 0;
+}
+
+.dialog-header h2 {
+  margin: 0;
+  color: #173f50;
+  overflow-wrap: anywhere;
+}
+
+.dialog-header button {
+  flex: 0 0 auto;
+}
+
+.tab-list {
+  display: flex;
+  gap: 0.25rem;
+  margin-top: 1.25rem;
+  overflow-x: auto;
+  border-bottom: 2px solid #d8d3ca;
+}
+
+.tab-list [role="tab"] {
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: 0.35rem 0.35rem 0 0;
+  padding: 0.55rem 0.65rem;
+  color: #285f76;
+  background: transparent;
+  font-size: 0.88rem;
+  line-height: 1.25;
+}
+
+.tab-list [role="tab"]:hover {
+  color: #173f50;
+  background: #f4f2ee;
+}
+
+.tab-list [role="tab"][aria-selected="true"] {
+  border-color: #d8d3ca;
+  border-bottom-color: #fff;
+  color: #173f50;
+  background: #fff;
+}
+
+.tab-panel {
+  min-height: 8rem;
+  overflow: auto;
+  padding: 1rem 0.25rem 0.25rem;
+}
+
+.detail-text {
+  white-space: pre-wrap;
+}
+
+.normalized-text {
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", monospace;
+}
+
+.name-entry-list {
+  margin: 0;
+}
+
+.name-entry-list dt {
+  margin-top: 0.75rem;
+  font-weight: 700;
+}
+
+.name-entry-list dt:first-child {
+  margin-top: 0;
+}
+
+.name-entry-list dd {
+  margin: 0.2rem 0 0 1rem;
+}
+
 @media (max-width: 38rem) {
   .site-header {
     flex-direction: column;
@@ -205,5 +337,24 @@ code {
 
   .header-links {
     justify-content: flex-start;
+  }
+
+  .event-dialog {
+    height: calc(100vh - 1rem);
+    height: calc(100dvh - 1rem);
+    max-height: calc(100vh - 1rem);
+    max-height: calc(100dvh - 1rem);
+  }
+
+  .tab-list {
+    overflow-x: visible;
+  }
+
+  .tab-list [role="tab"] {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0.5rem 0.3rem;
+    font-size: 0.82rem;
+    white-space: normal;
   }
 }

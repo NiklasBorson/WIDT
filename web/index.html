@@ -29,11 +29,14 @@
           id="rules"
           rows="10"
           spellcheck="false"
-          placeholder="Name:Alice&#10;Group.Name:Understudies.Alice&#10;Title:Living Room"
+          placeholder="# Sample query&#10;Group.Name:Uncle.Bob"
         ></textarea>
         <p class="field-help">Blank lines and lines beginning with <code>#</code> are ignored.</p>
         <p id="editor-error" class="message error" role="alert" hidden></p>
-        <button type="submit">Show rehearsals</button>
+        <div class="form-actions">
+          <button type="submit" name="mode" value="filtered">Show rehearsals</button>
+          <button type="submit" name="mode" value="all" class="secondary-button">Show all rehearsals</button>
+        </div>
       </form>
     </section>
 

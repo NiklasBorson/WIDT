@@ -60,6 +60,7 @@ $events = @(
             endTime            = $occurrence.End.ToString('HH:mm')
             title              = $occurrence.Summary
             location           = if ([string]::IsNullOrWhiteSpace($occurrence.Location)) { $null } else { $occurrence.Location }
+            description        = Get-EventPlainText $occurrence.Description
             normalizedTitle    = $occurrence.NormalizedTitle
             normalizedFullText = $occurrence.NormalizedFullText
             nameEntries        = @(

@@ -29,13 +29,83 @@
     <section id="summary-panel" class="panel" hidden>
       <h2 id="result-summary"></h2>
       <p id="date-range"></p>
-      <details>
-        <summary>Query rules</summary>
+      <p id="show-all-note" class="field-help" hidden></p>
+      <details id="query-rules">
+        <summary id="query-rules-summary">Query rules</summary>
         <ul id="active-rules" class="rule-list"></ul>
       </details>
     </section>
 
     <div id="results" class="results" hidden></div>
+
+    <dialog id="event-dialog" class="event-dialog" aria-labelledby="dialog-title">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">Rehearsal details</p>
+          <h2 id="dialog-title"></h2>
+        </div>
+        <button id="close-dialog" type="button" class="secondary-button">Close</button>
+      </div>
+
+      <p id="dialog-when" class="event-time"></p>
+      <p id="dialog-location" class="event-location"></p>
+
+      <div class="tab-list" role="tablist" aria-label="Event detail views">
+        <button
+          id="description-tab"
+          type="button"
+          role="tab"
+          aria-selected="true"
+          aria-controls="description-panel"
+          aria-label="Original calendar description"
+          data-panel="description-panel"
+        >Description</button>
+        <button
+          id="names-tab"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="names-panel"
+          aria-label="Parsed group and name entries"
+          data-panel="names-panel"
+          tabindex="-1"
+        >Parsed names</button>
+        <button
+          id="full-text-tab"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="full-text-panel"
+          aria-label="Normalized full text"
+          data-panel="full-text-panel"
+          tabindex="-1"
+        >Full text</button>
+      </div>
+
+      <section
+        id="description-panel"
+        class="tab-panel detail-text"
+        role="tabpanel"
+        aria-labelledby="description-tab"
+        tabindex="0"
+      ></section>
+      <section
+        id="names-panel"
+        class="tab-panel"
+        role="tabpanel"
+        aria-labelledby="names-tab"
+        tabindex="0"
+        hidden
+      ></section>
+      <section
+        id="full-text-panel"
+        class="tab-panel detail-text normalized-text"
+        role="tabpanel"
+        aria-labelledby="full-text-tab"
+        tabindex="0"
+        hidden
+      ></section>
+    </dialog>
   </main>
 </body>
 </html>

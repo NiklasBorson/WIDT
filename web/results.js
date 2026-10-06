@@ -4,8 +4,23 @@ const statusMessage = document.querySelector('#status');
 const summaryPanel = document.querySelector('#summary-panel');
 const resultSummary = document.querySelector('#result-summary');
 const dateRange = document.querySelector('#date-range');
+const showAllNote = document.querySelector('#show-all-note');
+const queryRules = document.querySelector('#query-rules');
+const queryRulesSummary = document.querySelector('#query-rules-summary');
 const activeRules = document.querySelector('#active-rules');
 const resultsContainer = document.querySelector('#results');
+const eventDialog = document.querySelector('#event-dialog');
+const closeDialogButton = document.querySelector('#close-dialog');
+const dialogTitle = document.querySelector('#dialog-title');
+const dialogWhen = document.querySelector('#dialog-when');
+const dialogLocation = document.querySelector('#dialog-location');
+const descriptionPanel = document.querySelector('#description-panel');
+const namesPanel = document.querySelector('#names-panel');
+const fullTextPanel = document.querySelector('#full-text-panel');
+const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+const tabPanels = Array.from(document.querySelectorAll('[role="tabpanel"]'));
+
+let dialogOpener = null;
 
 editQueryLink.href = `index.html${window.location.search}`;
 
@@ -128,11 +143,23 @@ function validateSnapshot(snapshot) {
       || typeof event.startTime !== 'string'
       || typeof event.endTime !== 'string'
       || typeof event.title !== 'string'
+      || typeof event.description !== 'string'
       || typeof event.normalizedTitle !== 'string'
       || typeof event.normalizedFullText !== 'string'
       || !Array.isArray(event.nameEntries)
     ) {
       throw new Error('The rehearsal snapshot contains an invalid event.');
+    }
+
+    for (const entry of event.nameEntries) {
+      if (
+        entry === null
+        || typeof entry !== 'object'
+        || typeof entry.group !== 'string'
+        || typeof entry.name !== 'string'
+      ) {
+        throw new Error('The rehearsal snapshot contains an invalid name entry.');
+      }
     }
   }
 }
@@ -175,14 +202,75 @@ function formatTime(value) {
   return `${displayHour}:${minute} ${suffix}`;
 }
 
-function renderRules(rules) {
-  for (const rule of rules) {
+function renderRules(ruleSources) {
+  for (const source of ruleSources) {
     const item = document.createElement('li');
     const code = document.createElement('code');
-    code.textContent = rule.source;
+    code.textContent = source;
     item.append(code);
     activeRules.append(item);
   }
+}
+
+function activateTab(selectedTab, moveFocus = false) {
+  for (const tab of tabs) {
+    const isSelected = tab === selectedTab;
+    tab.setAttribute('aria-selected', String(isSelected));
+    tab.tabIndex = isSelected ? 0 : -1;
+  }
+
+  for (const panel of tabPanels) {
+    panel.hidden = panel.id !== selectedTab.dataset.panel;
+  }
+
+  if (moveFocus) {
+    selectedTab.focus();
+  }
+}
+
+function renderNameEntries(entries) {
+  namesPanel.replaceChildren();
+
+  if (entries.length === 0) {
+    namesPanel.textContent = 'No group/name entries were parsed from this event.';
+    return;
+  }
+
+  const entriesByGroup = new Map();
+  for (const entry of entries) {
+    const names = entriesByGroup.get(entry.group) ?? [];
+    if (!names.includes(entry.name)) {
+      names.push(entry.name);
+    }
+    entriesByGroup.set(entry.group, names);
+  }
+
+  const list = document.createElement('dl');
+  list.className = 'name-entry-list';
+  for (const [group, names] of entriesByGroup) {
+    const term = document.createElement('dt');
+    const groupCode = document.createElement('code');
+    groupCode.textContent = group;
+    term.append(groupCode);
+
+    const description = document.createElement('dd');
+    description.textContent = names.join(', ');
+    list.append(term, description);
+  }
+  namesPanel.append(list);
+}
+
+function showEventDetails(event, opener) {
+  dialogOpener = opener;
+  dialogTitle.textContent = event.title;
+  dialogWhen.textContent =
+    `${formatHeadingDate(event.date)}, ${formatTime(event.startTime)}–${formatTime(event.endTime)}`;
+  dialogLocation.textContent = event.location?.trim() || 'No location listed.';
+  descriptionPanel.textContent = event.description.trim() || 'No calendar description.';
+  fullTextPanel.textContent = event.normalizedFullText || 'No normalized text.';
+  renderNameEntries(event.nameEntries);
+  activateTab(tabs[0]);
+  eventDialog.showModal();
 }
 
 function renderEvent(event) {
@@ -204,6 +292,13 @@ function renderEvent(event) {
     location.textContent = event.location;
     article.append(location);
   }
+
+  const detailsButton = document.createElement('button');
+  detailsButton.type = 'button';
+  detailsButton.className = 'view-details-button secondary-button';
+  detailsButton.textContent = 'View details';
+  detailsButton.addEventListener('click', () => showEventDetails(event, detailsButton));
+  article.append(detailsButton);
 
   return article;
 }
@@ -239,7 +334,14 @@ function showError(message) {
 async function loadResults() {
   try {
     const parameters = new URLSearchParams(window.location.search);
-    const rules = parseRules(parameters.getAll('rule'));
+    const showAllValues = parameters.getAll('ShowAll');
+    if (showAllValues.length > 1 || (showAllValues.length === 1 && showAllValues[0] !== 'true')) {
+      throw new Error('ShowAll must have the value true when it is present.');
+    }
+
+    const showAll = showAllValues.length === 1;
+    const ruleSources = parameters.getAll('rule');
+    const rules = showAll ? [] : parseRules(ruleSources);
 
     const response = await fetch('rehearsals.json', { cache: 'no-store' });
     if (!response.ok) {
@@ -249,17 +351,30 @@ async function loadResults() {
     const snapshot = await response.json();
     validateSnapshot(snapshot);
 
-    const matchingEvents = snapshot.events.filter((event) =>
-      rules.some((rule) => eventMatchesRule(event, rule))
-    );
+    const matchingEvents = showAll
+      ? snapshot.events
+      : snapshot.events.filter((event) =>
+        rules.some((rule) => eventMatchesRule(event, rule))
+      );
 
-    resultSummary.textContent = matchingEvents.length === 1
-      ? '1 matching event'
-      : `${matchingEvents.length} matching events`;
+    resultSummary.textContent = showAll
+      ? `Showing all ${matchingEvents.length} rehearsals`
+      : matchingEvents.length === 1
+        ? '1 matching event'
+        : `${matchingEvents.length} matching events`;
     dateRange.textContent =
       `Showing results for ${formatRangeDate(snapshot.firstDay)} through ${formatRangeDate(snapshot.lastDay)}.`;
 
-    renderRules(rules);
+    if (showAll) {
+      showAllNote.textContent = ruleSources.length === 0
+        ? 'Filtering is disabled.'
+        : 'Filtering is disabled. The saved query rules below are not currently applied.';
+      showAllNote.hidden = false;
+      queryRulesSummary.textContent = 'Saved query rules';
+    }
+
+    queryRules.hidden = ruleSources.length === 0;
+    renderRules(ruleSources);
     renderResults(matchingEvents);
 
     statusPanel.hidden = true;
@@ -276,5 +391,39 @@ async function loadResults() {
     showError(error instanceof Error ? error.message : 'Unable to display rehearsal results.');
   }
 }
+
+for (const tab of tabs) {
+  tab.addEventListener('click', () => activateTab(tab));
+  tab.addEventListener('keydown', (event) => {
+    const currentIndex = tabs.indexOf(tab);
+    let nextIndex;
+
+    switch (event.key) {
+      case 'ArrowLeft':
+        nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+        break;
+      case 'ArrowRight':
+        nextIndex = (currentIndex + 1) % tabs.length;
+        break;
+      case 'Home':
+        nextIndex = 0;
+        break;
+      case 'End':
+        nextIndex = tabs.length - 1;
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    activateTab(tabs[nextIndex], true);
+  });
+}
+
+closeDialogButton.addEventListener('click', () => eventDialog.close());
+eventDialog.addEventListener('close', () => {
+  dialogOpener?.focus();
+  dialogOpener = null;
+});
 
 loadResults();

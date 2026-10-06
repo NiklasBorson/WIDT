@@ -59,6 +59,7 @@ A snapshot has this general shape:
       "endTime": "12:45",
       "title": "Dolls-Rehearsal Katelyn",
       "location": "Island Dance-2-Studio #2 (50)",
+      "description": "Dolls:\nAva",
       "normalizedTitle": "dolls rehearsal katelyn",
       "normalizedFullText": "...",
       "nameEntries": [
@@ -84,6 +85,12 @@ The site has two pages:
   parameters.
 - `results.html` validates the rules, loads `rehearsals.json`, filters the
   events, and renders matching rehearsals grouped by date.
+- **Show all rehearsals** adds `ShowAll=true` while retaining any entered rules
+  for later editing. The results page bypasses rule validation and filtering in
+  this mode.
+- Each result includes a details dialog with the original calendar
+  description, parsed group/name entries, and normalized full text used for
+  query matching.
 
 For example:
 
