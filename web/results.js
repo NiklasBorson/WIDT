@@ -139,6 +139,8 @@ function validateSnapshot(snapshot) {
     if (
       event === null
       || typeof event !== 'object'
+      || typeof event.uniqueId !== 'string'
+      || !/^[0-9a-f]{32}$/.test(event.uniqueId)
       || typeof event.date !== 'string'
       || typeof event.startTime !== 'string'
       || typeof event.endTime !== 'string'
@@ -293,12 +295,24 @@ function renderEvent(event) {
     article.append(location);
   }
 
+  const actions = document.createElement('div');
+  actions.className = 'event-actions';
+
   const detailsButton = document.createElement('button');
   detailsButton.type = 'button';
   detailsButton.className = 'view-details-button secondary-button';
   detailsButton.textContent = 'View details';
   detailsButton.addEventListener('click', () => showEventDetails(event, detailsButton));
-  article.append(detailsButton);
+
+  const calendarLink = document.createElement('a');
+  calendarLink.className = 'calendar-link';
+  calendarLink.href = `events/WIDT_${event.uniqueId}.ics`;
+  calendarLink.download = '';
+  calendarLink.textContent = 'Add to calendar';
+  calendarLink.setAttribute('aria-label', `Add ${event.title} to calendar`);
+
+  actions.append(detailsButton, calendarLink);
+  article.append(actions);
 
   return article;
 }

@@ -54,6 +54,7 @@ A snapshot has this general shape:
   "lastDay": "2026-11-03",
   "events": [
     {
+      "uniqueId": "98c4b4e192f8519a8bc9cb2d47a51f06",
       "date": "2026-10-10",
       "startTime": "12:00",
       "endTime": "12:45",
@@ -91,6 +92,10 @@ The site has two pages:
 - Each result includes a details dialog with the original calendar
   description, parsed group/name entries, and normalized full text used for
   query matching.
+- Each result links to a generated `events/WIDT_<uniqueId>.ics` file that can be
+  imported into Google Calendar, Outlook, Apple Calendar, and other
+  iCalendar-compatible applications. Imported events are independent copies
+  and do not receive subsequent schedule updates.
 
 For example:
 
@@ -142,7 +147,7 @@ ignores case. Group names are also depluralized before comparison.
 
 ```text
 .github/workflows/deploy-pages.yml  Builds and deploys the Pages site
-Build-RehearsalSnapshot.ps1         Produces rehearsals.json
+Build-RehearsalSnapshot.ps1         Produces rehearsals.json and event ICS files
 Find-Rehearsals.ps1                 Command-line rehearsal search
 RehearsalCalendar.psm1              Shared calendar and filtering logic
 filter.txt                          Command-line filter rules
@@ -153,6 +158,11 @@ web/
   results.js                        Browser-side validation and filtering
   styles.css                        Shared site styles
 ```
+
+During deployment, `Build-RehearsalSnapshot.ps1` also creates an `events/`
+directory beside `rehearsals.json`, containing one ICS file for each expanded
+occurrence. The stable `uniqueId` is derived from the source event UID and, for
+recurring events, its original recurrence identity.
 
 ## Local PowerShell use
 

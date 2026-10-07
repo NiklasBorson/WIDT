@@ -216,9 +216,32 @@ code {
 }
 
 .view-details-button {
-  margin-top: 0.85rem;
   padding: 0.45rem 0.7rem;
   font-size: 0.92rem;
+}
+
+.event-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+}
+
+.calendar-link {
+  border: 1px solid #285f76;
+  border-radius: 0.35rem;
+  padding: 0.45rem 0.7rem;
+  color: #285f76;
+  background: #fff;
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.5;
+  text-decoration: none;
+}
+
+.calendar-link:hover {
+  color: #fff;
+  background: #173f50;
 }
 
 .event-dialog {

@@ -365,7 +365,20 @@ function Expand-IcsEvents {
         if ($null -eq $master) {
             # Only override instances exist (rare); treat each as standalone.
             foreach ($ov in $entry.Overrides.Values) {
-                $occurrences.Add($ov) | Out-Null
+                if ($ov.ContainsKey('STATUS') -and $ov['STATUS'] -eq 'CANCELLED') { continue }
+                $identityStart = $ov['RECURRENCE-ID'].DateTime
+                $effStart = if ($ov.ContainsKey('DTSTART')) { $ov['DTSTART'].DateTime } else { $identityStart }
+                $effEnd = if ($ov.ContainsKey('DTEND')) { $ov['DTEND'].DateTime } else { $effStart }
+                $occurrences.Add([PSCustomObject]@{
+                        UID          = $uid
+                        RecurrenceId = $identityStart
+                        Start        = $effStart
+                        End          = $effEnd
+                        Summary      = $ov['SUMMARY']
+                        Description  = $ov['DESCRIPTION']
+                        Location     = $ov['LOCATION']
+                        IsAllDay     = if ($ov.ContainsKey('DTSTART')) { $ov['DTSTART'].IsAllDay } else { $ov['RECURRENCE-ID'].IsAllDay }
+                    }) | Out-Null
             }
             continue
         }
@@ -392,25 +405,27 @@ function Expand-IcsEvents {
                 $effStart = if ($override.ContainsKey('DTSTART')) { $override['DTSTART'].DateTime } else { $occStart }
                 $effEnd = if ($override.ContainsKey('DTEND')) { $override['DTEND'].DateTime } else { $effStart + $duration }
                 $occurrences.Add([PSCustomObject]@{
-                        UID         = $uid
-                        Start       = $effStart
-                        End         = $effEnd
-                        Summary     = $override['SUMMARY']
-                        Description = $override['DESCRIPTION']
-                        Location    = $override['LOCATION']
-                        IsAllDay    = $master['DTSTART'].IsAllDay
+                        UID          = $uid
+                        RecurrenceId = $occStart
+                        Start        = $effStart
+                        End          = $effEnd
+                        Summary      = $override['SUMMARY']
+                        Description  = $override['DESCRIPTION']
+                        Location     = $override['LOCATION']
+                        IsAllDay     = $master['DTSTART'].IsAllDay
                     }) | Out-Null
             }
             else {
                 if ($master.ContainsKey('STATUS') -and $master['STATUS'] -eq 'CANCELLED') { continue }
                 $occurrences.Add([PSCustomObject]@{
-                        UID         = $uid
-                        Start       = $occStart
-                        End         = $occStart + $duration
-                        Summary     = $master['SUMMARY']
-                        Description = $master['DESCRIPTION']
-                        Location    = $master['LOCATION']
-                        IsAllDay    = $master['DTSTART'].IsAllDay
+                        UID          = $uid
+                        RecurrenceId = if ($master.ContainsKey('RRULE')) { $occStart } else { $null }
+                        Start        = $occStart
+                        End          = $occStart + $duration
+                        Summary      = $master['SUMMARY']
+                        Description  = $master['DESCRIPTION']
+                        Location     = $master['LOCATION']
+                        IsAllDay     = $master['DTSTART'].IsAllDay
                     }) | Out-Null
             }
         }
