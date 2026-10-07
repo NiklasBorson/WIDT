@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Update WIDT Rehearsal Finder</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #242424;
+        background: #f6f5f2;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 1.5rem;
+      }
+
+      main {
+        width: min(100%, 34rem);
+        padding: clamp(1.5rem, 5vw, 2.5rem);
+        border: 1px solid #d7d2c8;
+        border-radius: 0.75rem;
+        background: #ffffff;
+        box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 8%);
+      }
+
+      h1 {
+        margin: 0 0 1rem;
+        color: #432f69;
+        font-size: clamp(1.6rem, 7vw, 2.25rem);
+        line-height: 1.15;
+      }
+
+      p {
+        line-height: 1.55;
+      }
+
+      button {
+        width: 100%;
+        min-height: 3rem;
+        margin: 0.75rem 0;
+        padding: 0.75rem 1rem;
+        border: 0;
+        border-radius: 0.4rem;
+        color: #ffffff;
+        background: #634699;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: #4f367c;
+      }
+
+      button:focus-visible,
+      a:focus-visible {
+        outline: 3px solid #e0ad30;
+        outline-offset: 3px;
+      }
+
+      button:disabled {
+        cursor: wait;
+        opacity: 0.65;
+      }
+
+      .status {
+        min-height: 3.5rem;
+        margin-top: 0.75rem;
+        padding: 0.75rem;
+        border-radius: 0.4rem;
+        background: #f1eef7;
+      }
+
+      .status:empty {
+        visibility: hidden;
+      }
+
+      .status[data-kind="success"] {
+        color: #174d2c;
+        background: #e7f5eb;
+      }
+
+      .status[data-kind="error"] {
+        color: #8a1c1c;
+        background: #fbeaea;
+      }
+
+      .secondary-link {
+        display: inline-block;
+        margin-top: 0.5rem;
+        color: #4f367c;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Update WIDT Rehearsal Finder</h1>
+      <p>
+        Use this button after updating the WIDT rehearsal calendar. The
+        rehearsal finder will normally reflect the changes within a few
+        minutes.
+      </p>
+
+      <button id="update-button" type="button">Update rehearsal finder</button>
+
+      <div
+        id="status"
+        class="status"
+        role="status"
+        aria-live="polite"
+      ></div>
+
+      <a
+        class="secondary-link"
+        href="https://niklasborson.github.io/WIDT/"
+        target="_blank"
+        rel="noopener"
+      >Open rehearsal finder</a>
+    </main>
+
+    <script>
+      const button = document.getElementById('update-button');
+      const status = document.getElementById('status');
+
+      button.addEventListener('click', requestUpdate);
+
+      function requestUpdate() {
+        setBusy(true);
+        showStatus('Requesting an update...', 'pending');
+
+        google.script.run
+          .withSuccessHandler(handleSuccess)
+          .withFailureHandler(handleFailure)
+          .requestDeployment();
+      }
+
+      function handleSuccess(result) {
+        setBusy(false);
+
+        if (result.status === 'accepted') {
+          const requestedTime = new Date(result.requestedAt).toLocaleTimeString(
+            [],
+            { hour: 'numeric', minute: '2-digit' },
+          );
+          showStatus(
+            `Update requested at ${requestedTime}. ` +
+              'The rehearsal finder should be refreshed within a few minutes.',
+            'success',
+          );
+          return;
+        }
+
+        if (result.status === 'cooldown') {
+          const minutes = Math.max(1, Math.ceil(result.retryAfterSeconds / 60));
+          showStatus(
+            `An update was requested recently. Try again in about ${minutes} ` +
+              `${minutes === 1 ? 'minute' : 'minutes'}.`,
+            'info',
+          );
+          return;
+        }
+
+        if (result.status === 'busy') {
+          showStatus(
+            'Another update request is being processed. Please try again shortly.',
+            'info',
+          );
+          return;
+        }
+
+        showStatus('The server returned an unexpected response.', 'error');
+      }
+
+      function handleFailure(error) {
+        setBusy(false);
+        const message =
+          error && typeof error.message === 'string'
+            ? error.message
+            : 'The update request failed.';
+        showStatus(message, 'error');
+      }
+
+      function setBusy(isBusy) {
+        button.disabled = isBusy;
+        button.setAttribute('aria-busy', String(isBusy));
+        button.textContent = isBusy
+          ? 'Requesting update...'
+          : 'Update rehearsal finder';
+      }
+
+      function showStatus(message, kind) {
+        status.textContent = message;
+        status.dataset.kind = kind;
+      }
+    </script>
+  </body>
+</html>

@@ -1,10 +1,20 @@
 name: Deploy GitHub Pages
+run-name: ${{ github.event_name == 'schedule' && 'Scheduled rehearsal snapshot' || github.event_name == 'push' && 'Rehearsal snapshot after push to main' || inputs.triggerSource == 'widt-update-button' && 'Rehearsal snapshot requested using WIDT update button' || inputs.triggerSource == 'github-run-button' && 'Rehearsal snapshot requested using GitHub Run workflow button' || 'Rehearsal snapshot deployment' }}
 
 on:
   push:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      triggerSource:
+        description: Source requesting this deployment
+        required: false
+        default: github-run-button
+        type: choice
+        options:
+          - github-run-button
+          - widt-update-button
   schedule:
     - cron: '17 * * * *'
 
@@ -22,6 +32,44 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Record deployment trigger
+        shell: pwsh
+        env:
+          TRIGGER_SOURCE: ${{ inputs.triggerSource }}
+        run: |
+          $trigger = switch ($env:GITHUB_EVENT_NAME) {
+            'schedule' {
+              'Scheduled refresh'
+            }
+            'push' {
+              'Push to main'
+            }
+            'workflow_dispatch' {
+              switch ($env:TRIGGER_SOURCE) {
+                'github-run-button' {
+                  'GitHub Run workflow button'
+                }
+                'widt-update-button' {
+                  'WIDT update button'
+                }
+                default {
+                  throw "Unsupported workflow dispatch source: '$env:TRIGGER_SOURCE'."
+                }
+              }
+            }
+            default {
+              throw "Unsupported workflow event: '$env:GITHUB_EVENT_NAME'."
+            }
+          }
+
+          @(
+            '### Deployment request'
+            ''
+            '| Field | Value |'
+            '| --- | --- |'
+            "| Trigger | $trigger |"
+          ) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
       - name: Check out repository
         uses: actions/checkout@v4
 
