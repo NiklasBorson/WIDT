@@ -104,7 +104,7 @@ function eventMatchesRule(event, rule) {
   switch (rule.kind) {
     case 'Title':
       return rule.normalizedValue !== ''
-        && event.normalizedTitle.startsWith(rule.normalizedValue);
+        && event.normalizedTitle.includes(rule.normalizedValue);
 
     case 'Name':
       return event.nameEntries.some((entry) => entry.name.toLowerCase() === rule.value);

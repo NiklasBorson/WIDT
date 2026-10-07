@@ -656,7 +656,7 @@ function Test-EventMatchesFilter {
     foreach ($rule in $Rules) {
         switch ($rule.Kind) {
             'Title' {
-                if ($rule.NormalizedTitle -ne '' -and $normalizedTitle.StartsWith($rule.NormalizedTitle)) {
+                if ($rule.NormalizedTitle -ne '' -and $normalizedTitle.Contains($rule.NormalizedTitle)) {
                     return $true
                 }
             }

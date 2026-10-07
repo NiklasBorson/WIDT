@@ -14,8 +14,8 @@
     Path to a filter file. Each non-blank, non-comment ("#") line is one
     match rule in the form "Kind:Value":
 
-      Title:<text>        Matches if the event's normalized title starts
-                           with normalized <text>.
+      Title:<text>        Matches if normalized <text> appears anywhere in
+                           the event's normalized title.
       Name:<name>         Matches if <name> appears as an individual name
                            anywhere in the event body's name lists.
       Group.Name:<g>.<n>  Matches if the event body has a heading that

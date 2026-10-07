@@ -119,7 +119,7 @@ An event matches when **any** rule matches.
 
 | Rule | Behavior |
 | --- | --- |
-| `Title:<text>` | Matches when the normalized event title starts with the normalized text. |
+| `Title:<text>` | Matches normalized text anywhere in the event title. |
 | `Name:<name>` | Matches an exact, case-insensitive name in any parsed name list. |
 | `Group.Name:<group>.<name>` | Matches an exact name beneath the specified normalized group heading. |
 | `FullText:<text>` | Matches normalized text anywhere in the event title or description. |
@@ -133,7 +133,7 @@ Name:Alice
 # Match Alice only when listed under Understudies
 Group.Name:Understudies.Alice
 
-# Match events whose titles begin with "Living Room"
+# Match events whose titles contain "Living Room"
 Title:Living Room
 
 # Match text anywhere in the title or description
