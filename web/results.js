@@ -4,6 +4,7 @@ const statusMessage = document.querySelector('#status');
 const summaryPanel = document.querySelector('#summary-panel');
 const resultSummary = document.querySelector('#result-summary');
 const dateRange = document.querySelector('#date-range');
+const updatedTime = document.querySelector('#updated-time');
 const showAllNote = document.querySelector('#show-all-note');
 const queryRules = document.querySelector('#query-rules');
 const queryRulesSummary = document.querySelector('#query-rules-summary');
@@ -189,6 +190,23 @@ function formatHeadingDate(value) {
     month: 'long',
     day: 'numeric'
   }).format(parseDate(value));
+}
+
+function formatSnapshotTimestamp(value, timeZone) {
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) {
+    throw new Error(`Invalid snapshot timestamp: ${value}`);
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  }).format(timestamp);
 }
 
 function formatTime(value) {
@@ -378,6 +396,8 @@ async function loadResults() {
         : `${matchingEvents.length} matching events`;
     dateRange.textContent =
       `Showing results for ${formatRangeDate(snapshot.firstDay)} through ${formatRangeDate(snapshot.lastDay)}.`;
+    updatedTime.textContent =
+      `Updated ${formatSnapshotTimestamp(snapshot.generatedAt, snapshot.timeZone)}.`;
 
     if (showAll) {
       showAllNote.textContent = ruleSources.length === 0

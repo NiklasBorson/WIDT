@@ -196,7 +196,7 @@ the scripts to run on both Windows and Linux.
 
 The deployment workflow runs:
 
-- Every hour at 17 minutes after the hour.
+- Daily at 3:19 AM Pacific time.
 - On pushes to `main`.
 - When manually dispatched from the Actions tab.
 - When requested through the WIDT update button.
@@ -224,7 +224,7 @@ The browser invokes a server-side Apps Script function, which calls GitHub's
 workflow-dispatch API with fixed values for the repository, workflow, branch,
 and trigger source. The GitHub credential is never sent to the browser. The
 script uses a project-wide lock and a five-minute cooldown to avoid duplicate
-requests. The hourly workflow schedule remains enabled as a fallback.
+requests. The daily workflow schedule remains enabled as a fallback.
 
 ### Apps Script setup
 

@@ -16,7 +16,8 @@ on:
           - github-run-button
           - widt-update-button
   schedule:
-    - cron: '17 * * * *'
+    - cron: '19 3 * * *'
+      timezone: America/Los_Angeles
 
 permissions:
   contents: read
