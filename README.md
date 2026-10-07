@@ -114,8 +114,8 @@ Content Security Policy.
 
 ## Filter rules
 
-Enter one rule per line. Blank lines and lines beginning with `#` are ignored.
-An event matches when **any** rule matches.
+The web editor accepts one rule per line. Blank lines and lines beginning with
+`#` are ignored. An event matches when **any** rule matches.
 
 | Rule | Behavior |
 | --- | --- |
@@ -150,7 +150,6 @@ ignores case. Group names are also depluralized before comparison.
 Build-RehearsalSnapshot.ps1         Produces rehearsals.json and event ICS files
 Find-Rehearsals.ps1                 Command-line rehearsal search
 RehearsalCalendar.psm1              Shared calendar and filtering logic
-filter.txt                          Command-line filter rules
 apps-script/update-button/          Google Apps Script update-button source
   Code.gs                           Server-side workflow dispatch and cooldown
   Index.html                        Update-button web page
@@ -170,11 +169,37 @@ recurring events, its original recurrence identity.
 
 ## Local PowerShell use
 
-Run a search using the rules in `filter.txt`:
+Specify one or more filters directly on the command line. Values supplied to
+different parameters, or multiple values supplied to one parameter, are
+combined with OR semantics:
 
 ```powershell
-.\Find-Rehearsals.ps1
+.\Find-Rehearsals.ps1 -Title Emma -Name Nick,Jan -GroupName Uncle.Derek
 ```
+
+The command-line parameters correspond to the web rules:
+
+| Parameter | Web rule |
+| --- | --- |
+| `-Title <text>[,<text>...]` | `Title:<text>` |
+| `-Name <name>[,<name>...]` | `Name:<name>` |
+| `-GroupName <group>.<name>[,...]` | `Group.Name:<group>.<name>` |
+| `-FullText <text>[,<text>...]` | `FullText:<text>` |
+
+Use quotes around values containing spaces:
+
+```powershell
+.\Find-Rehearsals.ps1 -Title 'Living Room' -FullText 'costume fitting'
+```
+
+At least one filter is required unless `-All` is specified:
+
+```powershell
+.\Find-Rehearsals.ps1 -All
+```
+
+Use `-Detailed` to print parsed group/name entries and `-ShowFullText` to print
+the normalized title-and-body text used by `-FullText` matching.
 
 Generate a snapshot in the repository directory:
 

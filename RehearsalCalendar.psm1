@@ -578,71 +578,6 @@ function Get-NormalizedTitle {
     return $t.Trim().ToLowerInvariant()
 }
 
-function Get-FilterRules {
-    param([string]$Path)
-
-    if (-not (Test-Path $Path)) {
-        throw "Filter file not found: $Path"
-    }
-
-    $rules = New-Object System.Collections.Generic.List[object]
-    $lineNum = 0
-    foreach ($rawLine in (Get-Content -Path $Path)) {
-        $lineNum++
-        $line = $rawLine.Trim()
-        if ($line -eq '' -or $line.StartsWith('#')) { continue }
-
-        $colonIndex = $line.IndexOf(':')
-        if ($colonIndex -lt 0) {
-            Write-Warning "Filter line $lineNum`: missing ':' - skipping: $line"
-            continue
-        }
-
-        $kind = $line.Substring(0, $colonIndex).Trim()
-        $value = $line.Substring($colonIndex + 1).Trim()
-
-        switch -Regex ($kind) {
-            '^(?i)Title$' {
-                $rules.Add([PSCustomObject]@{
-                        Kind            = 'Title'
-                        NormalizedTitle = Get-NormalizedTitle $value
-                    })
-            }
-            '^(?i)Name$' {
-                $rules.Add([PSCustomObject]@{
-                        Kind = 'Name'
-                        Name = $value.Trim()
-                    })
-            }
-            '^(?i)FullText$' {
-                $rules.Add([PSCustomObject]@{
-                        Kind            = 'FullText'
-                        NormalizedText  = Get-NormalizedTitle $value
-                    })
-            }
-            '^(?i)Group\.Name$' {
-                $dotIndex = $value.IndexOf('.')
-                if ($dotIndex -lt 0) {
-                    Write-Warning "Filter line $lineNum`: Group.Name value must be 'Group.Name' - skipping: $line"
-                    continue
-                }
-                $groupPart = $value.Substring(0, $dotIndex).Trim()
-                $namePart = $value.Substring($dotIndex + 1).Trim()
-                $rules.Add([PSCustomObject]@{
-                        Kind  = 'Group.Name'
-                        Group = Get-NormalizedGroup $groupPart
-                        Name  = $namePart
-                    })
-            }
-            default {
-                Write-Warning "Filter line $lineNum`: unrecognized rule kind '$kind' - skipping: $line"
-            }
-        }
-    }
-
-    return $rules
-}
-
 function Test-EventMatchesFilter {
     param(
         [string]$Summary,
@@ -711,8 +646,8 @@ Export-ModuleMember -Function @(
     'Get-RehearsalOccurrences',
     'Get-EventPlainText',
     'Get-EventNameEntries',
+    'Get-NormalizedGroup',
     'Get-NormalizedTitle',
-    'Get-FilterRules',
     'Test-EventMatchesFilter',
     'Format-EventWhen',
     'Format-NameEntries'
