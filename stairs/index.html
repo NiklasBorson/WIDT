@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WIDT Stairs Project Visualizer</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./main.js"></script>
+</head>
+<body>
+  <header>
+    <div>
+      <p class="eyebrow">Stairs / Component preview</p>
+      <h1 id="model-name">Curved stairway</h1>
+    </div>
+    <button id="reset" type="button">Reset view</button>
+  </header>
+  <main class="workspace">
+    <section class="stage" aria-label="Model preview">
+      <canvas id="viewer" tabindex="0" aria-label="Interactive 3D stairway frames, uprights, risers, and treads"
+        aria-describedby="dimensions controls">
+        Bottom frames arranged through 90 degrees, each with two side boards,
+        two vertical uprights, and a 1x4 cross-piece between the uprights.
+        The final step has two extra uprights at the far radial boundary,
+        with the rear-left upright narrowed if needed to clear the front one.
+        Top frames have two side boards ending at the back boundary and a
+        cross-piece at each end supporting a half-inch-thick tread flush with
+        the side and back edges, extending forward to the front of the riser.
+        Separate front risers reach from the previous step's elevation to
+        half an inch below each step's top, with one inch of floor clearance
+        under the bottom step's riser.
+      </canvas>
+      <p id="error" role="alert" hidden></p>
+    </section>
+    <aside class="parameters" aria-labelledby="parameters-heading">
+      <h2 id="parameters-heading">Parameters</h2>
+      <div class="parameter">
+        <div class="parameter-heading">
+          <label for="bottom-stair-width">Bottom width</label>
+          <output for="bottom-stair-width">24 in</output>
+        </div>
+        <input id="bottom-stair-width" type="range" min="20" max="36" step="0.25" value="24">
+      </div>
+      <div class="parameter">
+        <div class="parameter-heading">
+          <label for="top-stair-width">Top width</label>
+          <output for="top-stair-width">24 in</output>
+        </div>
+        <input id="top-stair-width" type="range" min="20" max="36" step="0.25" value="24">
+      </div>
+      <div class="parameter">
+        <div class="parameter-heading">
+          <label for="stair-count">Steps</label>
+          <output for="stair-count">8</output>
+        </div>
+        <input id="stair-count" type="range" min="7" max="10" step="1" value="8">
+      </div>
+      <fieldset class="visibility">
+        <legend>Show parts</legend>
+        <label><input id="show-bottom-frame" type="checkbox" checked> bottomFrame</label>
+        <label><input id="show-top-frame" type="checkbox" checked> topFrame</label>
+        <label><input id="show-riser" type="checkbox" checked> riser</label>
+        <label><input id="show-tread" type="checkbox" checked> tread</label>
+      </fieldset>
+      <fieldset class="visibility">
+        <legend>View</legend>
+        <label><input id="exploded-view" type="checkbox"> Exploded view</label>
+      </fieldset>
+    </aside>
+  </main>
+  <footer>
+    <p id="dimensions"></p>
+    <p id="controls">Drag to orbit. Scroll or pinch to zoom.
+      Keyboard: arrows to orbit, +/- to zoom, Home to reset.</p>
+  </footer>
+</body>
+</html>

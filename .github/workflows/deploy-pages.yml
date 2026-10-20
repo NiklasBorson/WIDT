@@ -84,6 +84,12 @@ jobs:
           New-Item -ItemType Directory -Path $sitePath -Force | Out-Null
           Copy-Item -Path (Join-Path $PWD 'web' '*') -Destination $sitePath -Recurse -Force
 
+          $stairsPath = Join-Path $sitePath 'stairs'
+          New-Item -ItemType Directory -Path $stairsPath -Force | Out-Null
+          foreach ($file in @('index.html', 'style.css', 'main.js', 'model.js', 'renderer.js')) {
+            Copy-Item -LiteralPath (Join-Path $PWD 'stairs' $file) -Destination $stairsPath -Force
+          }
+
           ./Build-RehearsalSnapshot.ps1 `
             -OutputPath (Join-Path $sitePath 'rehearsals.json')
 

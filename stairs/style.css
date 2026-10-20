@@ -1,0 +1,103 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+  background: #0e141c;
+  color: #edf1f5;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  display: grid;
+  grid-template-rows: auto minmax(180px, 1fr) auto;
+  height: 100dvh;
+  min-height: 320px;
+  margin: 0;
+}
+
+header, footer {
+  padding: 1rem clamp(1rem, 4vw, 2rem);
+  background: #161f2a;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid #2a3645;
+}
+
+h1 { margin: 0; font-size: clamp(1.2rem, 4vw, 1.6rem); }
+p { margin: 0; }
+.eyebrow { margin-bottom: 0.3rem; color: #a5b5c8; font-size: 0.8rem; }
+
+button {
+  flex-shrink: 0;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid #62758c;
+  border-radius: 0.4rem;
+  background: #27384c;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover { background: #354d68; }
+button:focus-visible, canvas:focus-visible, input:focus-visible {
+  outline: 2px solid #91caff;
+  outline-offset: -3px;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(10rem, 24vw, 16rem);
+  min-height: 0;
+}
+
+.stage { position: relative; min-width: 0; min-height: 0; }
+
+.parameters {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-width: 0;
+  padding: 1.25rem 1rem;
+  border-left: 1px solid #2a3645;
+  background: #161f2a;
+  overflow-y: auto;
+}
+
+.parameters h2 { margin: 0; font-size: 1rem; }
+.parameter { display: grid; gap: 0.5rem; }
+.parameter-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.25rem 0.5rem; }
+.parameter label { font-size: 0.85rem; }
+.parameter output { color: #a5b5c8; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.parameter input { width: 100%; min-width: 0; margin: 0; accent-color: #91caff; cursor: pointer; }
+
+.visibility { display: grid; gap: 0.75rem; min-width: 0; margin: 0; padding: 0; border: 0; }
+.visibility legend { margin-bottom: 0.75rem; padding: 0; font-size: 0.85rem; font-weight: 600; }
+.visibility label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; }
+.visibility input { margin: 0; accent-color: #91caff; cursor: pointer; }
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+
+canvas:active { cursor: grabbing; }
+
+#error {
+  position: absolute;
+  inset: 1rem 1rem auto;
+  padding: 1rem;
+  border: 1px solid #e69b91;
+  border-radius: 0.4rem;
+  background: #452824;
+}
+
+footer { display: grid; gap: 0.4rem; border-top: 1px solid #2a3645; font-size: 0.85rem; }
+#controls { color: #a5b5c8; }
