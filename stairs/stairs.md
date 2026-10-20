@@ -21,12 +21,26 @@ Each top frame has two side boards and two end cross-pieces; the riser is a
 separate piece. A half-inch tread sits on each top frame, flush with its side
 and back edges and extending forward to the front of the riser.
 Risers and treads are plywood, shown in a slightly lighter wood tone than the
-1x4 framing. Material colors are retained when meshes are combined or transformed
-and share the same directional lighting.
-The viewer supports drag-to-orbit, wheel or pinch zoom, and resetting the view.
+1x4 framing. Subtle procedural grain follows each board's length, with slightly
+darker, diagonal-patterned cut ends. Plywood veneers have quieter grain, and
+their cut edges have striping through the thickness to suggest three plies in
+the risers and five in the treads; these are illustrative, not stock specifications.
+Grain coordinates and material colors stay attached to each piece when meshes
+are combined or transformed and share the same directional lighting. Where
+supported, shader derivatives fade out patterns too small to resolve on screen.
+The viewer supports drag-to-orbit, two-finger drag to pan, wheel or pinch zoom,
+and resetting the view. Two-finger gestures can pan and zoom together.
+Keyboard arrows orbit, Shift+arrows pan, and +/- zoom.
+The directional light follows the camera, keeping illumination from the same
+upper-left direction on screen as the camera orbits. Ctrl+drag or Ctrl+arrows
+adjust that camera-relative light direction horizontally and vertically without
+changing the camera. These adjustments survive model, visibility, and
+exploded-view changes. Home or Reset view restores both the camera and the
+original lighting.
 The right-hand panel provides live sliders for the two widths and step count.
-Changes preserve the camera's viewing angle and zoom; Reset view affects only
-the camera. Global checkboxes independently show or hide `bottomFrame`,
+Changes preserve the camera's viewing angle, zoom, and pan; Reset view clears
+the pan as well as resetting rotation, zoom, and lighting, without changing the model.
+Global checkboxes independently show or hide `bottomFrame`,
 `topFrame`, `riser`, and `tread` across all steps. All start visible; hiding all leaves an empty
 preview. Visibility changes preserve framing based on the complete assembly,
 so hiding parts does not move the camera or rescale the remaining parts.
@@ -48,7 +62,7 @@ jumping. Reduced-motion preferences make the change immediate.
 
 Width, step-count, and part-visibility controls remain live during transitions.
 The camera retains its orientation and relative zoom while fitting the moving
-full assembly, including hidden parts. Reset view still affects only the camera.
+full assembly, including hidden parts. Reset view affects only the camera and lighting.
 The increased angular spacing is a visualization, not a change to the stairway's
 specified quarter-turn layout or fabrication dimensions.
 

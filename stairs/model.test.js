@@ -399,6 +399,8 @@ test("world geometry translates each step East then rotates its position and nor
   for (const [i, step] of model.steps.entries()) {
     const local = step.createGeometry();
     const offset = i * verticesPerStep * 3;
+    assert.deepEqual(geometry.grain.subarray(offset / 3 * 4, (offset + local.positions.length) / 3 * 4),
+      local.grain);
     const cosine = Math.cos(i * angle), sine = Math.sin(i * angle);
     for (let j = 0; j < local.positions.length; j += 3) {
       const east = local.positions[j] + INNER_RADIUS, north = -local.positions[j + 2];
@@ -440,6 +442,7 @@ test("explosion increases only step rotation while preserving dimensions, height
     for (const explosion of [0.25, 0.5, 1]) {
       const geometry = model.createGeometry({}, explosion);
       assert.deepEqual(geometry.colors, original.colors);
+      assert.deepEqual(geometry.grain, original.grain);
       assert.deepEqual(geometry.indices, original.indices);
       assert.equal(geometry.positions.length, original.positions.length);
       let offset = 0;
@@ -480,6 +483,8 @@ test("combining many component meshes selects 32-bit indices without wrapping re
   const geometry = combineGeometries(Array(2731).fill(board));
   assert.ok(geometry.indices instanceof Uint32Array);
   assert.equal(geometry.positions.length, 2731 * 24 * 3);
+  assert.equal(geometry.grain.length, 2731 * 24 * 4);
+  assert.deepEqual(geometry.grain.subarray(-24 * 4), board.grain);
   assert.equal(geometry.indices.at(-1), 2731 * 24 - 1);
   assert.ok(geometry.indices.every(index => index < geometry.positions.length / 3));
 });
@@ -722,6 +727,77 @@ test("risers and treads share a lighter plywood color distinct from all framing"
   }
 });
 
+test("solid lumber has board-local lengthwise grain and marks only its cut ends", () => {
+  function assertGrain(board, direction, endFaces) {
+    const geometry = board.createGeometry();
+    assert.ok(geometry.grain instanceof Float32Array);
+    assert.equal(geometry.grain.length, geometry.positions.length / 3 * 4);
+    assert.ok(geometry.grain.every(Number.isFinite));
+    for (let face = 0; face < 6; face++) {
+      const origin = geometry.positions.subarray(face * 12, face * 12 + 3);
+      for (let corner = 0; corner < 4; corner++) {
+        const vertex = face * 4 + corner;
+        assert.equal(geometry.grain[vertex * 4 + 2], endFaces.includes(face) ? 1 : 0);
+        assert.equal(geometry.grain[vertex * 4 + 3], 0);
+        if (!endFaces.includes(face)) {
+          const position = geometry.positions.subarray(vertex * 3, vertex * 3 + 3);
+          const along = position.reduce((sum, value, axis) => sum + (value - origin[axis]) * direction[axis], 0);
+          close(geometry.grain[vertex * 4 + 1] - geometry.grain[face * 16 + 1], along);
+        }
+      }
+    }
+  }
+  assertGrain(new OneByFour(12), [1, 0, 0], [0, 1]);
+  for (const count of [7, 8, 9, 10]) {
+    for (const [bottom, top] of [[20, 36], [36, 20], [24, 24]]) {
+      for (const step of buildStairway(bottom, top, count).steps) {
+        for (const frame of [step.parts.bottomFrame, step.parts.topFrame]) {
+          for (const [name, board] of Object.entries(frame.boards)) {
+            if (name.endsWith("Upright")) {
+              assertGrain(board, [0, 1, 0], [0, 1]);
+            } else {
+              const side = name.endsWith("Edge");
+              const start = board.footprint[side ? 3 : 0];
+              const end = board.footprint[side ? 0 : 1];
+              const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
+              assertGrain(board, [(end[0] - start[0]) / length, 0, -(end[1] - start[1]) / length],
+                side ? [2, 4] : [3, 5]);
+            }
+          }
+        }
+      }
+    }
+  }
+});
+
+test("plywood veneer has lengthwise grain and cut-edge stripes run through the sheet thickness", () => {
+  for (const step of buildStairway(20, 36, 8).steps) {
+    for (const [board, endFaces, thicknessAxis, plyCount] of [
+      [step.parts.riser, [0, 1, 3, 5], 2, 3],
+      [step.parts.tread, [2, 3, 4, 5], 1, 5],
+    ]) {
+      const { positions, grain } = board.createGeometry();
+      assert.equal(grain.length, positions.length / 3 * 4);
+      assert.ok(grain.every(Number.isFinite));
+      for (let face = 0; face < 6; face++) {
+        const cut = endFaces.includes(face);
+        for (let corner = 0; corner < 4; corner++) {
+          const vertex = face * 4 + corner;
+          assert.equal(grain[vertex * 4 + 2], cut ? 1 : 0);
+          close(grain[vertex * 4 + 3], board.thickness / plyCount);
+          if (cut) {
+            close(grain[vertex * 4] - grain[face * 16],
+              positions[vertex * 3 + thicknessAxis] - positions[face * 12 + thicknessAxis]);
+          } else {
+            close(grain[vertex * 4 + 1] - grain[face * 16 + 1],
+              positions[vertex * 3] - positions[face * 12]);
+          }
+        }
+      }
+    }
+  }
+});
+
 test("global part visibility filters geometry without changing part placement or the model", () => {
   const model = createInitialModel();
   const original = model.createGeometry();
@@ -736,12 +812,15 @@ test("global part visibility filters geometry without changing part placement or
         const boardCount = model.stepCount * boardsPerStep + (bottomFrame ? 2 : 0);
         assert.equal(geometry.positions.length, boardCount * 24 * 3);
         assert.equal(geometry.normals.length, geometry.positions.length);
+        assert.equal(geometry.grain.length, geometry.positions.length / 3 * 4);
+        assert.ok(geometry.grain.every(Number.isFinite));
         assert.equal(geometry.indices.length, boardCount * 36);
         assert.ok(geometry.indices.every(index => index < geometry.positions.length / 3));
         assertBoardsGeometry(geometry);
         const exploded = model.createGeometry(visibility, 1);
         assert.deepEqual(exploded.indices, geometry.indices);
         assert.deepEqual(exploded.colors, geometry.colors);
+        assert.deepEqual(exploded.grain, geometry.grain);
         assert.equal(exploded.positions.length, geometry.positions.length);
         assertBoardsGeometry(exploded);
         for (const step of model.steps) {

@@ -4,6 +4,6 @@
   "type": "module",
   "scripts": {
     "start": "node serve.mjs",
-    "test": "node --test model.test.js"
+    "test": "node --test model.test.js viewer.test.js"
   }
 }

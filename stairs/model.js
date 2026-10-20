@@ -18,9 +18,10 @@ function validateDimensions(component, dimensions) {
   }
 }
 
-function geometryFromFaces(faces, color) {
-  const positions = [], normals = [], colors = [], indices = [];
-  for (const corners of faces) {
+function geometryFromFaces(faces, color, { direction, endFaces, plyDirection, plyThickness = 0 }) {
+  const positions = [], normals = [], colors = [], grain = [], indices = [];
+  const origin = faces[0][0];
+  for (const [face, corners] of faces.entries()) {
     const offset = positions.length / 3;
     const a = corners[1].map((value, axis) => value - corners[0][axis]);
     const b = corners[2].map((value, axis) => value - corners[0][axis]);
@@ -34,10 +35,33 @@ function geometryFromFaces(faces, color) {
       throw new RangeError("Solid geometry contains a degenerate face.");
     }
     const normal = cross.map(value => value / magnitude);
+    const isEnd = endFaces.includes(face);
+    let along = isEnd ? a.map(value => value / Math.hypot(...a)) : direction;
+    let across = [
+      normal[1] * along[2] - normal[2] * along[1],
+      normal[2] * along[0] - normal[0] * along[2],
+      normal[0] * along[1] - normal[1] * along[0],
+    ];
+    if (isEnd && plyDirection) {
+      across = plyDirection;
+      along = [
+        normal[1] * across[2] - normal[2] * across[1],
+        normal[2] * across[0] - normal[0] * across[2],
+        normal[0] * across[1] - normal[1] * across[0],
+      ];
+    }
+    const acrossLength = Math.hypot(...across);
     for (const corner of corners) {
       positions.push(...corner);
       normals.push(...normal);
       colors.push(...color);
+      const relative = corner.map((value, axis) => value - origin[axis]);
+      // Across/along inches, cut-face flag, and illustrative ply thickness.
+      grain.push(
+        relative.reduce((sum, value, axis) => sum + value * across[axis], 0) / acrossLength,
+        relative.reduce((sum, value, axis) => sum + value * along[axis], 0),
+        isEnd ? 1 : 0, plyThickness,
+      );
     }
     indices.push(offset, offset + 1, offset + 2, offset, offset + 2, offset + 3);
   }
@@ -45,11 +69,12 @@ function geometryFromFaces(faces, color) {
     positions: new Float32Array(positions),
     normals: new Float32Array(normals),
     colors: new Float32Array(colors),
+    grain: new Float32Array(grain),
     indices: new Uint16Array(indices),
   };
 }
 
-function extrudeFootprint(footprint, bottomHeight, height, color) {
+function extrudeFootprint(footprint, bottomHeight, height, color, grain) {
   // +X is East, +Y is Up, and -Z is North.
   const bottom = footprint.map(([east, north]) => [east, bottomHeight, -north]);
   const top = footprint.map(([east, north]) => [east, bottomHeight + height, -north]);
@@ -58,16 +83,26 @@ function extrudeFootprint(footprint, bottomHeight, height, color) {
     const next = (i + 1) % footprint.length;
     faces.push([bottom[i], bottom[next], top[next], top[i]]);
   }
-  return geometryFromFaces(faces, color);
+  return geometryFromFaces(faces, color, grain);
+}
+
+function footprintGrain(footprint, lengthEdge) {
+  const start = footprint[lengthEdge], end = footprint[(lengthEdge + 1) % 4];
+  const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
+  return {
+    direction: [(end[0] - start[0]) / length, 0, -(end[1] - start[1]) / length],
+    endFaces: lengthEdge % 2 === 0 ? [3, 5] : [2, 4],
+  };
 }
 
 export function combineGeometries(geometries) {
-  const positions = [], normals = [], colors = [], indices = [];
+  const positions = [], normals = [], colors = [], grain = [], indices = [];
   for (const geometry of geometries) {
     const offset = positions.length / 3;
     for (const value of geometry.positions) positions.push(value);
     for (const value of geometry.normals) normals.push(value);
     for (const value of geometry.colors) colors.push(value);
+    for (const value of geometry.grain) grain.push(value);
     for (const index of geometry.indices) indices.push(offset + index);
   }
   const IndexArray = positions.length / 3 > 65536 ? Uint32Array : Uint16Array;
@@ -75,6 +110,7 @@ export function combineGeometries(geometries) {
     positions: new Float32Array(positions),
     normals: new Float32Array(normals),
     colors: new Float32Array(colors),
+    grain: new Float32Array(grain),
     indices: new IndexArray(indices),
   };
 }
@@ -89,6 +125,7 @@ export class Board {
 
   get label() { return "Board"; }
   get color() { return FRAME_COLOR; }
+  get grain() { return { direction: [1, 0, 0], endFaces: [0, 1] }; }
 
   createGeometry() {
     const x = this.length / 2, y = this.thickness / 2, z = this.width / 2;
@@ -100,7 +137,7 @@ export class Board {
       [[-x, -y, z], [-x, -y, -z], [x, -y, -z], [x, -y, z]],
       [[-x, -y, z], [x, -y, z], [x, y, z], [-x, y, z]],
       [[x, -y, -z], [-x, -y, -z], [-x, y, -z], [x, y, -z]],
-    ], this.color);
+    ], this.color, this.grain);
   }
 }
 
@@ -113,14 +150,17 @@ export class OneByFour extends Board {
 }
 
 class FrameBoard extends Board {
-  constructor(footprint, dimensions, bottomHeight = FLOOR_CLEARANCE) {
+  constructor(footprint, dimensions, bottomHeight = FLOOR_CLEARANCE, lengthEdge = 0) {
     super(dimensions);
     this.footprint = footprint;
     this.bottomHeight = bottomHeight;
+    this.lengthEdge = lengthEdge;
   }
 
+  get grain() { return footprintGrain(this.footprint, this.lengthEdge); }
+
   createGeometry() {
-    return extrudeFootprint(this.footprint, this.bottomHeight, this.width, this.color);
+    return extrudeFootprint(this.footprint, this.bottomHeight, this.width, this.color, this.grain);
   }
 }
 
@@ -196,9 +236,9 @@ export class BottomFrame {
     };
     this.boards = {
       leftEdge: new FrameBoard(boardFootprints.leftEdge,
-        { thickness: FRAME_THICKNESS, width: FRAME_WIDTH, length: leftLength }),
+        { thickness: FRAME_THICKNESS, width: FRAME_WIDTH, length: leftLength }, FLOOR_CLEARANCE, 3),
       rightEdge: new FrameBoard(boardFootprints.rightEdge,
-        { thickness: FRAME_THICKNESS, width: FRAME_WIDTH, length: rightLength }),
+        { thickness: FRAME_THICKNESS, width: FRAME_WIDTH, length: rightLength }, FLOOR_CLEARANCE, 3),
       crossBrace: new FrameBoard(boardFootprints.crossBrace,
         { thickness: FRAME_THICKNESS, width: FRAME_WIDTH,
           length: braceRightFront[0] - braceLeftFront[0] }),
@@ -252,8 +292,10 @@ class UprightBoard extends OneByFour {
       : [nearInset, near, far, farInset];
   }
 
+  get grain() { return { direction: [0, 1, 0], endFaces: [0, 1] }; }
+
   createGeometry() {
-    return extrudeFootprint(this.footprint, FLOOR_CLEARANCE, this.length, this.color);
+    return extrudeFootprint(this.footprint, FLOOR_CLEARANCE, this.length, this.color, this.grain);
   }
 }
 
@@ -274,7 +316,7 @@ export class TopFrame {
       ], {
         thickness: FRAME_THICKNESS, width: sideHeight,
         length: board.length - RISER_THICKNESS / direction[1],
-      }, sideBottom);
+      }, sideBottom, 3);
     };
     const leftEdge = createSide(bottomFrame.boards.leftEdge);
     const rightEdge = createSide(bottomFrame.boards.rightEdge);
@@ -308,6 +350,10 @@ export class TopFrame {
 
 export class Riser extends FrameBoard {
   get color() { return PLYWOOD_COLOR; }
+  get grain() {
+    return { ...super.grain, endFaces: [0, 1, 3, 5],
+      plyDirection: [0, 0, 1], plyThickness: this.thickness / 3 };
+  }
 
   constructor(footprint, height, stepRise) {
     const bottom = Math.max(FLOOR_CLEARANCE, height - stepRise);
@@ -321,6 +367,10 @@ export class Riser extends FrameBoard {
 
 export class Tread extends Board {
   get color() { return PLYWOOD_COLOR; }
+  get grain() {
+    return { ...footprintGrain(this.footprint, 0), endFaces: [2, 3, 4, 5],
+      plyDirection: [0, 1, 0], plyThickness: this.thickness / 5 };
+  }
 
   constructor(footprint, height) {
     const [a, b, , d] = footprint;
@@ -332,7 +382,7 @@ export class Tread extends Board {
   }
 
   createGeometry() {
-    return extrudeFootprint(this.footprint, this.bottomHeight, this.thickness, this.color);
+    return extrudeFootprint(this.footprint, this.bottomHeight, this.thickness, this.color, this.grain);
   }
 }
 
@@ -426,7 +476,7 @@ export function buildStairway(bottomStairWidth = 24, topStairWidth = 24, stepCou
           normals.set([cosine * nx + sine * nz, geometry.normals[j + 1],
             -sine * nx + cosine * nz], j);
         }
-        return { positions, normals, colors: geometry.colors, indices: geometry.indices };
+        return { positions, normals, colors: geometry.colors, grain: geometry.grain, indices: geometry.indices };
       }));
     },
   };

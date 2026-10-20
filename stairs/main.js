@@ -114,8 +114,8 @@ try {
     if (!first) return null;
     return {
       count: pointers.size,
-      x: first.x,
-      y: first.y,
+      x: second ? (first.x + second.x) / 2 : first.x,
+      y: second ? (first.y + second.y) / 2 : first.y,
       distance: second ? Math.hypot(second.x - first.x, second.y - first.y) : 0,
     };
   }
@@ -131,10 +131,13 @@ try {
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     const current = measure();
     if (previous?.count === 1 && current.count === 1) {
-      viewer.orbit(current.x - previous.x, current.y - previous.y);
-    } else if (previous?.count >= 2 && current.count >= 2 &&
-      previous.distance > 0 && current.distance > 0) {
-      viewer.zoom(previous.distance / current.distance);
+      if (event.ctrlKey) viewer.rotateLight(current.x - previous.x, current.y - previous.y);
+      else viewer.orbit(current.x - previous.x, current.y - previous.y);
+    } else if (previous?.count >= 2 && current.count >= 2) {
+      viewer.pan(current.x - previous.x, current.y - previous.y);
+      if (previous.distance > 0 && current.distance > 0) {
+        viewer.zoom(previous.distance / current.distance);
+      }
     }
     previous = current;
   });
@@ -152,11 +155,16 @@ try {
     viewer.zoom(Math.exp(delta * 0.0015));
   }, { passive: false });
   canvas.addEventListener("keydown", event => {
+    function move(dx, dy) {
+      if (event.ctrlKey) viewer.rotateLight(dx, dy);
+      else if (event.shiftKey) viewer.pan(dx, dy);
+      else viewer.orbit(dx, dy);
+    }
     switch (event.key) {
-      case "ArrowLeft": viewer.orbit(-12, 0); break;
-      case "ArrowRight": viewer.orbit(12, 0); break;
-      case "ArrowUp": viewer.orbit(0, -12); break;
-      case "ArrowDown": viewer.orbit(0, 12); break;
+      case "ArrowLeft": move(-12, 0); break;
+      case "ArrowRight": move(12, 0); break;
+      case "ArrowUp": move(0, -12); break;
+      case "ArrowDown": move(0, 12); break;
       case "+": case "=": viewer.zoom(0.9); break;
       case "-": viewer.zoom(1 / 0.9); break;
       case "Home": viewer.reset(); break;

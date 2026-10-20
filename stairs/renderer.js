@@ -2,25 +2,51 @@ const vertexSource = `
   attribute vec3 aPosition;
   attribute vec3 aNormal;
   attribute vec3 aColor;
+  attribute vec4 aGrain;
   uniform mat4 uProjection;
   uniform mat4 uView;
   varying vec3 vNormal;
   varying vec3 vColor;
+  varying vec4 vGrain;
   void main() {
-    vNormal = aNormal;
+    vNormal = mat3(uView) * aNormal;
     vColor = aColor;
+    vGrain = aGrain;
     gl_Position = uProjection * uView * vec4(aPosition, 1.0);
   }
 `;
 
 const fragmentSource = `
   precision mediump float;
+  uniform vec3 uLightDirection;
   varying vec3 vNormal;
   varying vec3 vColor;
+  varying vec4 vGrain;
+  float grainWave(float phase) {
+    #ifdef GRAIN_DERIVATIVES
+      float footprint = length(vec2(dFdx(phase), dFdy(phase)));
+      return sin(phase) * (1.0 - smoothstep(0.7, 2.5, footprint));
+    #else
+      return sin(phase);
+    #endif
+  }
   void main() {
-    vec3 light = normalize(vec3(-0.4, 0.85, 0.65));
+    vec3 light = normalize(uLightDirection);
     float diffuse = max(dot(normalize(vNormal), light), 0.0);
-    gl_FragColor = vec4(vColor * (0.35 + 0.65 * diffuse), 1.0);
+    float across = vGrain.x;
+    float along = vGrain.y;
+    float bend = 0.45 * sin(along * 0.35 + sin(across * 0.8));
+    float faceGrain = 0.045 * grainWave(across * 8.0 + bend)
+      + 0.02 * grainWave(across * 3.1 + along * 0.08);
+    float endGrain = 0.045 * grainWave((across + along) * 7.0);
+    float plywood = step(0.001, vGrain.w);
+    float cutGrain = endGrain;
+    if (plywood > 0.5) {
+      cutGrain = 0.06 * grainWave(across * 3.14159265 / vGrain.w);
+    }
+    float pattern = mix(faceGrain * mix(1.0, 0.45, plywood), cutGrain, vGrain.z);
+    float wood = 1.0 - 0.10 * vGrain.z + pattern;
+    gl_FragColor = vec4(vColor * wood * (0.35 + 0.65 * diffuse), 1.0);
   }
 `;
 
@@ -39,7 +65,9 @@ function shader(gl, type, source) {
 
 function createProgram(gl) {
   const vertex = shader(gl, gl.VERTEX_SHADER, vertexSource);
-  const fragment = shader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+  const derivatives = gl.getExtension("OES_standard_derivatives")
+    ? "#extension GL_OES_standard_derivatives : enable\n#define GRAIN_DERIVATIVES\n" : "";
+  const fragment = shader(gl, gl.FRAGMENT_SHADER, derivatives + fragmentSource);
   const program = gl.createProgram();
   if (!program) throw new Error("Could not allocate a WebGL program.");
   gl.attachShader(program, vertex);
@@ -90,10 +118,12 @@ export class WebGLViewer {
     this.program = createProgram(gl);
     this.projection = gl.getUniformLocation(this.program, "uProjection");
     this.view = gl.getUniformLocation(this.program, "uView");
+    this.lightDirection = gl.getUniformLocation(this.program, "uLightDirection");
     gl.useProgram(this.program);
     this.vertexBuffers = [];
-    for (const [name, key] of [
-      ["aPosition", "positions"], ["aNormal", "normals"], ["aColor", "colors"],
+    for (const [name, key, size] of [
+      ["aPosition", "positions", 3], ["aNormal", "normals", 3], ["aColor", "colors", 3],
+      ["aGrain", "grain", 4],
     ]) {
       const buffer = gl.createBuffer();
       if (!buffer) throw new Error("Could not allocate a WebGL vertex buffer.");
@@ -101,7 +131,7 @@ export class WebGLViewer {
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
       const location = gl.getAttribLocation(this.program, name);
       gl.enableVertexAttribArray(location);
-      gl.vertexAttribPointer(location, 3, gl.FLOAT, false, 0, 0);
+      gl.vertexAttribPointer(location, size, gl.FLOAT, false, 0, 0);
     }
     this.indexBuffer = gl.createBuffer();
     if (!this.indexBuffer) throw new Error("Could not allocate a WebGL index buffer.");
@@ -158,6 +188,9 @@ export class WebGLViewer {
     this.yaw = Math.PI / 5;
     this.pitch = Math.PI / 7;
     this.zoomFactor = 1;
+    this.panOffset = [0, 0];
+    this.lightYaw = Math.atan2(-0.4, 0.65);
+    this.lightPitch = Math.atan2(0.85, Math.hypot(-0.4, 0.65));
     this.requestRender();
   }
 
@@ -165,6 +198,13 @@ export class WebGLViewer {
     this.yaw -= dx * 0.008;
     this.pitch = Math.max(-Math.PI / 2 + 0.05,
       Math.min(Math.PI / 2 - 0.05, this.pitch + dy * 0.008));
+    this.requestRender();
+  }
+
+  rotateLight(dx, dy) {
+    this.lightYaw += dx * 0.008;
+    this.lightPitch = Math.max(-Math.PI / 2,
+      Math.min(Math.PI / 2, this.lightPitch - dy * 0.008));
     this.requestRender();
   }
 
@@ -177,6 +217,12 @@ export class WebGLViewer {
   zoom(factor) {
     this.zoomFactor = Math.max(this.radius * 0.55 / this.fitDistance(),
       Math.min(20, this.zoomFactor * factor));
+    this.requestRender();
+  }
+
+  pan(dx, dy) {
+    this.panOffset[0] -= dx;
+    this.panOffset[1] += dy;
     this.requestRender();
   }
 
@@ -201,13 +247,22 @@ export class WebGLViewer {
     gl.viewport(0, 0, width, height);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     const distance = Math.max(this.radius * 0.55, this.fitDistance() * this.zoomFactor);
+    const panScale = 2 * distance * Math.tan(Math.PI / 8) / Math.max(1, this.canvas.clientHeight);
+    const right = [Math.cos(this.yaw), 0, -Math.sin(this.yaw)];
+    const up = [-Math.sin(this.pitch) * Math.sin(this.yaw), Math.cos(this.pitch),
+      -Math.sin(this.pitch) * Math.cos(this.yaw)];
+    const target = this.center.map((value, axis) =>
+      value + (right[axis] * this.panOffset[0] + up[axis] * this.panOffset[1]) * panScale);
     const horizontal = distance * Math.cos(this.pitch);
     const eye = [horizontal * Math.sin(this.yaw), distance * Math.sin(this.pitch),
-      horizontal * Math.cos(this.yaw)].map((value, axis) => value + this.center[axis]);
+      horizontal * Math.cos(this.yaw)].map((value, axis) => value + target[axis]);
     gl.uniformMatrix4fv(this.projection, false,
       perspective(Math.PI / 4, width / height,
         Math.max(0.01, distance - this.radius * 1.5), distance + this.radius * 2));
-    gl.uniformMatrix4fv(this.view, false, viewMatrix(eye, this.center));
+    gl.uniformMatrix4fv(this.view, false, viewMatrix(eye, target));
+    gl.uniform3f(this.lightDirection,
+      Math.cos(this.lightPitch) * Math.sin(this.lightYaw), Math.sin(this.lightPitch),
+      Math.cos(this.lightPitch) * Math.cos(this.lightYaw));
     if (this.indexCount > 0) gl.drawElements(gl.TRIANGLES, this.indexCount, this.indexType, 0);
   }
 }
