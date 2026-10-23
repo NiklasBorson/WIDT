@@ -99,6 +99,13 @@ always shows the complete model, without applying Parts visibility or selection.
 Visibility changes preserve framing based on the complete assembly, so filtering
 does not move the camera or rescale the remaining parts.
 
+**Clear selection** beside the Parts heading removes the part highlight and
+restores normal model brightness without changing the filters, Find text, camera,
+or active tab. Clicking or tapping empty space in Stairway also clears selection,
+as does Escape while the Stairway canvas or Parts list has focus. The button is
+disabled when nothing is selected. Clearing removes `part` from the URL and
+returns Details and Placement to their empty-selection prompt.
+
 ### Siding
 
 Each step has flat `1/8 in` plywood siding covering its right-hand,

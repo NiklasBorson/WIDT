@@ -1212,6 +1212,109 @@ test("3D clicks select and reveal the unique Parts row, highlight its group, and
   assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups, selected.entry.key));
   assert.deepEqual(controls.mainViewer.getCameraMatrices(), camera);
   tapPart(controls, { x: 41, y: 73 }, "touch");
+  assert.equal(row.getAttribute("aria-selected"), "false");
+  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups));
+});
+
+test("Clear selection restores normal colors and empty views while retaining filters, Find, camera, and tab", () => {
+  const model = buildStairway(), inventory = new PartInventory(model.partTree);
+  const groups = inventory.filter({ moduleNumber: 2, subset: "banister" }).groups;
+  for (const tab of ["stairway", "details", "placement"]) {
+    const controls = createControls({ buildModel: () => model });
+    const button = controls.node("#parts-clear-selection");
+    assert.equal(button.disabled, true);
+    controls.node("#parts-module").value = "2";
+    controls.node("#parts-module").dispatch("change");
+    controls.node("#parts-subset").value = "banister";
+    controls.node("#parts-subset").dispatch("change");
+    const search = controls.node("#parts-search");
+    search.value = "spindle";
+    search.dispatch("input");
+    controls.node(`#${tab}-tab`).dispatch("click");
+    controls.mainViewer.orbit(30, 15);
+    controls.mainViewer.pan(12, -8);
+    controls.mainViewer.zoom(0.8);
+    const camera = controls.mainViewer.getCameraMatrices(), count = controls.node("#parts-count").textContent;
+    assert.equal(button.disabled, false);
+    assert.ok(controls.url.searchParams.has("part"));
+    const replacementsBeforeClear = controls.historyReplacements.length;
+    button.dispatch("click");
+    assert.equal(button.disabled, true);
+    assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups));
+    assert.deepEqual(controls.mainViewer.getCameraMatrices(), camera);
+    assert.equal(controls.node("#parts-count").textContent, count);
+    assert.equal(controls.node("#parts-module").value, "2");
+    assert.equal(controls.node("#parts-subset").value, "banister");
+    assert.equal(search.value, "spindle");
+    assert.equal(controls.node(`#${tab}-tab`).getAttribute("aria-selected"), "true");
+    if (tab !== "stairway") {
+      assert.equal(controls.node("#part-details-empty").hidden, false);
+      assert.equal(controls.node("#part-view-layout").hidden, true);
+    }
+    assert.ok(controls.node("#parts-groups").children.every(row => row.getAttribute("aria-selected") === "false"));
+    assert.equal(controls.node("#parts-groups").getAttribute("aria-activedescendant"), "");
+    assert.equal(controls.url.searchParams.has("part"), false);
+    assert.equal(controls.url.searchParams.get("module"), "2");
+    assert.equal(controls.url.searchParams.get("subset"), "banister");
+    assert.equal(controls.historyReplacements.length, replacementsBeforeClear + 1);
+    const replacements = controls.historyReplacements.length;
+    button.dispatch("click");
+    assert.equal(controls.historyReplacements.length, replacements);
+  }
+});
+
+test("empty mouse and touch taps and focused Escape shortcuts clear selection without moving focus", () => {
+  const model = buildStairway(), controls = createControls({ buildModel: () => model });
+  const list = controls.node("#parts-groups"), row = list.children[0];
+  for (const pointerType of ["mouse", "touch"]) {
+    row.dispatch("click");
+    assert.ok(controls.url.searchParams.has("part"));
+    assert.equal(controls.mainViewer.hitTest(0, 0), null);
+    tapPart(controls, { x: 0, y: 0 }, pointerType);
+    assert.equal(controls.url.searchParams.has("part"), false);
+    assert.equal(controls.activeElement, controls.canvas);
+  }
+  for (const target of [controls.canvas, list]) {
+    row.dispatch("click");
+    target.focus();
+    let prevented = false;
+    target.dispatch("keydown", { key: "Escape", preventDefault() { prevented = true; } });
+    assert.equal(prevented, true);
+    assert.equal(controls.url.searchParams.has("part"), false);
+    assert.equal(controls.activeElement, target);
+  }
+  row.dispatch("click");
+  controls.node("#details-tab").dispatch("click");
+  let prevented = false;
+  controls.node("#part-view-stage").dispatch("keydown", { key: "Escape", preventDefault() { prevented = true; } });
+  assert.equal(prevented, false);
+  assert.ok(controls.url.searchParams.has("part"));
+});
+
+test("background orbit drags, multi-touch, and cancelled gestures retain the selected part", () => {
+  const controls = createControls();
+  const row = controls.node("#parts-groups").children[0];
+  row.dispatch("click");
+  const selected = controls.url.searchParams.get("part");
+  const pointer = (type, pointerId, x, y) => controls.canvas.dispatch(type, {
+    pointerId, pointerType: "touch", clientX: x, clientY: y,
+  });
+  pointer("pointerdown", 1, 0, 0);
+  pointer("pointermove", 1, 30, 10);
+  pointer("pointermove", 1, 0, 0);
+  pointer("pointerup", 1, 0, 0);
+  assert.equal(controls.url.searchParams.get("part"), selected);
+  pointer("pointerdown", 1, 0, 0);
+  pointer("pointerdown", 2, 40, 0);
+  pointer("pointerup", 2, 40, 0);
+  pointer("pointerup", 1, 0, 0);
+  assert.equal(controls.url.searchParams.get("part"), selected);
+  for (const end of ["pointercancel", "lostpointercapture"]) {
+    pointer("pointerdown", 1, 0, 0);
+    pointer(end, 1, 0, 0);
+    pointer("pointerup", 1, 0, 0);
+    assert.equal(controls.url.searchParams.get("part"), selected);
+  }
   assert.equal(row.getAttribute("aria-selected"), "true");
 });
 

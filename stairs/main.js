@@ -47,6 +47,7 @@ try {
   const partSearch = document.querySelector("#parts-search");
   const findPrevious = document.querySelector("#parts-find-previous");
   const findNext = document.querySelector("#parts-find-next");
+  const clearSelectionButton = document.querySelector("#parts-clear-selection");
   const inventoryGroups = document.querySelector("#parts-groups");
   const partOptions = new Map();
   let filteredParts = [];
@@ -285,6 +286,7 @@ try {
     const selectedKey = inventory.findOccurrence(locatedOccurrenceId)?.key;
     for (const [key, option] of partOptions) option.setAttribute("aria-selected", String(key === selectedKey));
     inventoryGroups.setAttribute("aria-activedescendant", partOptions.get(selectedKey)?.id ?? "");
+    clearSelectionButton.disabled = locatedOccurrenceId === null;
     renderFind();
   }
   function renderFind() {
@@ -323,15 +325,20 @@ try {
   }
   function selectPart(id, reveal = false) {
     const key = inventory.findOccurrence(id)?.key;
-    if (!filteredParts.some(({ locations }) => locations.some(location => location.id === id))) {
+    if (id !== null && !filteredParts.some(({ locations }) => locations.some(location => location.id === id))) {
       throw new RangeError(`Part is not in the current results: ${id}`);
     }
     locatedOccurrenceId = id;
     updateGeometry();
     renderSelection();
     if (detailsActive()) showInformation();
-    if (reveal) partOptions.get(key).scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (reveal && id !== null) partOptions.get(key).scrollIntoView({ block: "nearest", inline: "nearest" });
     syncURL();
+  }
+  function clearSelection() {
+    if (locatedOccurrenceId === null) return;
+    try { selectPart(null); }
+    catch (cause) { reportUpdateError(cause); }
   }
   function renderInventory() {
     const results = inventory.filter({
@@ -819,6 +826,7 @@ try {
     syncURL();
   }
   if (!isParameters) {
+    clearSelectionButton.addEventListener("click", clearSelection);
     document.querySelector("#toggle-parts").addEventListener("click", () => {
       setPartsHidden(!document.querySelector("#parts-sidebar").hidden);
       requestRenders();
@@ -857,6 +865,11 @@ try {
       });
     }
     inventoryGroups.addEventListener("keydown", event => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        clearSelection();
+        return;
+      }
       if (!filteredParts.length) return;
       const selectedKey = inventory.findOccurrence(locatedOccurrenceId)?.key;
       let index = filteredParts.findIndex(({ entry }) => entry.key === selectedKey);
@@ -1051,6 +1064,10 @@ try {
         case "+": case "=": viewer.zoom(0.9); break;
         case "-": viewer.zoom(1 / 0.9); break;
         case "Home": viewer.reset(); break;
+        case "Escape":
+          if (isParameters || canvas.id !== "viewer" || activeTab !== "stairway") return;
+          clearSelection();
+          break;
         default: return;
       }
       event.preventDefault();
@@ -1062,7 +1079,10 @@ try {
       const bounds = canvas.getBoundingClientRect();
       const triangle = viewer.hitTest((event.clientX - bounds.left) * canvas.clientWidth / bounds.width,
         (event.clientY - bounds.top) * canvas.clientHeight / bounds.height);
-      if (triangle === null) return;
+      if (triangle === null) {
+        clearSelection();
+        return;
+      }
       const hit = pickRanges.find(range => triangle >= range.start && triangle < range.end);
       if (!hit) throw new Error("The selected triangle has no matching part.");
       selectPart(hit.id, true);
