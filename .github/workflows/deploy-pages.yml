@@ -86,9 +86,9 @@ jobs:
 
           $stairsPath = Join-Path $sitePath 'stairs'
           New-Item -ItemType Directory -Path $stairsPath -Force | Out-Null
-          foreach ($file in @('index.html', 'style.css', 'main.js', 'model.js', 'renderer.js')) {
-            Copy-Item -LiteralPath (Join-Path $PWD 'stairs' $file) -Destination $stairsPath -Force
-          }
+          Get-ChildItem -LiteralPath (Join-Path $PWD 'stairs') -File |
+            Where-Object { $_.Extension -in @('.html', '.css', '.js', '.svg') -and $_.Name -notlike '*.test.js' } |
+            Copy-Item -Destination $stairsPath -Force
 
           ./Build-RehearsalSnapshot.ps1 `
             -OutputPath (Join-Path $sitePath 'rehearsals.json')

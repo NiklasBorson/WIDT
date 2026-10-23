@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "node serve.mjs",
-    "test": "node --test model.test.js viewer.test.js"
+    "test": "node --test model.test.js part-list.test.js viewer.test.js assess-feature-views.test.js placement.test.js",
+    "check:intersections": "node check-intersections.mjs",
+    "test:intersections": "node --test mesh-tools.test.js"
   }
 }

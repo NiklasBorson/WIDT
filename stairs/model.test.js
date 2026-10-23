@@ -1,300 +1,373 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  Board, OneByFour, Step, BottomFrame, TopFrame, Riser, Tread,
-  buildStairway, createInitialModel, combineGeometries,
-  TOTAL_HEIGHT, INNER_ARC_LENGTH, INNER_RADIUS,
-  FRAME_THICKNESS, FRAME_WIDTH, RISER_THICKNESS, TREAD_THICKNESS, FLOOR_CLEARANCE,
+  Board, OneByFour, NotchedBoard, Siding, SpindleShim, CASTER_DIMENSIONS, INNER_RADIUS,
+  buildStairway, combineGeometries, OAK, PLYWOOD, PARTICLE_BOARD,
 } from "./model.js";
+import { PartNode } from "./parts.js";
 
 function close(actual, expected, tolerance = 1e-5) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} differs from ${expected}`);
 }
 
-function assertOutwardGeometry({ positions, normals, indices }) {
-  const center = [0, 1, 2].map(axis => {
-    let sum = 0;
-    for (let i = axis; i < positions.length; i += 3) sum += positions[i];
-    return sum / (positions.length / 3);
-  });
-  const vertex = index => Array.from(positions.subarray(index * 3, index * 3 + 3));
-  const subtract = (a, b) => a.map((value, index) => value - b[index]);
-  for (let i = 0; i < indices.length; i += 3) {
-    const a = vertex(indices[i]);
-    const ab = subtract(vertex(indices[i + 1]), a);
-    const ac = subtract(vertex(indices[i + 2]), a);
-    const cross = [
-      ab[1] * ac[2] - ab[2] * ac[1],
-      ab[2] * ac[0] - ab[0] * ac[2],
-      ab[0] * ac[1] - ab[1] * ac[0],
-    ];
-    const offset = indices[i] * 3;
-    const normal = normals.subarray(offset, offset + 3);
-    close(Math.hypot(...normal), 1);
-    assert.ok(cross.reduce((sum, value, axis) => sum + value * normal[axis], 0) > 0);
-    assert.ok(a.reduce((sum, value, axis) => sum + (value - center[axis]) * normal[axis], 0) > 0);
-    close(ab.reduce((sum, value, axis) => sum + value * normal[axis], 0), 0);
-    close(ac.reduce((sum, value, axis) => sum + value * normal[axis], 0), 0);
+test("split footprints follow actual module tread positions without changing assembled or part footprints", () => {
+  for (const [steps, modules] of [[7, 2], [8, 2], [9, 3]]) {
+    const model = buildStairway(24, steps, modules);
+    const leaves = new Map(model.partTree.getLeaves().map(node => [node.component, node.id]));
+    const id = leaves.get(model.steps[1].parts.tread);
+    const assembled = model.createFootprintGeometry();
+    const original = assembled.positions.slice();
+    const preview = model.createFootprintGeometry(id), stock = model.createFootprintGeometry(id, true);
+    const previewPositions = preview.positions.slice(), stockPositions = stock.positions.slice();
+    for (const amount of [0.5, 1, 0.25, 0]) {
+      const footprint = model.createFootprintGeometry(null, false, false, amount);
+      for (const [stepIndex, step] of model.steps.entries()) {
+        const tread = model.createNodeGeometry(leaves.get(step.parts.tread), 0, amount);
+        const top = [];
+        for (let i = 0; i < tread.indices.length; i += 3) {
+          const triangle = [...tread.indices.slice(i, i + 3)];
+          if (triangle.every(vertex => tread.normals[vertex * 3 + 1] > 1 - 1e-6)) top.push(...triangle);
+        }
+        const [start, end] = footprint.treadRanges[stepIndex];
+        assert.equal(end - start, top.length);
+        for (const [index, vertex] of top.entries()) {
+          const floorVertex = footprint.indices[start + index] * 3;
+          for (const axis of [0, 2]) {
+            close(footprint.positions[floorVertex + axis], tread.positions[vertex * 3 + axis], 1e-4);
+          }
+          assert.equal(footprint.positions[floorVertex + 1], 0);
+          assert.deepEqual([...footprint.normals.slice(floorVertex, floorVertex + 3)], [0, 1, 0]);
+        }
+      }
+      model.createFootprintGeometry(null, false, true, amount);
+      assert.equal(model.createFootprintGeometry(), assembled);
+      assert.deepEqual(assembled.positions, original);
+      assert.equal(model.createFootprintGeometry(id), preview);
+      assert.equal(model.createFootprintGeometry(id, true), stock);
+      assert.deepEqual(preview.positions, previewPositions);
+      assert.deepEqual(stock.positions, stockPositions);
+    }
+    for (const amount of [-1, 2, NaN, Infinity]) {
+      assert.throws(() => model.createFootprintGeometry(null, false, true, amount), /moduleExplosion/);
+    }
   }
+});
+
+test("front tread continues step 2's right edge and aligns the newel framing with it", () => {
+  for (const stepCount of [7, 8, 9]) {
+    const [first, second] = buildStairway(24, stepCount, 3).steps;
+    for (const corner of [0, 2, 3]) assert.deepEqual(first.footprint[corner], second.footprint[corner]);
+    close(first.footprint[1][1], 0);
+    assert.ok(first.footprint[1][0] > second.footprint[1][0]);
+    const c = Math.cos(first.angle), s = Math.sin(first.angle);
+    const edge = second.footprint.slice(1, 3).map(([east, north]) =>
+      [c * (east + INNER_RADIUS) - s * north - INNER_RADIUS,
+        s * (east + INNER_RADIUS) + c * north]);
+    const length = Math.hypot(...edge[1].map((value, axis) => value - edge[0][axis]));
+    const along = edge[1].map((value, axis) => (value - edge[0][axis]) / length);
+    const across = [along[1], -along[0]];
+    const project = (point, direction) => point.reduce((sum, value, axis) => sum + value * direction[axis], 0);
+    for (const point of first.footprint.slice(1, 3)) {
+      close(project(point, across), project(edge[0], across));
+    }
+    const newel = first.parts.newel, boards = first.parts.topFrame.boards;
+    close(project(newel.footprint[1], across) - project(edge[0], across), 2);
+    for (const board of [newel, boards.newelInnerBlock, boards.newelRearBlock]) {
+      const [front, back] = [board.footprint[0], board.footprint[3]];
+      close(project(front, across), project(back, across));
+    }
+    for (const board of [boards.southCrossPiece, boards.frontStepSupport, boards.rearStepSupport].filter(Boolean)) {
+      for (const point of board.footprint.slice(1, 3)) {
+        close(project(point, across), project(edge[0], across));
+      }
+    }
+    close(project(newel.footprint[0], along), project(boards.southCrossPiece.footprint[2], along));
+    for (const point of boards.newelRearBlock.footprint.slice(2)) {
+      close(project(point, along), project(boards.newelInnerBlock.footprint[2], along));
+    }
+    assert.equal(boards.southCrossPiece.cutFootprint, undefined);
+    assert.equal(Object.keys(newel.notches).length, 0);
+    close(boards.newelInnerBlock.footprint[0][1], 1.75);
+    close(boards.newelInnerBlock.footprint[1][1], 1.75);
+  }
+});
+
+test("front step support reaches both tread edges while retaining its stock, height, and newel cutout", () => {
+  for (const width of [24, 36]) for (const stepCount of [8, 9]) {
+    const first = buildStairway(width, stepCount, 3).steps[0];
+    const support = first.parts.topFrame.boards.frontStepSupport;
+    for (const [start, end, corners] of [
+      [first.footprint[0], first.footprint[3], [0, 3]],
+      [first.footprint[1], first.footprint[2], [1, 2]],
+    ]) {
+      for (const corner of corners) {
+        const point = support.footprint[corner];
+        close((end[0] - start[0]) * (point[1] - start[1]) -
+          (end[1] - start[1]) * (point[0] - start[0]), 0);
+      }
+    }
+    close(support.footprint[0][1], 0.25);
+    close(support.footprint[1][1], 0.25);
+    close(support.footprint[2][1], 3.75);
+    close(support.footprint[3][1], 3.75);
+    close(support.bottomHeight, 6.5);
+    close(support.bottomHeight + support.thickness, first.parts.tread.bottomHeight);
+    close(support.length, support.footprint[1][0] - support.footprint[0][0]);
+    assert.ok(support.planCuts.length);
+    assert.ok(support.cutFootprint.length > support.footprint.length);
+    const description = support.getManufacturingDescription();
+    assert.equal(description.stock.nominalSize, stepCount === 9 ? "1x4" : "2x4");
+    close(description.blank.thickness, stepCount === 9 ? 0.75 : 1.5);
+    close(description.blank.width, 3.5);
+    const world = support.createGeometry(), stock = support.createStockGeometry();
+    assertBoardsGeometry(world);
+    assertBoardsGeometry(stock);
+    close(meshVolume(world), meshVolume(stock), 1e-4);
+  }
+});
+
+test("bottom-step siding retains front and rear pieces fitted around the newel", () => {
+  for (const stepCount of [7, 8, 9]) {
+    const first = buildStairway(24, stepCount, 3).steps[0];
+    const { newel, frontSiding, siding } = first.parts;
+    const along = newel.footprint[3].map((value, axis) => (value - newel.footprint[0][axis]) / newel.width);
+    const project = point => point.reduce((sum, value, axis) =>
+      sum + (value - newel.footprint[0][axis]) * along[axis], 0);
+    for (const point of frontSiding.footprint.slice(2)) close(project(point), 0);
+    for (const point of siding.footprint.slice(0, 2)) close(project(point), newel.width);
+    assert.ok(project(frontSiding.footprint[0]) < 0);
+    assert.ok(project(siding.footprint[3]) > newel.width);
+    for (const sheet of [frontSiding, siding]) {
+      close(sheet.bottomHeight, 1);
+      close(sheet.bottomHeight + sheet.width, first.height);
+      const world = sheet.createGeometry(), stock = sheet.createStockGeometry();
+      assertBoardsGeometry(world);
+      assertBoardsGeometry(stock);
+      close(meshVolume(world), meshVolume(stock), 1e-4);
+      close(sheet.getManufacturingDescription().blank.thickness, 0.125);
+    }
+  }
+});
+
+test("shoulder ascent changes spindle, shim, and newel tops without moving their mounting geometry", () => {
+  const original = buildStairway();
+  assert.equal(original.spindleShoulderAscent, 32);
+  for (const ascent of [25, 31]) {
+    const lowered = buildStairway(24, 9, 3, ascent), difference = 32 - ascent;
+    assert.equal(lowered.spindleShoulderAscent, ascent);
+    for (const [stepIndex, role] of [[1, "frontSpindle"], [2, "rearSpindle"]]) {
+      const before = original.steps[stepIndex].parts[role], after = lowered.steps[stepIndex].parts[role];
+      assert.deepEqual(after.footprint, before.footprint);
+      close(after.bottomHeight, before.bottomHeight);
+      close(after.frontHeight, before.frontHeight - difference);
+      close(after.topRise, before.topRise);
+      assert.deepEqual(after.notches, before.notches);
+      close(after.getManufacturingDescription().cutLength, before.getManufacturingDescription().cutLength - difference);
+    }
+    for (const [index, module] of lowered.modules.entries()) {
+      const shim = module.steps.at(-1).parts.spindleShim;
+      if (!shim) continue;
+      const before = original.modules[index].steps.at(-1).parts.spindleShim;
+      shim.vertices.forEach((point, i) => point.forEach((value, axis) =>
+        close(value, before.vertices[i][axis] - (axis === 1 ? difference : 0))));
+    }
+    const before = original.steps[0].parts.newel, after = lowered.steps[0].parts.newel;
+    assert.deepEqual(after.footprint, before.footprint);
+    assert.deepEqual(after.cornerBevel, before.cornerBevel);
+    close(after.bottomHeight, 1);
+    close(after.length, before.length - difference);
+    assert.equal(after.material, OAK);
+    assert.equal(after.stock.nominalSize, "4x4");
+    close(after.getManufacturingDescription().cutLength, after.length);
+    assertBoardsGeometry(after.createGeometry());
+    close(meshVolume(before.createGeometry()) - meshVolume(after.createGeometry()), 3.5 ** 2 * difference, 1e-4);
+  }
+});
+
+test("shoulder ascent rejects values outside its one-inch adjustment range", () => {
+  for (const ascent of [24, 38, 25.5, NaN, Infinity, "37", null]) {
+    assert.throws(() => buildStairway(24, 9, 3, ascent), /shoulder ascent/);
+  }
+});
+
+test("invalid stock and manufacturing shapes fail explicitly", () => {
+  const dimensions = { length: 12, width: 3.75, thickness: 0.75 };
+  for (const stock of [
+    { kind: "unknown", thickness: 0.75, width: 3.75 },
+    { kind: "lumber", thickness: 0.75, width: 3 },
+    { kind: "lumber", thickness: 0.5, width: 3.75 },
+    { kind: "lumber", thickness: 0.75, width: NaN },
+    { kind: "plywood", thickness: 0 },
+  ]) assert.throws(() => new Board({ ...dimensions, stock }), RangeError);
+  const board = new Board(dimensions);
+  board.getBlankShape = () => ({ vertices: [[NaN, 0, 0]], faces: [] });
+  assert.throws(() => board.getManufacturingDescription(), /finite stock-coordinate vertices/);
+  assert.throws(() => new PartNode({ id: "part", key: "part", name: "", kind: "lumber" }), TypeError);
+});
+
+function meshVolume({ positions: p, indices }) {
+  let volume = 0;
+  for (let i = 0; i < indices.length; i += 3) {
+    const a = indices[i] * 3, b = indices[i + 1] * 3, c = indices[i + 2] * 3;
+    volume += p[a] * (p[b + 1] * p[c + 2] - p[b + 2] * p[c + 1])
+      + p[a + 1] * (p[b + 2] * p[c] - p[b] * p[c + 2])
+      + p[a + 2] * (p[b] * p[c + 1] - p[b + 1] * p[c]);
+  }
+  return volume / 6;
+}
+
+test("particle board preserves sheet geometry and uses grain-free texture on every face", () => {
+  const dimensions = { length: 12, width: 8, thickness: 0.25,
+    stock: { kind: "plywood", thickness: 0.25 } };
+  for (const [notches, dados] of [
+    [{}, []],
+    [{ endNear: { length: 2, depth: [1, 1] } }, []],
+    [{}, [{ face: "positiveY", start: 2, width: 1, depth: 0.125 }]],
+  ]) {
+    const board = new NotchedBoard({ ...dimensions, material: PARTICLE_BOARD }, notches, dados);
+    const mesh = board.createGeometry();
+    const plywood = new NotchedBoard({ ...dimensions, material: PLYWOOD }, notches, dados).createGeometry();
+    assert.deepEqual(mesh.positions, plywood.positions);
+    assert.deepEqual(mesh.normals, plywood.normals);
+    assert.deepEqual(mesh.indices, plywood.indices);
+    for (let i = 0; i < mesh.grain.length; i += 4) assert.equal(mesh.grain[i + 3], -1);
+    for (let i = 0; i < mesh.colors.length; i++) close(mesh.colors[i], PARTICLE_BOARD.color[i % 3]);
+    const { stock } = board.getManufacturingDescription();
+    assert.equal(stock.kind, "plywood");
+    assert.equal(stock.materialKey, "particle-board");
+    assert.equal(stock.material, "Particle board");
+    assert.notEqual(PARTICLE_BOARD.density, PLYWOOD.density);
+  }
+});
+
+test("broad-face cuts distinguish end notches from internal dados", () => {
+  for (const face of ["negativeY", "positiveY"]) {
+    for (const start of [0, 2, 11]) {
+      const board = new NotchedBoard({ length: 12, thickness: 1.5, width: 3.5 }, {},
+        [{ face, start, width: 1, depth: 0.5 }]);
+      const [cut] = board.getManufacturingDescription().dados;
+      assert.equal(cut.endNotch, start === 0 || start === 11);
+      assert.equal(cut.face, face);
+      close(meshVolume(board.createGeometry()), 12 * 1.5 * 3.5 - 1 * 0.5 * 3.5);
+    }
+  }
+});
+
+function cutBoardVolume(board) {
+  const notches = Object.entries(board.notches);
+  if (board.footprint && board.lengthEdge === undefined && board.grain.direction[1] === 0 && notches.length) {
+    const profile = board.getManufacturingDescription().blank.profiles.negativeY;
+    const area = polygon => Math.abs(polygon.reduce((sum, point, i) => {
+      const next = polygon[(i + 1) % polygon.length];
+      return sum + point[0] * next[1] - next[0] * point[1];
+    }, 0)) / 2;
+    let volume = area(profile) * board.thickness;
+    for (const [corner, cut] of notches) {
+      close(cut.depth[0], cut.depth[1]);
+      let removed = profile;
+      for (const [axis, limit, sign] of [
+        [0, corner.startsWith("start") ? cut.length : board.length - cut.length,
+          corner.startsWith("start") ? 1 : -1],
+        [1, corner.endsWith("Near") ? cut.depth[0] : board.width - cut.depth[0],
+          corner.endsWith("Near") ? 1 : -1],
+      ]) {
+        const clipped = [];
+        for (const [i, point] of removed.entries()) {
+          const next = removed[(i + 1) % removed.length];
+          if (sign * (point[axis] - limit) <= 0) clipped.push(point);
+          if ((point[axis] - limit) * (next[axis] - limit) < 0) {
+            const t = (limit - point[axis]) / (next[axis] - point[axis]);
+            clipped.push(point.map((value, j) => value + t * (next[j] - value)));
+          }
+        }
+        removed = clipped;
+      }
+      volume -= area(removed) * board.thickness;
+    }
+    return volume;
+  }
+  const bounds = board.widthBounds ?? board.notchedStock?.widthBounds ??
+    [[0, board.width], [0, board.width]];
+  const widths = bounds.map(([near, far]) => far - near);
+  const widthAt = height => widths[0] + (widths[1] - widths[0]) * height / board.thickness;
+  if (board.rebates?.length) {
+    const cuts = [...notches, ...board.rebates.map(({ corner, ...cut }) => [corner, cut])];
+    const xs = [...new Set([0, board.length, ...cuts.map(([corner, cut]) =>
+      corner.startsWith("start") ? cut.length : board.length - cut.length),
+    ...board.dados.flatMap(dado => [dado.start, dado.start + dado.width])])].sort((a, b) => a - b);
+    const ys = [...new Set([0, board.thickness, ...board.dados.map(dado =>
+      dado.face === "negativeY" ? dado.depth : board.thickness - dado.depth)])].sort((a, b) => a - b);
+    let volume = 0;
+    for (let i = 1; i < xs.length; i++) {
+      for (let j = 1; j < ys.length; j++) {
+        const x = (xs[i - 1] + xs[i]) / 2, y = (ys[j - 1] + ys[j]) / 2;
+        if (board.dados.some(dado => x > dado.start && x < dado.start + dado.width &&
+          (dado.face === "negativeY" ? y < dado.depth : y > board.thickness - dado.depth))) continue;
+        const active = cuts.filter(([corner, cut]) =>
+          corner.startsWith("start") ? x < cut.length : x > board.length - cut.length);
+        const depth = edge => Math.max(0, ...active.filter(([corner]) => corner.endsWith(edge))
+          .map(([, cut]) => cut.depth[0] + (cut.depth[1] - cut.depth[0]) * y / board.thickness));
+        volume += (xs[i] - xs[i - 1]) * (ys[j] - ys[j - 1]) *
+          (widthAt(y) - depth("Near") - depth("Far"));
+      }
+    }
+    return volume;
+  }
+  let volume = board.length * (widths[0] + widths[1]) / 2 * board.thickness;
+  if (board.footprint && board.lengthEdge !== undefined) {
+    volume = Math.abs(board.footprint.reduce((sum, point, i, polygon) => {
+      const next = polygon[(i + 1) % polygon.length];
+      return sum + point[0] * next[1] - next[0] * point[1];
+    }, 0)) / 2 * board.width;
+  }
+  for (const [, cut] of notches) {
+    const length = cut.lengths ? (cut.lengths[0] + cut.lengths[1]) / 2 : cut.length;
+    volume -= length * (cut.depth[0] + cut.depth[1]) / 2 * board.thickness;
+  }
+  for (const dado of board.dados ?? []) {
+    const lowY = dado.face === "negativeY" ? 0 : board.thickness - dado.depth;
+    const highY = lowY + dado.depth;
+    volume -= dado.width * dado.depth * widthAt((lowY + highY) / 2);
+    for (const [name, cut] of notches) {
+      const start = name.startsWith("start") ? 0 : board.length - cut.length;
+      const overlap = Math.max(0, Math.min(start + cut.length, dado.start + dado.width) -
+        Math.max(start, dado.start));
+      const averageDepth = cut.depth[0] + (cut.depth[1] - cut.depth[0]) *
+        (lowY + highY) / (2 * board.thickness);
+      volume += overlap * dado.depth * averageDepth;
+    }
+  }
+  return volume;
 }
 
 function assertBoardsGeometry({ positions, normals, colors, indices }) {
-  assert.equal(positions.length % (24 * 3), 0);
+  assert.equal(positions.length % 3, 0);
+  assert.equal(normals.length, positions.length);
+  assert.ok(positions.every(Number.isFinite));
+  assert.ok(indices.every(index => index < positions.length / 3));
   assert.equal(colors.length, positions.length);
   assert.ok(colors.every(value => Number.isFinite(value) && value >= 0 && value <= 1));
-  for (let i = 0; i < positions.length / (24 * 3); i++) {
-    assertOutwardGeometry({
-      positions: positions.subarray(i * 24 * 3, (i + 1) * 24 * 3),
-      normals: normals.subarray(i * 24 * 3, (i + 1) * 24 * 3),
-      indices: indices.subarray(i * 36, (i + 1) * 36).map(index => index - i * 24),
-    });
+  const edges = new Map();
+  const point = index => Array.from(positions.subarray(index * 3, index * 3 + 3));
+  for (let i = 0; i < indices.length; i += 3) {
+    const a = point(indices[i]), b = point(indices[i + 1]), c = point(indices[i + 2]);
+    const ab = b.map((value, axis) => value - a[axis]), ac = c.map((value, axis) => value - a[axis]);
+    const cross = [ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2],
+      ab[0] * ac[1] - ab[1] * ac[0]];
+    const normal = normals.subarray(indices[i] * 3, indices[i] * 3 + 3);
+    close(Math.hypot(...normal), 1);
+    assert.ok(cross.reduce((sum, value, axis) => sum + value * normal[axis], 0) > 0);
+    close(ab.reduce((sum, value, axis) => sum + value * normal[axis], 0), 0);
+    close(ac.reduce((sum, value, axis) => sum + value * normal[axis], 0), 0);
+    for (const [start, end] of [[a, b], [b, c], [c, a]]) {
+      const first = start.join(","), second = end.join(",");
+      const key = first < second ? `${first}|${second}` : `${second}|${first}`;
+      edges.set(key, (edges.get(key) ?? 0) + (first < second ? 1 : -1));
+    }
   }
+  assert.ok([...edges.values()].every(value => value === 0), "Board meshes must be closed");
+  if (indices.length > 0) assert.ok(meshVolume({ positions, indices }) > 0);
 }
-
-function withinPolygon(point, polygon) {
-  return polygon.every((start, i) => {
-    const end = polygon[(i + 1) % polygon.length];
-    return (end[0] - start[0]) * (point[1] - start[1]) -
-      (end[1] - start[1]) * (point[0] - start[0]) >= -1e-8;
-  });
-}
-
-function assertUprightJoints(step) {
-  const { leftEdge, rightEdge } = step.parts.bottomFrame.boards;
-  const { leftUpright, rightUpright, leftRearUpright, rightRearUpright } = step.parts.bottomFrame.boards;
-  const sides = [
-    [leftEdge.footprint[1], leftEdge.footprint[2], 1],
-    [rightEdge.footprint[0], rightEdge.footprint[3], -1],
-  ];
-  for (const [board, sideIndex, contactIndices, rear] of [
-    [leftUpright, 0, [0, 3]], [rightUpright, 1, [1, 2]],
-    ...(leftRearUpright ? [
-      [leftRearUpright, 0, [0, 3], true], [rightRearUpright, 1, [1, 2], true],
-    ] : []),
-  ]) {
-    assert.ok(board instanceof OneByFour);
-    assert.equal(board.thickness, FRAME_THICKNESS);
-    if (rear && sideIndex === 0) {
-      assert.ok(board.width > 0 && board.width <= FRAME_WIDTH);
-    } else {
-      assert.equal(board.width, FRAME_WIDTH);
-    }
-    close(board.length, step.height - TREAD_THICKNESS - FLOOR_CLEARANCE);
-    if (rear) {
-      const [, , c, d] = step.footprint;
-      const length = Math.hypot(c[0] - d[0], c[1] - d[1]);
-      const distances = board.footprint.map(point =>
-        ((c[1] - d[1]) * (point[0] - d[0]) -
-          (c[0] - d[0]) * (point[1] - d[1])) / length);
-      close(Math.min(...distances), 0);
-      assert.ok(distances.every(distance => distance >= -1e-8));
-    } else {
-      close(Math.min(...board.footprint.map(point => point[1])), RISER_THICKNESS);
-    }
-    assert.ok(board.footprint.every(point => withinPolygon(point, step.footprint)));
-    const edges = board.footprint.map((point, i) =>
-      board.footprint[(i + 1) % 4].map((value, axis) => value - point[axis]));
-    for (let i = 0; i < 4; i++) {
-      close(Math.hypot(...edges[i]), i % 2 === 0 ? FRAME_THICKNESS : board.width);
-      close(edges[i][0] * edges[(i + 1) % 4][0] +
-        edges[i][1] * edges[(i + 1) % 4][1], 0);
-    }
-    for (const [index, [front, back, inwardSide]] of sides.entries()) {
-      const length = Math.hypot(back[0] - front[0], back[1] - front[1]);
-      const direction = back.map((value, axis) => (value - front[axis]) / length);
-      const inward = [direction[1] * inwardSide, -direction[0] * inwardSide];
-      for (const [corner, point] of board.footprint.entries()) {
-        const inset = (point[0] - front[0]) * inward[0] + (point[1] - front[1]) * inward[1];
-        assert.ok(inset >= -1e-8, "Uprights must not overlap either side board");
-        if (index === sideIndex && contactIndices.includes(corner)) {
-          close(inset, 0);
-          const along = (point[0] - front[0]) * direction[0] +
-            (point[1] - front[1]) * direction[1];
-          assert.ok(along >= -1e-8 && along <= length + 1e-8, "Contact must lie along the side board");
-        }
-      }
-    }
-    const geometry = board.createGeometry();
-    const heights = geometry.positions.filter((_, i) => i % 3 === 1);
-    close(Math.min(...heights), FLOOR_CLEARANCE);
-    close(Math.max(...heights), step.height - TREAD_THICKNESS);
-    assertOutwardGeometry(geometry);
-  }
-  assert.ok(leftUpright.footprint.every(point => !withinPolygon(point, rightUpright.footprint)));
-  assert.ok(rightUpright.footprint.every(point => !withinPolygon(point, leftUpright.footprint)));
-  if (leftRearUpright) {
-    const [front, back] = sides[0];
-    const direction = back.map((value, axis) => value - front[axis]);
-    const length = Math.hypot(...direction);
-    const gap = leftRearUpright.footprint[0].reduce((sum, value, axis) =>
-      sum + (value - leftUpright.footprint[3][axis]) * direction[axis], 0) / length;
-    assert.ok(gap >= -1e-8, "Rear-left upright must not overlap the front-left upright");
-    if (leftRearUpright.width < FRAME_WIDTH) close(gap, 0);
-  }
-}
-
-function assertTopFrameJoints(step) {
-  const { leftEdge, rightEdge, southCrossPiece, northCrossPiece } = step.parts.topFrame.boards;
-  const { riser } = step.parts;
-  const top = step.height - TREAD_THICKNESS;
-  const frameTop = FLOOR_CLEARANCE + FRAME_WIDTH;
-  const riserBottom = Math.max(FLOOR_CLEARANCE, step.height - step.stepRise);
-  const sideBottom = Math.max(top - FRAME_WIDTH, frameTop);
-  assert.equal(riser.thickness, RISER_THICKNESS);
-  close(riser.length, step.frontWidth);
-  assert.deepEqual(riser.footprint[0], step.footprint[0]);
-  assert.deepEqual(riser.footprint[1], step.footprint[1]);
-  for (const index of [0, 1]) close(riser.footprint[index][1], 0);
-  for (const index of [2, 3]) close(riser.footprint[index][1], RISER_THICKNESS);
-  assert.ok(riser.footprint.every(point => withinPolygon(point, step.footprint)));
-  for (const [point, start, end] of [
-    [riser.footprint[3], step.footprint[0], step.footprint[3]],
-    [riser.footprint[2], step.footprint[1], step.footprint[2]],
-  ]) {
-    close((end[0] - start[0]) * (point[1] - start[1]) -
-      (end[1] - start[1]) * (point[0] - start[0]), 0);
-  }
-  for (const [board, bottom] of [
-    [leftEdge, sideBottom], [rightEdge, sideBottom],
-    [southCrossPiece, sideBottom], [northCrossPiece, sideBottom], [riser, riserBottom],
-  ]) {
-    assert.ok(board instanceof Board);
-    close(board.bottomHeight, bottom);
-    close(board.width, top - bottom);
-    const geometry = board.createGeometry();
-    assert.equal(geometry.positions.length, 24 * 3);
-    assert.equal(geometry.indices.length, 36);
-    const heights = geometry.positions.filter((_, i) => i % 3 === 1);
-    close(Math.min(...heights), bottom);
-    close(Math.max(...heights), top);
-    assertOutwardGeometry(geometry);
-  }
-  for (const [board, base, outerIndices, upright, contactIndices, inwardIndices] of [
-    [leftEdge, step.parts.bottomFrame.boards.leftEdge, [0, 3],
-      step.parts.bottomFrame.boards.leftUpright, [0, 3], [1, 2]],
-    [rightEdge, step.parts.bottomFrame.boards.rightEdge, [1, 2],
-      step.parts.bottomFrame.boards.rightUpright, [1, 2], [0, 3]],
-  ]) {
-    assert.equal(board.thickness, FRAME_THICKNESS);
-    for (const index of [0, 1]) close(board.footprint[index][1], RISER_THICKNESS);
-    const [outerFront, outerBack] = outerIndices.map(index => base.footprint[index]);
-    const depth = Math.hypot(outerBack[0] - outerFront[0], outerBack[1] - outerFront[1]);
-    const direction = outerBack.map((value, axis) => (value - outerFront[axis]) / depth);
-    for (const i of [2, 3]) assert.deepEqual(board.footprint[i], base.footprint[i]);
-    assert.ok(board.footprint.every(point => withinPolygon(point, step.footprint)));
-    for (const index of outerIndices) {
-      const point = board.footprint[index];
-      close((point[0] - outerFront[0]) * direction[1] -
-        (point[1] - outerFront[1]) * direction[0], 0);
-    }
-    close(board.length, Math.hypot(
-      board.footprint[outerIndices[1]][0] - board.footprint[outerIndices[0]][0],
-      board.footprint[outerIndices[1]][1] - board.footprint[outerIndices[0]][1]));
-    const [inwardFront, inwardBack] = inwardIndices.map(index => board.footprint[index]);
-    for (const point of [outerFront, outerBack]) {
-      close(Math.abs((inwardBack[0] - inwardFront[0]) * (point[1] - inwardFront[1]) -
-        (inwardBack[1] - inwardFront[1]) * (point[0] - inwardFront[0])) /
-        Math.hypot(inwardBack[0] - inwardFront[0], inwardBack[1] - inwardFront[1]),
-      FRAME_THICKNESS);
-    }
-    for (const index of contactIndices) {
-      const point = upright.footprint[index];
-      close((inwardBack[0] - inwardFront[0]) * (point[1] - inwardFront[1]) -
-        (inwardBack[1] - inwardFront[1]) * (point[0] - inwardFront[0]), 0);
-      assert.ok(point[1] >= inwardFront[1] - 1e-8 && point[1] <= inwardBack[1] + 1e-8);
-    }
-  }
-  assertTopCrossPieceJoints(step);
-}
-
-function assertTopCrossPieceJoints(step) {
-  const { leftEdge, rightEdge, southCrossPiece, northCrossPiece } = step.parts.topFrame.boards;
-  for (const board of [southCrossPiece, northCrossPiece]) {
-    assert.equal(board.thickness, FRAME_THICKNESS);
-    close(board.width, leftEdge.width);
-    assert.ok(board.footprint.every(point => withinPolygon(point, step.footprint)));
-    for (const [side, nearIndex, farIndex, contactIndices, inwardSide] of [
-      [leftEdge, 1, 2, [0, 3], 1], [rightEdge, 0, 3, [1, 2], -1],
-    ]) {
-      const near = side.footprint[nearIndex], far = side.footprint[farIndex];
-      const length = Math.hypot(far[0] - near[0], far[1] - near[1]);
-      const direction = far.map((value, axis) => (value - near[axis]) / length);
-      const inward = [direction[1] * inwardSide, -direction[0] * inwardSide];
-      for (const [index, point] of board.footprint.entries()) {
-        const inset = (point[0] - near[0]) * inward[0] + (point[1] - near[1]) * inward[1];
-        assert.ok(inset >= -1e-8, "Top cross-pieces must not overlap the side boards");
-        if (contactIndices.includes(index)) {
-          close(inset, 0);
-          const along = (point[0] - near[0]) * direction[0] + (point[1] - near[1]) * direction[1];
-          assert.ok(along >= -1e-8 && along <= length + 1e-8);
-        }
-      }
-    }
-  }
-  for (const index of [0, 1]) close(southCrossPiece.footprint[index][1], RISER_THICKNESS);
-  for (const index of [2, 3]) {
-    close(southCrossPiece.footprint[index][1], RISER_THICKNESS + FRAME_THICKNESS);
-  }
-  const [, , outsideBack, insideBack] = step.footprint;
-  const backWidth = Math.hypot(outsideBack[0] - insideBack[0], outsideBack[1] - insideBack[1]);
-  const inward = [(outsideBack[1] - insideBack[1]) / backWidth,
-    (insideBack[0] - outsideBack[0]) / backWidth];
-  for (const [index, point] of northCrossPiece.footprint.entries()) {
-    const inset = (point[0] - insideBack[0]) * inward[0] + (point[1] - insideBack[1]) * inward[1];
-    close(inset, index < 2 ? FRAME_THICKNESS : 0);
-  }
-  assert.deepEqual(northCrossPiece.footprint[2], rightEdge.footprint[3]);
-  assert.deepEqual(northCrossPiece.footprint[3], leftEdge.footprint[2]);
-  assert.ok(southCrossPiece.footprint.every(point => !withinPolygon(point, northCrossPiece.footprint)));
-  assert.ok(northCrossPiece.footprint.every(point => !withinPolygon(point, southCrossPiece.footprint)));
-}
-
-function assertCrossPieceJoints(step) {
-  const { crossBrace, leftUpright, rightUpright } = step.parts.bottomFrame.boards;
-  const front = Math.min(...crossBrace.footprint.map(point => point[1]));
-  const back = Math.max(...crossBrace.footprint.map(point => point[1]));
-  assert.equal(crossBrace.thickness, FRAME_THICKNESS);
-  assert.equal(crossBrace.width, FRAME_WIDTH);
-  close(back - front, FRAME_THICKNESS);
-  close(front, Math.max(leftUpright.footprint[1][1], rightUpright.footprint[0][1]));
-  assert.ok(front > Math.max(...step.parts.riser.footprint.map(point => point[1])),
-    "The cross-piece must be behind the riser, not in its plane");
-  close(crossBrace.length, crossBrace.footprint[1][0] - crossBrace.footprint[0][0]);
-  for (const [upright, nearIndex, farIndex, contactIndices, inwardSide] of [
-    [leftUpright, 1, 2, [0, 3], 1], [rightUpright, 0, 3, [1, 2], -1],
-  ]) {
-    const near = upright.footprint[nearIndex], far = upright.footprint[farIndex];
-    const direction = far.map((value, axis) => (value - near[axis]) / FRAME_WIDTH);
-    const inward = [direction[1] * inwardSide, -direction[0] * inwardSide];
-    for (const [index, point] of crossBrace.footprint.entries()) {
-      const inset = (point[0] - near[0]) * inward[0] + (point[1] - near[1]) * inward[1];
-      assert.ok(inset >= -1e-8, "The cross-piece must not overlap an upright");
-      if (contactIndices.includes(index)) {
-        close(inset, 0);
-        const along = (point[0] - near[0]) * direction[0] + (point[1] - near[1]) * direction[1];
-        assert.ok(along >= -1e-8 && along <= FRAME_WIDTH + 1e-8,
-          "Each complete cross-piece end must meet its upright");
-      }
-    }
-    assert.ok(upright.length >= FRAME_WIDTH);
-  }
-  const geometry = crossBrace.createGeometry();
-  const heights = geometry.positions.filter((_, i) => i % 3 === 1);
-  close(Math.min(...heights), FLOOR_CLEARANCE);
-  close(Math.max(...heights), FLOOR_CLEARANCE + FRAME_WIDTH);
-  assertOutwardGeometry(geometry);
-}
-
-test("1x4 components retain the specified actual dimensions and variable length", () => {
-  const board = new OneByFour(12);
-  assert.ok(board instanceof OneByFour);
-  assert.ok(board instanceof Board);
-  assert.equal(board.thickness, 0.75);
-  assert.equal(board.width, 3.75);
-  assert.equal(board.length, 12);
-  assert.equal(board.label, "1x4");
-  assert.equal(new OneByFour(24).length, 24);
-});
 
 test("Board creates a centered prism using length X, thickness Y, and width Z", () => {
   const board = new Board({ thickness: 2, width: 4, length: 10 });
@@ -310,171 +383,512 @@ test("Board creates a centered prism using length X, thickness Y, and width Z", 
   assert.ok(indices.every(index => index < positions.length / 3));
 });
 
-test("every triangle has the outward winding required by back-face culling", () => {
-  assertOutwardGeometry(new OneByFour(12).createGeometry());
-  for (const step of createInitialModel().steps) assertBoardsGeometry(step.createGeometry());
-});
-
-test("initial stairway has eight steps and preserves the hard arc and height requirements", () => {
-  const model = createInitialModel();
-  assert.equal(TOTAL_HEIGHT, 77);
-  assert.equal(INNER_ARC_LENGTH, 60.5);
-  assert.equal(INNER_RADIUS, 121 / Math.PI);
-  assert.equal(model.stepCount, 8);
-  assert.equal(model.steps.length, 8);
-  assert.equal(model.bottomStairWidth, 24);
-  assert.equal(model.topStairWidth, 24);
-  assert.equal(model.totalHeight, 77);
-  assert.equal(model.innerArcLength, 60.5);
-  assert.equal(model.innerRadius, INNER_RADIUS);
-  assert.equal(model.stepRise, 77 / 9);
-  close(model.steps[0].height, 77 / 9);
-  close(model.steps.at(-1).height + model.stepRise, 77);
-});
-
-test("step sides and elevations follow equal angles, linear widening, and an extra landing rise", () => {
-  for (const [bottomWidth, topWidth, count] of [[24, 36, 8], [20, 20, 3], [36, 24, 5], [24, 36, 1]]) {
-    const model = buildStairway(bottomWidth, topWidth, count);
-    const angle = Math.PI / (2 * count);
-    for (const [i, step] of model.steps.entries()) {
-      assert.ok(step instanceof Step);
-      const frontWidth = bottomWidth + (topWidth - bottomWidth) * i / count;
-      const backWidth = bottomWidth + (topWidth - bottomWidth) * (i + 1) / count;
-      close(step.frontWidth, frontWidth);
-      close(step.backWidth, backWidth);
-      close(step.leftDepth, 2 * INNER_RADIUS * Math.sin(angle / 2));
-      close(step.rightDepth, Math.hypot(
-        (INNER_RADIUS + backWidth) * Math.cos(angle) - (INNER_RADIUS + frontWidth),
-        (INNER_RADIUS + backWidth) * Math.sin(angle)));
-      close(step.height, (i + 1) * 77 / (count + 1));
-      close(step.stepRise, model.stepRise);
-      close(step.angle, angle);
-      const [insideFront, outsideFront, outsideBack, insideBack] = step.footprint;
-      assert.deepEqual(insideFront, [0, 0]);
-      assert.deepEqual(outsideFront, [frontWidth, 0]);
-      close(Math.hypot(...insideBack), step.leftDepth);
-      close(Math.hypot(...outsideBack.map((value, axis) => value - outsideFront[axis])), step.rightDepth);
-      close(Math.hypot(...outsideBack.map((value, axis) => value - insideBack[axis])), step.backWidth);
-    }
+test("sheet edge cutouts preserve closed meshes and beveled floors at internal and end openings", () => {
+  const angle = Math.PI / 18, radius = INNER_RADIUS, width = 24;
+  const footprint = [[0, 0], [width, 0],
+    [(radius + width) * Math.cos(angle) - radius, (radius + width) * Math.sin(angle)],
+    [radius * Math.cos(angle) - radius, radius * Math.sin(angle)]];
+  for (const end of ["internal", "start", "end"]) {
+    const sheet = new Siding(footprint, 12);
+    const original = meshVolume(sheet.createGeometry());
+    const blank = sheet.getManufacturingDescription().blank;
+    const cut = { profiles: ["negativeY", "positiveY"].map((name, face) => {
+      const xs = blank.profiles[name].map(point => point[0]);
+      const start = end === "start" ? Math.min(...xs) : end === "end" ? Math.max(...xs) - 1.5 : 2;
+      return [[start, sheet.width - 2 + face / 8], [start + 1.5, sheet.width - 2 + face / 8]];
+    }) };
+    sheet.edgeNotches.push(cut);
+    const geometry = sheet.createGeometry(), stockGeometry = sheet.createStockGeometry();
+    assertBoardsGeometry(geometry);
+    assertBoardsGeometry(stockGeometry);
+    close(meshVolume(geometry), original - 1.5 * (2 - 1 / 16) * sheet.thickness, 1e-4);
+    close(meshVolume(stockGeometry), meshVolume(geometry), 1e-4);
+    assert.deepEqual(sheet.getManufacturingDescription().edgeNotches, [cut]);
+    sheet.getManufacturingDescription().edgeNotches[0].profiles[0][0][0] = 100;
+    assert.deepEqual(sheet.getManufacturingDescription().edgeNotches, [cut]);
+    sheet.edgeNotches.push(structuredClone(cut));
+    assert.throws(() => sheet.createGeometry(), /must not overlap/);
   }
 });
 
-test("Step reconstructs its local footprint and named parts without a global radius", () => {
-  const radius = 18, angle = Math.PI / 6, frontWidth = 8, backWidth = 9, height = 8;
-  const step = new Step({
-    frontWidth, backWidth, height, stepRise: height,
-    leftDepth: 2 * radius * Math.sin(angle / 2),
-    rightDepth: Math.hypot((radius + backWidth) * Math.cos(angle) - (radius + frontWidth),
-      (radius + backWidth) * Math.sin(angle)),
-  });
-  close(step.footprint[3][0], radius * (Math.cos(angle) - 1));
-  close(step.footprint[3][1], radius * Math.sin(angle));
-  close(step.angle, angle);
-  const geometry = step.createGeometry();
-  assert.equal(geometry.positions.length, 11 * 24 * 3);
-  assert.equal(geometry.normals.length, geometry.positions.length);
-  assert.equal(geometry.indices.length, 11 * 36);
-  const { leftEdge, rightEdge, crossBrace } = step.parts.bottomFrame.boards;
-  const frameGeometry = combineGeometries([leftEdge, rightEdge, crossBrace]
-    .map(board => board.createGeometry()));
-  for (let i = 1; i < frameGeometry.positions.length; i += 3) {
-    assert.ok(frameGeometry.positions[i] === FLOOR_CLEARANCE ||
-      frameGeometry.positions[i] === FLOOR_CLEARANCE + FRAME_WIDTH);
-  }
-  assertUprightJoints(step);
-  assertTopFrameJoints(step);
-  assertCrossPieceJoints(step);
-  assert.deepEqual(Array.from(geometry.positions.subarray(0, 3)), [0, 4.75, -0]);
-  assertBoardsGeometry(geometry);
-});
-
-test("world geometry translates each step East then rotates its position and normals about the origin", () => {
-  const model = createInitialModel();
-  const geometry = model.createGeometry();
-  const verticesPerStep = 11 * 24;
-  assert.equal(geometry.positions.length, (8 * verticesPerStep + 2 * 24) * 3);
-  assert.equal(geometry.normals.length, geometry.positions.length);
-  assert.equal(geometry.indices.length, (8 * 11 + 2) * 36);
-  const angle = Math.PI / 16;
-  for (const [i, step] of model.steps.entries()) {
-    const local = step.createGeometry();
-    const offset = i * verticesPerStep * 3;
-    assert.deepEqual(geometry.grain.subarray(offset / 3 * 4, (offset + local.positions.length) / 3 * 4),
-      local.grain);
-    const cosine = Math.cos(i * angle), sine = Math.sin(i * angle);
-    for (let j = 0; j < local.positions.length; j += 3) {
-      const east = local.positions[j] + INNER_RADIUS, north = -local.positions[j + 2];
-      close(geometry.positions[offset + j], east * cosine - north * sine);
-      close(geometry.positions[offset + j + 1], local.positions[j + 1]);
-      close(geometry.positions[offset + j + 2], -(east * sine + north * cosine));
-      close(geometry.normals[offset + j], cosine * local.normals[j] + sine * local.normals[j + 2]);
-      close(geometry.normals[offset + j + 1], local.normals[j + 1]);
-      close(geometry.normals[offset + j + 2], -sine * local.normals[j] + cosine * local.normals[j + 2]);
-      assert.deepEqual(geometry.colors.subarray(offset + j, offset + j + 3),
-        local.colors.subarray(j, j + 3));
+test("stopped newel corner bevels preserve square stock and closed meshes", () => {
+  for (const stepCount of [7, 8, 9]) {
+    const first = buildStairway(24, stepCount, 3).steps[0], newel = first.parts.newel;
+    const { front, side, bottomHeight, topHeight } = newel.cornerBevel;
+    const [east, north] = newel.footprint[0];
+    const removedArea = Math.abs((front[0] - east) * (side[1] - north) -
+      (front[1] - north) * (side[0] - east)) / 2;
+    const expectedVolume = newel.length * newel.thickness * newel.width - removedArea * (topHeight - bottomHeight);
+    for (const geometry of [newel.createGeometry(), newel.createStockGeometry()]) {
+      assertBoardsGeometry(geometry);
+      close(meshVolume(geometry), expectedVolume, 1e-4);
     }
-    close(geometry.positions[offset], INNER_RADIUS * Math.cos(i * angle));
-    close(geometry.positions[offset + 2], -INNER_RADIUS * Math.sin(i * angle));
-    const stepVertices = (i === model.stepCount - 1 ? 13 : 11) * 24;
-    for (let j = i * 11 * 36; j < i * 11 * 36 + stepVertices / 24 * 36; j++) {
-      assert.ok(geometry.indices[j] >= i * verticesPerStep &&
-        geometry.indices[j] < i * verticesPerStep + stepVertices);
-    }
-  }
-  assertBoardsGeometry(geometry);
-  close(geometry.positions[0], INNER_RADIUS);
-  close(geometry.positions[1], FLOOR_CLEARANCE + FRAME_WIDTH);
-  close(geometry.positions[2], 0);
-  const lastInsideBack = 7 * verticesPerStep * 3 + 3 * 3;
-  close(geometry.positions[lastInsideBack], 0);
-  close(geometry.positions[lastInsideBack + 2], -INNER_RADIUS);
-  const lastOutsideBack = 7 * verticesPerStep * 3 + 24 * 3 + 2 * 3;
-  close(geometry.positions[lastOutsideBack], 0);
-  close(geometry.positions[lastOutsideBack + 2], -(INNER_RADIUS + model.topStairWidth));
-});
-
-test("explosion increases only step rotation while preserving dimensions, heights and materials", () => {
-  for (const [bottom, top, count] of [[20, 36, 7], [20, 36, 8], [36, 20, 9], [24, 24, 10], [24, 36, 1]]) {
-    const model = buildStairway(bottom, top, count);
-    const original = model.createGeometry();
-    const originalSteps = JSON.stringify(model.steps);
-    assert.deepEqual(model.createGeometry({}, 0), original);
-    for (const explosion of [0.25, 0.5, 1]) {
-      const geometry = model.createGeometry({}, explosion);
-      assert.deepEqual(geometry.colors, original.colors);
-      assert.deepEqual(geometry.grain, original.grain);
-      assert.deepEqual(geometry.indices, original.indices);
-      assert.equal(geometry.positions.length, original.positions.length);
-      let offset = 0;
-      for (const [i, step] of model.steps.entries()) {
-        const length = step.createGeometry().positions.length;
-        const extraAngle = i * Math.PI / (2 * count) * explosion;
-        const cosine = Math.cos(extraAngle), sine = Math.sin(extraAngle);
-        close(Math.atan2(-geometry.positions[offset + 2], geometry.positions[offset]),
-          i * Math.PI / (2 * count) * (1 + explosion));
-        for (let j = offset; j < offset + length; j += 3) {
-          close(geometry.positions[j], cosine * original.positions[j] + sine * original.positions[j + 2]);
-          close(geometry.positions[j + 1], original.positions[j + 1]);
-          close(geometry.positions[j + 2], -sine * original.positions[j] + cosine * original.positions[j + 2]);
-          close(geometry.normals[j], cosine * original.normals[j] + sine * original.normals[j + 2]);
-          close(geometry.normals[j + 1], original.normals[j + 1]);
-          close(geometry.normals[j + 2], -sine * original.normals[j] + cosine * original.normals[j + 2]);
-        }
-        offset += length;
+    const description = newel.getManufacturingDescription();
+    close(description.cutLength, newel.length);
+    close(description.finishedWidth, newel.width);
+    const cuts = description.edgeCuts.filter(cut => cut.surfaceCut);
+    close(cuts[0].angleFromSquare, first.angle * 1.5 * 180 / Math.PI);
+    assert.equal(cuts.length, bottomHeight > newel.bottomHeight ? 3 : 2);
+    for (const cut of cuts) {
+      for (const point of cut.points) {
+        close(point.reduce((sum, value, axis) => sum + value * cut.plane.normal[axis], 0), cut.plane.offset);
+        point.forEach((value, axis) => assert.ok(value >= -1e-8 &&
+          value <= [newel.length, newel.thickness, newel.width][axis] + 1e-8));
       }
+    }
+  }
+});
+
+test("plan cutouts preserve closed concave meshes and describe cuts inside the original stock blank", () => {
+  const first = buildStairway().steps[0];
+  for (const board of [first.parts.tread, first.parts.topFrame.boards.frontStepSupport]) {
+    const area = polygon => polygon.reduce((sum, point, i) => {
+      const next = polygon[(i + 1) % polygon.length];
+      return sum + point[0] * next[1] - point[1] * next[0];
+    }, 0) / 2;
+    assert.ok(area(board.cutFootprint) < area(board.footprint));
+    for (const geometry of [board.createGeometry(), board.createStockGeometry()]) {
+      assertBoardsGeometry(geometry);
+      close(meshVolume(geometry), area(board.cutFootprint) * board.thickness, 1e-4);
+    }
+    const description = board.getManufacturingDescription();
+    assert.equal(description.blank.vertices.length, 8);
+    const cuts = description.edgeCuts.filter(cut => cut.surfaceCut);
+    assert.equal(cuts.length, board.planCuts.length);
+    for (const cut of cuts) {
+      for (const point of cut.points) {
+        close(point.reduce((sum, value, axis) => sum + value * cut.plane.normal[axis], 0), cut.plane.offset);
+        point.forEach((value, axis) => assert.ok(value >= -1e-8 &&
+          value <= [description.blank.length, description.blank.thickness, description.blank.width][axis] + 1e-8));
+      }
+    }
+  }
+});
+
+test("caster plates stay aligned and fully supported after a beam front is mitered", () => {
+  const model = buildStairway(), beam = model.modules[0].boards.rightSupportBeam;
+  const caster = model.steps[0].parts.bottomFrame.hardware.rightCaster;
+  const along = [-Math.sin(caster.heading), Math.cos(caster.heading)];
+  const across = [Math.cos(caster.heading), Math.sin(caster.heading)];
+  for (const lengthSign of [-1, 1]) {
+    for (const widthSign of [-1, 1]) {
+      const corner = [caster.east, caster.north].map((value, axis) =>
+        value + along[axis] * lengthSign * CASTER_DIMENSIONS.plateLength / 2 +
+        across[axis] * widthSign * CASTER_DIMENSIONS.plateWidth / 2);
+      assert.ok(corner[1] >= beam.casterFrontBoundary + 0.125 - 1e-8);
+      for (const [i, start] of beam.footprint.entries()) {
+        const end = beam.footprint[(i + 1) % beam.footprint.length];
+        assert.ok((end[0] - start[0]) * (corner[1] - start[1]) -
+          (end[1] - start[1]) * (corner[0] - start[0]) >= -1e-8);
+      }
+    }
+  }
+});
+
+test("square-ended vertical wedges preserve closed meshes, stock coordinates, and cutting planes", () => {
+  for (const heading of [0, Math.PI / 7]) {
+    const c = Math.cos(heading), s = Math.sin(heading);
+    const footprint = [[0, 0], [1.4, 0.2], [1.4, 2.4], [0, 2.6]].map(([x, y]) =>
+      [c * x - s * y + 4, s * x + c * y - 3]);
+    const shim = new SpindleShim(footprint, 10, heading);
+    const geometry = shim.createGeometry(), stockGeometry = shim.createStockGeometry();
+    assertBoardsGeometry(geometry);
+    assertBoardsGeometry(stockGeometry);
+    close(meshVolume(geometry), 1.4 * (2.6 + 2.2) / 2 * 4);
+    close(meshVolume(stockGeometry), meshVolume(geometry));
+    const axes = shim.getStockAxes(), description = shim.getManufacturingDescription();
+    close(description.cutLength, 4);
+    assert.equal(shim.faces.length, 6);
+    assert.equal(description.edgeCuts.filter(cut => cut.surfaceCut).length, 6);
+    for (const cut of description.edgeCuts.filter(cut => cut.surfaceCut && /end$/.test(cut.name))) {
+      close(cut.miterDegrees, 0);
+      close(cut.bevelDegrees, 0);
+    }
+    const origin = shim.vertices[0].map((value, axis) => value -
+      axes.reduce((sum, vector, j) => sum + vector[axis] * shim.stockVertices[0][j], 0));
+    for (let i = 0; i < geometry.positions.length; i += 3) {
+      for (let axis = 0; axis < 3; axis++) {
+        close(geometry.positions[i + axis], origin[axis] +
+          axes.reduce((sum, vector, j) => sum + vector[axis] * stockGeometry.positions[i + j], 0));
+      }
+    }
+    for (const cut of description.edgeCuts.filter(cut => cut.surfaceCut)) {
+      for (const point of cut.points) {
+        close(point.reduce((sum, value, axis) => sum + value * cut.plane.normal[axis], 0), cut.plane.offset);
+        point.forEach((value, axis) => assert.ok(value >= -1e-8 &&
+          value <= [description.blank.length, description.blank.thickness, description.blank.width][axis] + 1e-8));
+      }
+    }
+  }
+  assert.throws(() => new SpindleShim([[0, 0], [2, 0], [2, 2], [0, 2]],
+    10, 0), /fit the thickness/);
+  assert.throws(() => new SpindleShim([[0, 0], [1, 0], [1, 4], [0, 4]],
+    10, 0), /stock/);
+});
+
+test("shim ends stay level at the lower spindle shoulder while both beveled sides remain flush", () => {
+  for (const width of [20, 24, 36]) for (const count of [7, 8, 9]) {
+    for (const modules of [2, 3]) for (const ascent of [25, 37]) {
+      const model = buildStairway(width, count, modules, ascent);
+      for (let joint = 0; joint < model.modules.length - 1; joint++) {
+        const step = model.modules[joint].steps.at(-1);
+        const shim = step.parts.spindleShim, lower = step.parts.rearSpindle;
+        const upper = model.modules[joint + 1].steps[0].parts.frontSpindle;
+        const shoulder = lower.bottomHeight + lower.frontHeight + lower.topRise - 2;
+        const upperShoulder = upper.bottomHeight + upper.frontHeight - 2;
+        assert.ok(upperShoulder > shoulder);
+        for (let corner = 0; corner < 4; corner++) {
+          close(shim.vertices[corner][1], shoulder - 4);
+          close(shim.vertices[corner + 4][1], shoulder);
+        }
+        const c = Math.cos(step.angle), s = Math.sin(step.angle);
+        const upperEdge = upper.footprint.slice(0, 2).map(([east, north]) => [
+          c * (east + INNER_RADIUS) - s * north - INNER_RADIUS,
+          s * (east + INNER_RADIUS) + c * north,
+        ]);
+        const expected = [lower.footprint[3], lower.footprint[2], upperEdge[1], upperEdge[0]];
+        for (const [corner, [east, north]] of expected.entries()) {
+          close(shim.vertices[corner][0], east);
+          close(shim.vertices[corner][2], -north);
+          close(shim.vertices[corner + 4][0], east);
+          close(shim.vertices[corner + 4][2], -north);
+        }
+        const cuts = shim.getManufacturingDescription().edgeCuts.filter(cut =>
+          cut.surfaceCut && ["Front face", "Back face"].includes(cut.name));
+        assert.equal(cuts.length, 2);
+        for (const cut of cuts) close(Math.abs(cut.bevelDegrees), step.angle * 90 / Math.PI);
+      }
+      assert.equal(model.modules.at(-1).steps.at(-1).parts.spindleShim, undefined);
+    }
+  }
+});
+
+test("edge rebates retain rectangular stock and combine with deeper notches and dados", () => {
+  const dimensions = { length: 12, thickness: 1, width: 4 };
+  for (const length of [8, 12]) {
+    const rebates = [{ corner: "endNear", length, depth: [0.125, 0.225] }];
+    const board = new NotchedBoard(dimensions, {
+      startNear: { length: 2, depth: [1, 1.1] },
+      endNear: { length: 2, depth: [1, 1.1] },
+    }, [{ face: "positiveY", start: 7, width: 1, depth: 0.25 }], rebates);
+    assert.equal(board.width, 4);
+    assertBoardsGeometry(board.createGeometry());
+    close(meshVolume(board.createGeometry()), cutBoardVolume(board));
+    assert.equal(board.getManufacturingDescription().notches.length, 3);
+    const copy = new NotchedBoard(board, board.notches, [
+      ...board.dados, { face: "positiveY", start: 4, width: 1, depth: 0.25 },
+    ]);
+    assert.deepEqual(copy.rebates, rebates);
+    assertBoardsGeometry(copy.createGeometry());
+    close(meshVolume(copy.createGeometry()), cutBoardVolume(copy));
+    copy.rebates[0].depth[0] = 0.2;
+    assert.equal(board.rebates[0].depth[0], 0.125);
+    assert.equal(rebates[0].depth[0], 0.125);
+  }
+  const full = new NotchedBoard(dimensions, {}, [], [
+    { corner: "endNear", length: 12, depth: [0.125, 0.125] },
+  ]);
+  assertBoardsGeometry(full.createGeometry());
+  close(meshVolume(full.createGeometry()), 12 * (4 - 0.125));
+  for (const rebate of [
+    { corner: "unknown", length: 2, depth: [0.1, 0.1] },
+    { corner: "endNear", length: 13, depth: [0.1, 0.1] },
+    { corner: "endNear", length: 2, depth: [4, 4] },
+  ]) {
+    assert.throws(() => new NotchedBoard(dimensions, {}, [], [rebate]), RangeError);
+  }
+  assert.throws(() => new NotchedBoard(dimensions, {}, [], [
+    { corner: "endNear", length: 8, depth: [3, 3] },
+    { corner: "endFar", length: 8, depth: [2, 2] },
+  ]), /connected strip/);
+  assert.throws(() => new NotchedBoard(dimensions, {
+    endNear: { length: 2, depth: [0.1, 0.3] },
+  }, [], [{ corner: "endNear", length: 8, depth: [0.2, 0.2] }]), /must not cross/);
+});
+
+test("NotchedBoard cuts any combination of four beveled corner notches from the original stock", () => {
+  const dimensions = { length: 12, width: 4, thickness: 0.75 };
+  const names = ["startNear", "endNear", "endFar", "startFar"];
+  assert.deepEqual(new NotchedBoard(dimensions).createGeometry(), new Board(dimensions).createGeometry());
+  for (let mask = 1; mask < 16; mask++) {
+    const notches = Object.fromEntries(names.filter((_, i) => mask & (1 << i))
+      .map(name => [name, { length: 2, depth: [0.5, 1] }]));
+    const board = new NotchedBoard(dimensions, notches);
+    const geometry = board.createGeometry();
+    assert.equal(board.length, dimensions.length);
+    assert.equal(board.width, dimensions.width);
+    assert.equal(board.thickness, dimensions.thickness);
+    const removed = Object.keys(notches).length * 2 * 0.75 * 0.75;
+    close(meshVolume(geometry), 12 * 4 * 0.75 - removed);
+    assertBoardsGeometry(geometry);
+    assert.ok(geometry.grain.every(Number.isFinite));
+    for (let i = 0; i < geometry.positions.length / 3; i++) {
+      const cutEnd = Math.abs(geometry.normals[i * 3]) > 0.99;
+      assert.equal(geometry.grain[i * 4 + 2], cutEnd ? 1 : 0);
+    }
+    for (let i = 0; i < geometry.indices.length; i += 3) {
+      const center = [0, 1, 2].map(axis => [0, 1, 2].reduce((sum, corner) =>
+        sum + geometry.positions[geometry.indices[i + corner] * 3 + axis] / 3, 0));
+      const depth = 0.5 + (center[1] / dimensions.thickness + 0.5) * 0.5;
+      for (const name of Object.keys(notches)) {
+        const inLength = name.startsWith("start") ? center[0] < -4 - 1e-6 : center[0] > 4 + 1e-6;
+        const inWidth = name.endsWith("Near") ? center[2] < -2 + depth - 1e-6 :
+          center[2] > 2 - depth + 1e-6;
+        assert.ok(!inLength || !inWidth, "Triangles must not span removed corners");
+      }
+    }
+  }
+});
+
+test("meeting end notches leave a closed board, including a bevel that collapses one face edge", () => {
+  for (const edge of ["Near", "Far"]) {
+    for (const depth of [1, [1, 1.5], [1.5, 1], [1.5, 2]]) {
+      const geometry = new NotchedBoard({ length: 10, width: 4, thickness: 1 }, {
+        [`start${edge}`]: { length: 5, depth: 1 },
+        [`end${edge}`]: { length: 5, depth },
+      }).createGeometry();
+      const endDepth = Array.isArray(depth) ? (depth[0] + depth[1]) / 2 : depth;
+      close(meshVolume(geometry), 40 - 5 - 5 * endDepth);
       assertBoardsGeometry(geometry);
     }
-    assert.equal(JSON.stringify(model.steps), originalSteps);
-    assert.deepEqual(model.createGeometry(), original);
   }
 });
 
-test("explosion rejects invalid animation progress explicitly", () => {
-  const model = createInitialModel();
-  for (const value of [-1, 1.01, NaN, Infinity, null, false, "1"]) {
-    assert.throws(() => model.createGeometry({}, value), {
-      name: "RangeError", message: "Stairway explosion must be a finite number between 0 and 1.",
-    });
+test("invalid, overlapping, and severing notch descriptions fail explicitly", () => {
+  const dimensions = { length: 10, width: 4, thickness: 1 };
+  for (const notches of [null, [], { middle: {} },
+    { startNear: null }, { startNear: { length: 0, depth: 1 } },
+    { startNear: { length: 10, depth: 1 } },
+    { startNear: { length: 2, depth: [1] } },
+    { startNear: { length: 2, depth: [1, NaN] } },
+    { startNear: { length: 2, depth: 4 } },
+    { startNear: { length: 6, depth: 1 }, endNear: { length: 5, depth: 1.5 } },
+    { startNear: { length: 5, depth: [1, 2] }, endNear: { length: 5, depth: [2, 1] } },
+    { startNear: { length: 2, depth: 2 }, startFar: { length: 2, depth: 2 } },
+    { startNear: { length: 6, depth: [1, 2] }, endFar: { length: 5, depth: [1, 2] } },
+  ]) {
+    assert.throws(() => new NotchedBoard(dimensions, notches), RangeError);
+  }
+});
+
+test("overlapping same-plane end notches remove their union, with or without a dado", () => {
+  for (const edge of ["Near", "Far"]) {
+    for (const dados of [[], [{ face: "negativeY", start: 4.5, width: 1, depth: 0.25 }]]) {
+      const board = new NotchedBoard({ length: 10, width: 4, thickness: 1 }, {
+        [`start${edge}`]: { length: 6, depth: [1, 1.5] },
+        [`end${edge}`]: { length: 5, depth: [1, 1.5] },
+      }, dados);
+      const geometry = board.createGeometry();
+      assertBoardsGeometry(geometry);
+      close(meshVolume(geometry), dados.length ? 26.765625 : 27.5);
+      close(meshVolume(geometry), cutBoardVolume(board));
+    }
+  }
+});
+
+test("board construction replaces continuous notches with a narrower blank before downstream use", () => {
+  for (const edge of ["Near", "Far"]) {
+    for (const endLength of [4, 5]) {
+      for (const depth of [[1, 1], [1, 1.5]]) {
+        const board = new NotchedBoard({ length: 10, width: 4, thickness: 1 }, {
+          [`start${edge}`]: { length: 6, depth },
+          [`end${edge}`]: { length: endLength, depth },
+        }, [{ face: "positiveY", start: 4.5, width: 1, depth: 0.25 }]);
+        const original = board.createGeometry(), description = board.getManufacturingDescription();
+        assert.deepEqual(board.notches, {});
+        close(board.width, 3);
+        assert.equal(board.stock.width, 4);
+        assert.deepEqual(description.notches, []);
+        close(description.finishedWidth, 3);
+        assert.deepEqual(description.widthTrim, { from: 4, to: 3, removed: 1 });
+        close(description.dados[0].acrossWidth, 4 - depth[1]);
+        if (depth[0] !== depth[1]) {
+          assert.ok(description.edgeCuts.some(cut => cut.axis === "width" && Math.abs(cut.bevelDegrees) > 0));
+        }
+        const stock = board.createStockGeometry();
+        const z = stock.positions.filter((_, i) => i % 3 === 2);
+        close(Math.min(...z), 0);
+        close(Math.max(...z), 3);
+        close(meshVolume(stock), meshVolume(original));
+        assert.deepEqual(board.createGeometry(), original);
+        const worldZ = original.positions.filter((_, i) => i % 3 === 2);
+        close(Math.min(...worldZ), edge === "Near" ? -1 : -2);
+        close(Math.max(...worldZ), edge === "Near" ? 2 : 1);
+        const copied = new NotchedBoard(board, board.notches, board.dados);
+        assert.deepEqual(copied.createGeometry(), original);
+        assert.deepEqual(copied.getManufacturingDescription(), description);
+      }
+    }
+  }
+  const stepped = new NotchedBoard({ length: 10, width: 4, thickness: 1 }, {
+    startNear: { length: 5, depth: 1 }, endNear: { length: 5, depth: 1.5 },
+  });
+  assert.deepEqual(stepped.notches, { endNear: { length: 5, depth: [0.5, 0.5] } });
+  assert.equal(stepped.width, 3);
+  assert.equal(stepped.getManufacturingDescription().notches.length, 1);
+  assert.equal(stepped.getManufacturingDescription().finishedWidth, 3);
+});
+
+test("broad-face dados preserve stock, material, grain, and the exact uncut helper path", () => {
+  const dimensions = { length: 10, width: 4, thickness: 1, material: OAK };
+  const notches = { startNear: { length: 2, depth: [0.5, 1] } };
+  assert.deepEqual(new NotchedBoard(dimensions, notches, []).createGeometry(),
+    new NotchedBoard(dimensions, notches).createGeometry());
+  for (const face of ["negativeY", "positiveY"]) {
+    const dado = { face, start: 4, width: 0.75, depth: 0.125 };
+    const board = new NotchedBoard(dimensions, {}, [dado]), geometry = board.createGeometry();
+    assert.equal(board.material, OAK);
+    assert.equal(board.length, 10);
+    assert.equal(board.width, 4);
+    assert.equal(board.thickness, 1);
+    assert.deepEqual(board.dados, [dado]);
+    close(meshVolume(geometry), 40 - 0.75 * 0.125 * 4);
+    assertBoardsGeometry(geometry);
+    let floorVertices = 0, shoulderVertices = 0;
+    for (let i = 0; i < geometry.positions.length / 3; i++) {
+      const [x, y] = geometry.positions.subarray(i * 3, i * 3 + 2);
+      const normal = geometry.normals.subarray(i * 3, i * 3 + 3);
+      assert.equal(geometry.grain[i * 4 + 2], Math.abs(normal[0]) > 0.99 ? 1 : 0);
+      close(geometry.grain[i * 4 + 1], Math.abs(normal[0]) > 0.99 ? y + 0.5 : x + board.length / 2);
+      for (let axis = 0; axis < 3; axis++) close(geometry.colors[i * 3 + axis], OAK.color[axis]);
+      if (Math.abs(y - (face === "negativeY" ? -0.375 : 0.375)) < 1e-6 &&
+        Math.abs(normal[1]) > 0.99) {
+        close(normal[1], face === "negativeY" ? -1 : 1);
+        floorVertices++;
+      }
+      if (Math.abs(normal[0]) > 0.99 && x > -5 + 1e-6 && x < 5 - 1e-6) shoulderVertices++;
+    }
+    assert.ok(floorVertices > 0 && shoulderVertices > 0);
+  }
+});
+
+test("constructor normalization preserves original cut surfaces, input data, and subsequent dado additions", () => {
+  for (const notches of [
+    {
+      startNear: { length: 6, depth: [0.5, 1] }, endNear: { length: 4, depth: [0.5, 1] },
+      startFar: { length: 6, depth: [0.5, 0.25] }, endFar: { length: 5, depth: [0.5, 0.25] },
+    },
+    {
+      startNear: { length: 6, depth: [0.5, 1] }, endNear: { length: 4, depth: [0.5, 1] },
+      startFar: { length: 2, depth: [0.25, 0.5] },
+    },
+    { startNear: { length: 5, depth: [0.5, 1] }, endNear: { length: 5, depth: [1, 1.5] } },
+    { startFar: { length: 5, depth: [1, 1.5] }, endFar: { length: 5, depth: [0.5, 1] } },
+    { startNear: { length: 5, depth: 1 }, endNear: { length: 5, depth: [1, 1.5] } },
+  ]) {
+    const dimensions = { length: 10, width: 4, thickness: 1, material: OAK };
+    const snapshot = structuredClone(notches);
+    const initial = new NotchedBoard(dimensions, notches);
+    for (const edge of ["Near", "Far"]) {
+      const start = initial.notches[`start${edge}`], end = initial.notches[`end${edge}`];
+      assert.ok(!start || !end || start.length + end.length < initial.length);
+    }
+    assert.deepEqual(notches, snapshot);
+    assert.equal(dimensions.width, 4);
+    assert.equal(initial.stock.width, 4);
+    assert.equal(initial.material, OAK);
+    assert.equal(initial.width, initial.getManufacturingDescription().blank.width);
+    const dado = { face: "positiveY", start: 4.5, width: 1, depth: 0.25 };
+    const board = new NotchedBoard(initial, initial.notches, [dado]);
+    assert.deepEqual(board.widthBounds, initial.widthBounds);
+    assert.deepEqual(initial.dados, []);
+    const inWood = ([x, y, z]) => {
+      if (Math.abs(x) > 5 || Math.abs(y) > 0.5 || Math.abs(z) > 2) return false;
+      for (const [name, cut] of Object.entries(notches)) {
+        const depths = Array.isArray(cut.depth) ? cut.depth : [cut.depth, cut.depth];
+        const depth = depths[0] + (depths[1] - depths[0]) * (y + 0.5);
+        if ((name.startsWith("start") ? x < -5 + cut.length : x > 5 - cut.length) &&
+          (name.endsWith("Near") ? z < -2 + depth : z > 2 - depth)) return false;
+      }
+      return !(x > -5 + dado.start && x < -5 + dado.start + dado.width && y > 0.5 - dado.depth);
+    };
+    const geometry = board.createGeometry();
+    assertBoardsGeometry(geometry);
+    close(meshVolume(geometry), cutBoardVolume(board));
+    for (let i = 0; i < geometry.indices.length; i += 3) {
+      const center = [0, 1, 2].map(axis => [0, 1, 2].reduce((sum, corner) =>
+        sum + geometry.positions[geometry.indices[i + corner] * 3 + axis] / 3, 0));
+      const normal = geometry.normals.subarray(geometry.indices[i] * 3, geometry.indices[i] * 3 + 3);
+      assert.equal(inWood(center.map((value, axis) => value - normal[axis] * 1e-4)), true);
+      assert.equal(inWood(center.map((value, axis) => value + normal[axis] * 1e-4)), false);
+    }
+  }
+});
+
+test("dados and beveled corner notches form one external closed surface with union volume", () => {
+  const dimensions = { length: 10, width: 4, thickness: 1 };
+  for (const notches of [
+    {},
+    { startNear: { length: 5, depth: 1 } },
+    { startFar: { length: 5, depth: [0.5, 1.5] } },
+    { startNear: { length: 5, depth: 1 }, endNear: { length: 5, depth: [1, 1.5] } },
+    { startNear: { length: 5, depth: [1, 1.5] }, endNear: { length: 5, depth: 1 } },
+    { startFar: { length: 5, depth: 1 }, endFar: { length: 5, depth: [1, 1.5] } },
+    { startNear: { length: 3, depth: [0.5, 1] }, endNear: { length: 3, depth: [1, 0.5] },
+      startFar: { length: 6, depth: [1, 0.75] }, endFar: { length: 4, depth: 0.5 } },
+  ]) {
+    for (const face of ["negativeY", "positiveY"]) {
+      for (const start of [0, 2.5, 4.5, 9]) {
+        const dados = [{ face, start, width: 1, depth: 0.125 }];
+        const board = new NotchedBoard(dimensions, notches, dados), geometry = board.createGeometry();
+        assertBoardsGeometry(geometry);
+        close(meshVolume(geometry), cutBoardVolume(board));
+        const inWood = ([x, y, z]) => {
+          const bounds = board.widthBounds[0].map((value, edge) =>
+            value + (board.widthBounds[1][edge] - value) * (y + 0.5));
+          if (Math.abs(x) > 5 || Math.abs(y) > 0.5 || z < bounds[0] || z > bounds[1]) return false;
+          for (const [name, cut] of Object.entries(board.notches)) {
+            const depth = cut.depth[0] + (cut.depth[1] - cut.depth[0]) * (y + 0.5);
+            if ((name.startsWith("start") ? x < -5 + cut.length : x > 5 - cut.length) &&
+              (name.endsWith("Near") ? z < bounds[0] + depth : z > bounds[1] - depth)) return false;
+          }
+          return !dados.some(dado => x > -5 + dado.start && x < -5 + dado.start + dado.width &&
+            (face === "negativeY" ? y < -0.5 + dado.depth : y > 0.5 - dado.depth));
+        };
+        for (let i = 0; i < geometry.indices.length; i += 3) {
+          const center = [0, 1, 2].map(axis => [0, 1, 2].reduce((sum, corner) =>
+            sum + geometry.positions[geometry.indices[i + corner] * 3 + axis] / 3, 0));
+          const normal = geometry.normals.subarray(geometry.indices[i] * 3, geometry.indices[i] * 3 + 3);
+          assert.equal(inWood(center.map((value, axis) => value - normal[axis] * 1e-4)), true);
+          assert.equal(inWood(center.map((value, axis) => value + normal[axis] * 1e-4)), false,
+            "Every triangle must face air, not an internal partition");
+        }
+      }
+    }
+  }
+});
+
+test("multiple dados remain closed when separated, meeting, or on opposing faces", () => {
+  const dimensions = { length: 10, width: 4, thickness: 1 };
+  const first = { face: "negativeY", start: 2, width: 2, depth: 0.25 };
+  for (const second of [
+    { face: "negativeY", start: 4, width: 2, depth: 0.125 },
+    { face: "positiveY", start: 3, width: 2, depth: 0.5 },
+    { face: "positiveY", start: 4, width: 2, depth: 0.5 },
+    { face: "positiveY", start: 5, width: 5, depth: 0.875 },
+  ]) {
+    const board = new NotchedBoard(dimensions, {
+      startNear: { length: 5, depth: [0.5, 1] },
+      endFar: { length: 6, depth: [1, 0.5] },
+    }, [first, second]);
+    const geometry = board.createGeometry();
+    assertBoardsGeometry(geometry);
+    close(meshVolume(geometry), cutBoardVolume(board));
+  }
+});
+
+test("invalid, overlapping, and severing dado descriptions fail explicitly", () => {
+  const dimensions = { length: 10, width: 4, thickness: 1 };
+  const dado = { face: "negativeY", start: 2, width: 1, depth: 0.125 };
+  for (const dados of [null, {}, [null], [{}],
+    [{ ...dado, face: "near" }], [{ ...dado, start: -1 }], [{ ...dado, start: NaN }],
+    [{ ...dado, start: Infinity }], [{ ...dado, width: 0 }], [{ ...dado, width: 9 }],
+    [{ ...dado, width: Infinity }], [{ ...dado, depth: NaN }], [{ ...dado, depth: 0 }],
+    [{ ...dado, depth: 1 }], [{ ...dado, depth: Infinity }], [dado, { ...dado, start: 2.5 }],
+    [dado, { ...dado, face: "positiveY", depth: 0.875 }],
+    [dado, { ...dado, face: "positiveY", start: 3, depth: 0.875 }],
+  ]) {
+    assert.throws(() => new NotchedBoard(dimensions, {}, dados), RangeError);
   }
 });
 
@@ -487,425 +901,6 @@ test("combining many component meshes selects 32-bit indices without wrapping re
   assert.deepEqual(geometry.grain.subarray(-24 * 4), board.grain);
   assert.equal(geometry.indices.at(-1), 2731 * 24 - 1);
   assert.ok(geometry.indices.every(index => index < geometry.positions.length / 3));
-});
-
-test("all slider extremes, step counts, and fractional widths produce valid named parts", () => {
-  for (const bottomWidth of [20, 24, 36]) {
-    for (const topWidth of [20, 24.5, 36]) {
-      for (const count of [7, 8, 9, 10]) {
-        const model = buildStairway(bottomWidth, topWidth, count);
-        const geometry = model.createGeometry();
-        assert.equal(geometry.positions.length, (count * 11 + 2) * 24 * 3);
-        assert.equal(geometry.indices.length, (count * 11 + 2) * 36);
-        assert.ok(geometry.positions.every(Number.isFinite));
-        assert.ok(geometry.normals.every(Number.isFinite));
-        close(model.steps[0].frontWidth, bottomWidth);
-        close(model.steps.at(-1).backWidth, topWidth);
-        close(model.steps.at(-1).height + model.stepRise, TOTAL_HEIGHT);
-        for (const step of model.steps) {
-          assertBoardsGeometry(step.createGeometry());
-          assertUprightJoints(step);
-          assertTopFrameJoints(step);
-          assertCrossPieceJoints(step);
-          const center = [0, 1].map(axis =>
-            step.footprint.reduce((sum, point) => sum + point[axis], 0) / 4);
-          for (const board of Object.values(step.parts.bottomFrame.boards)) {
-            assert.equal(withinPolygon(center, board.footprint), false);
-            assert.ok(board.footprint.every(point => withinPolygon(point, step.footprint)));
-          }
-        }
-      }
-    }
-  }
-});
-
-test("bottomFrame has full-depth 1x4 sides, two uprights, and a 1x4 cross-piece between them", () => {
-  assert.equal(FRAME_THICKNESS, 0.75);
-  assert.equal(FRAME_WIDTH, 3.75);
-  assert.equal(RISER_THICKNESS, 0.125);
-  assert.equal(TREAD_THICKNESS, 0.5);
-  assert.equal(FLOOR_CLEARANCE, 1);
-  const steps = buildStairway(24, 36, 8).steps;
-  for (const [i, step] of steps.entries()) {
-    assert.deepEqual(Object.keys(step.parts), ["bottomFrame", "topFrame", "riser", "tread"]);
-    assert.ok(step.parts.bottomFrame instanceof BottomFrame);
-    const { leftEdge, rightEdge, crossBrace } = step.parts.bottomFrame.boards;
-    assert.deepEqual(Object.keys(step.parts.bottomFrame.boards),
-      ["leftEdge", "rightEdge", "crossBrace", "leftUpright", "rightUpright",
-        ...(i === steps.length - 1 ? ["leftRearUpright", "rightRearUpright"] : [])]);
-    for (const board of [leftEdge, rightEdge, crossBrace]) {
-      assert.ok(board instanceof Board);
-      assert.equal(board.width, FRAME_WIDTH);
-      const geometry = board.createGeometry();
-      assert.equal(geometry.positions.length, 24 * 3);
-      assert.equal(geometry.indices.length, 36);
-      const heights = geometry.positions.filter((_, i) => i % 3 === 1);
-      close(Math.min(...heights), 1);
-      close(Math.max(...heights), 4.75);
-    }
-    assert.equal(leftEdge.thickness, FRAME_THICKNESS);
-    assert.equal(rightEdge.thickness, FRAME_THICKNESS);
-    assert.equal(crossBrace.thickness, FRAME_THICKNESS);
-    close(leftEdge.length, step.leftDepth);
-    close(rightEdge.length, step.rightDepth);
-    assert.deepEqual(leftEdge.footprint[0], step.footprint[0]);
-    assert.deepEqual(leftEdge.footprint[3], step.footprint[3]);
-    assert.deepEqual(rightEdge.footprint[1], step.footprint[1]);
-    assert.deepEqual(rightEdge.footprint[2], step.footprint[2]);
-    for (const [board, start, end, insetIndices] of [
-      [leftEdge, step.footprint[0], step.footprint[3], [1, 2]],
-      [rightEdge, step.footprint[1], step.footprint[2], [0, 3]],
-    ]) {
-      const dx = end[0] - start[0], dy = end[1] - start[1];
-      for (const index of insetIndices) {
-        const point = board.footprint[index];
-        close(Math.abs(dx * (point[1] - start[1]) - dy * (point[0] - start[0])) /
-          Math.hypot(dx, dy), FRAME_THICKNESS);
-      }
-    }
-    assertCrossPieceJoints(step);
-  }
-});
-
-test("uprights belong to bottomFrame and retain their side-face and riser-corner contact", () => {
-  for (const step of createInitialModel().steps) {
-    assert.equal("uprights" in step.parts, false);
-    assertUprightJoints(step);
-  }
-});
-
-test("only the last step adds two rear uprights at the far radial boundary", () => {
-  for (const bottom of [20, 24, 36]) {
-    for (const top of [20, 24.5, 36]) {
-      for (const count of [7, 8, 9, 10]) {
-        const model = buildStairway(bottom, top, count);
-        for (const [i, step] of model.steps.entries()) {
-          const { boards } = step.parts.bottomFrame;
-          const isLast = i === count - 1;
-          assert.equal(Object.keys(boards).length, isLast ? 7 : 5);
-          assert.equal("leftRearUpright" in boards, isLast);
-          assert.equal("rightRearUpright" in boards, isLast);
-          assertUprightJoints(step);
-          assert.equal(step.createGeometry({ bottomFrame: false }).indices.length, 6 * 36);
-        }
-      }
-    }
-  }
-  const singleStep = buildStairway(24, 24, 1).steps[0];
-  assert.ok(singleStep.parts.bottomFrame.boards.leftRearUpright instanceof OneByFour);
-  assert.ok(singleStep.parts.bottomFrame.boards.rightRearUpright instanceof OneByFour);
-  assertUprightJoints(singleStep);
-});
-
-test("rear-left upright stays full width when possible and is narrowed only when necessary", () => {
-  for (const count of [7, 8, 9, 10]) {
-    const last = buildStairway(24, 24, count).steps.at(-1);
-    const { leftUpright, leftRearUpright, rightRearUpright } = last.parts.bottomFrame.boards;
-    assert.equal(leftUpright.width, FRAME_WIDTH);
-    assert.equal(rightRearUpright.width, FRAME_WIDTH);
-    if (count <= 8) {
-      close(leftRearUpright.width, FRAME_WIDTH);
-    } else {
-      assert.ok(leftRearUpright.width < FRAME_WIDTH);
-    }
-    assertUprightJoints(last);
-  }
-});
-
-test("topFrame has trimmed sides and two end cross-pieces, reducing step 0 height only when necessary", () => {
-  for (const count of [7, 8, 9, 10]) {
-    const model = buildStairway(24, 24, count);
-    for (const [i, step] of model.steps.entries()) {
-      assert.ok(step.parts.topFrame instanceof TopFrame);
-      assert.deepEqual(Object.keys(step.parts.topFrame.boards),
-        ["leftEdge", "rightEdge", "southCrossPiece", "northCrossPiece"]);
-      assertTopFrameJoints(step);
-      const { leftEdge, rightEdge } = step.parts.topFrame.boards;
-      if (i === 0 && count >= 8) {
-        close(leftEdge.bottomHeight, FLOOR_CLEARANCE + FRAME_WIDTH);
-        close(rightEdge.bottomHeight, FLOOR_CLEARANCE + FRAME_WIDTH);
-        close(leftEdge.width, step.height - TREAD_THICKNESS - FLOOR_CLEARANCE - FRAME_WIDTH);
-        assert.ok(leftEdge.width < FRAME_WIDTH);
-      } else {
-        close(leftEdge.width, FRAME_WIDTH);
-        close(rightEdge.width, FRAME_WIDTH);
-      }
-    }
-  }
-});
-
-test("riser is independent and starts at the previous step elevation, with floor clearance on step 0", () => {
-  for (const count of [7, 8, 9, 10]) {
-    const model = buildStairway(24, 24, count);
-    for (const [i, step] of model.steps.entries()) {
-      const { riser } = step.parts;
-      assert.ok(riser instanceof Riser);
-      assert.ok(riser instanceof Board);
-      close(riser.bottomHeight, i === 0 ? FLOOR_CLEARANCE : model.steps[i - 1].height);
-      close(riser.width, model.stepRise - TREAD_THICKNESS - (i === 0 ? FLOOR_CLEARANCE : 0));
-      assertTopFrameJoints(step);
-    }
-  }
-});
-
-test("top-frame backs stop at the next riser's south plane without changing tread clearance", () => {
-  for (const [bottom, top, count] of [[20, 36, 8], [36, 20, 9], [24, 24, 10]]) {
-    const model = buildStairway(bottom, top, count);
-    const angle = Math.PI / (2 * count);
-    const worldPoint = (point, index) => [
-      (INNER_RADIUS + point[0]) * Math.cos(index * angle) - point[1] * Math.sin(index * angle),
-      (INNER_RADIUS + point[0]) * Math.sin(index * angle) + point[1] * Math.cos(index * angle),
-    ];
-    for (let i = 0; i < count - 1; i++) {
-      const step = model.steps[i], next = model.steps[i + 1];
-      const origin = worldPoint(next.parts.riser.footprint[0], i + 1);
-      const north = [-Math.sin((i + 1) * angle), Math.cos((i + 1) * angle)];
-      for (const board of Object.values(step.parts.topFrame.boards)) {
-        for (const point of board.footprint) {
-          const world = worldPoint(point, i);
-          assert.ok((world[0] - origin[0]) * north[0] +
-            (world[1] - origin[1]) * north[1] <= 1e-8);
-        }
-      }
-      const rear = step.parts.topFrame.boards.northCrossPiece;
-      for (const point of rear.footprint.slice(2)) {
-        const world = worldPoint(point, i);
-        close((world[0] - origin[0]) * north[0] + (world[1] - origin[1]) * north[1], 0);
-      }
-      close(next.parts.riser.bottomHeight - (rear.bottomHeight + rear.width), TREAD_THICKNESS);
-    }
-  }
-});
-
-test("treads cover the top frame and riser, with their front edge on the front radial boundary", () => {
-  for (const bottom of [20, 24, 36]) {
-    for (const top of [20, 24.5, 36]) {
-      for (const count of [7, 8, 9, 10]) {
-        for (const step of buildStairway(bottom, top, count).steps) {
-          const { tread, topFrame, riser } = step.parts;
-          const { leftEdge, rightEdge } = topFrame.boards;
-          assert.ok(tread instanceof Tread);
-          assert.ok(tread instanceof Board);
-          assert.equal(tread.thickness, TREAD_THICKNESS);
-          assert.deepEqual(tread.footprint, step.footprint);
-          assert.deepEqual(tread.footprint, [riser.footprint[0], riser.footprint[1],
-            rightEdge.footprint[2], leftEdge.footprint[3]]);
-          for (const board of Object.values(topFrame.boards)) {
-            close(tread.bottomHeight, board.bottomHeight + board.width);
-            assert.ok(board.footprint.every(point => withinPolygon(point, tread.footprint)));
-          }
-          for (const point of tread.footprint.slice(0, 2)) close(point[1], 0);
-          assert.ok(riser.footprint.every(point => withinPolygon(point, tread.footprint)));
-          close(tread.bottomHeight, riser.bottomHeight + riser.width);
-          const geometry = tread.createGeometry();
-          const heights = geometry.positions.filter((_, i) => i % 3 === 1);
-          close(Math.min(...heights), step.height - TREAD_THICKNESS);
-          close(Math.max(...heights), step.height);
-          assertOutwardGeometry(geometry);
-        }
-      }
-    }
-  }
-});
-
-test("risers and treads share a lighter plywood color distinct from all framing", () => {
-  const model = createInitialModel();
-  for (const step of model.steps) {
-    const { bottomFrame, topFrame, riser, tread } = step.parts;
-    assert.deepEqual(riser.color, tread.color);
-    for (const board of [...Object.values(bottomFrame.boards), ...Object.values(topFrame.boards)]) {
-      assert.deepEqual(board.color, new OneByFour(12).color);
-      assert.notDeepEqual(board.color, riser.color);
-      for (let axis = 0; axis < 3; axis++) assert.ok(riser.color[axis] > board.color[axis]);
-    }
-    for (const board of [...Object.values(bottomFrame.boards), ...Object.values(topFrame.boards),
-      riser, tread]) {
-      const { positions, colors } = board.createGeometry();
-      assert.equal(colors.length, positions.length);
-      for (let i = 0; i < colors.length; i++) close(colors[i], board.color[i % 3]);
-    }
-  }
-});
-
-test("solid lumber has board-local lengthwise grain and marks only its cut ends", () => {
-  function assertGrain(board, direction, endFaces) {
-    const geometry = board.createGeometry();
-    assert.ok(geometry.grain instanceof Float32Array);
-    assert.equal(geometry.grain.length, geometry.positions.length / 3 * 4);
-    assert.ok(geometry.grain.every(Number.isFinite));
-    for (let face = 0; face < 6; face++) {
-      const origin = geometry.positions.subarray(face * 12, face * 12 + 3);
-      for (let corner = 0; corner < 4; corner++) {
-        const vertex = face * 4 + corner;
-        assert.equal(geometry.grain[vertex * 4 + 2], endFaces.includes(face) ? 1 : 0);
-        assert.equal(geometry.grain[vertex * 4 + 3], 0);
-        if (!endFaces.includes(face)) {
-          const position = geometry.positions.subarray(vertex * 3, vertex * 3 + 3);
-          const along = position.reduce((sum, value, axis) => sum + (value - origin[axis]) * direction[axis], 0);
-          close(geometry.grain[vertex * 4 + 1] - geometry.grain[face * 16 + 1], along);
-        }
-      }
-    }
-  }
-  assertGrain(new OneByFour(12), [1, 0, 0], [0, 1]);
-  for (const count of [7, 8, 9, 10]) {
-    for (const [bottom, top] of [[20, 36], [36, 20], [24, 24]]) {
-      for (const step of buildStairway(bottom, top, count).steps) {
-        for (const frame of [step.parts.bottomFrame, step.parts.topFrame]) {
-          for (const [name, board] of Object.entries(frame.boards)) {
-            if (name.endsWith("Upright")) {
-              assertGrain(board, [0, 1, 0], [0, 1]);
-            } else {
-              const side = name.endsWith("Edge");
-              const start = board.footprint[side ? 3 : 0];
-              const end = board.footprint[side ? 0 : 1];
-              const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
-              assertGrain(board, [(end[0] - start[0]) / length, 0, -(end[1] - start[1]) / length],
-                side ? [2, 4] : [3, 5]);
-            }
-          }
-        }
-      }
-    }
-  }
-});
-
-test("plywood veneer has lengthwise grain and cut-edge stripes run through the sheet thickness", () => {
-  for (const step of buildStairway(20, 36, 8).steps) {
-    for (const [board, endFaces, thicknessAxis, plyCount] of [
-      [step.parts.riser, [0, 1, 3, 5], 2, 3],
-      [step.parts.tread, [2, 3, 4, 5], 1, 5],
-    ]) {
-      const { positions, grain } = board.createGeometry();
-      assert.equal(grain.length, positions.length / 3 * 4);
-      assert.ok(grain.every(Number.isFinite));
-      for (let face = 0; face < 6; face++) {
-        const cut = endFaces.includes(face);
-        for (let corner = 0; corner < 4; corner++) {
-          const vertex = face * 4 + corner;
-          assert.equal(grain[vertex * 4 + 2], cut ? 1 : 0);
-          close(grain[vertex * 4 + 3], board.thickness / plyCount);
-          if (cut) {
-            close(grain[vertex * 4] - grain[face * 16],
-              positions[vertex * 3 + thicknessAxis] - positions[face * 12 + thicknessAxis]);
-          } else {
-            close(grain[vertex * 4 + 1] - grain[face * 16 + 1],
-              positions[vertex * 3] - positions[face * 12]);
-          }
-        }
-      }
-    }
-  }
-});
-
-test("global part visibility filters geometry without changing part placement or the model", () => {
-  const model = createInitialModel();
-  const original = model.createGeometry();
-  for (const bottomFrame of [false, true]) {
-    for (const topFrame of [false, true]) {
-      for (const mask of [0, 1, 2, 3]) {
-        const riser = Boolean(mask & 1), tread = Boolean(mask & 2);
-        const visibility = { bottomFrame, topFrame, riser, tread };
-        const boardsPerStep = (bottomFrame ? 5 : 0) + (topFrame ? 4 : 0) +
-          (riser ? 1 : 0) + (tread ? 1 : 0);
-        const geometry = model.createGeometry(visibility);
-        const boardCount = model.stepCount * boardsPerStep + (bottomFrame ? 2 : 0);
-        assert.equal(geometry.positions.length, boardCount * 24 * 3);
-        assert.equal(geometry.normals.length, geometry.positions.length);
-        assert.equal(geometry.grain.length, geometry.positions.length / 3 * 4);
-        assert.ok(geometry.grain.every(Number.isFinite));
-        assert.equal(geometry.indices.length, boardCount * 36);
-        assert.ok(geometry.indices.every(index => index < geometry.positions.length / 3));
-        assertBoardsGeometry(geometry);
-        const exploded = model.createGeometry(visibility, 1);
-        assert.deepEqual(exploded.indices, geometry.indices);
-        assert.deepEqual(exploded.colors, geometry.colors);
-        assert.deepEqual(exploded.grain, geometry.grain);
-        assert.equal(exploded.positions.length, geometry.positions.length);
-        assertBoardsGeometry(exploded);
-        for (const step of model.steps) {
-          const expected = combineGeometries([
-            ...(bottomFrame ? [step.parts.bottomFrame.createGeometry()] : []),
-            ...(topFrame ? [step.parts.topFrame.createGeometry()] : []),
-            ...(riser ? [step.parts.riser.createGeometry()] : []),
-            ...(tread ? [step.parts.tread.createGeometry()] : []),
-          ]);
-          assert.deepEqual(step.createGeometry(visibility), expected);
-        }
-        if (boardsPerStep > 0) {
-          const heights = geometry.positions.filter((_, i) => i % 3 === 1);
-          close(Math.min(...heights), riser || bottomFrame ?
-            FLOOR_CLEARANCE : topFrame ? FLOOR_CLEARANCE + FRAME_WIDTH :
-              model.steps[0].height - TREAD_THICKNESS);
-          close(Math.max(...heights), model.steps.at(-1).height - (tread ? 0 : TREAD_THICKNESS));
-        }
-      }
-    }
-  }
-  assert.deepEqual(model.createGeometry({ bottomFrame: false }),
-    model.createGeometry({ bottomFrame: false, topFrame: true, riser: true }));
-  assert.deepEqual(model.createGeometry({ topFrame: false }),
-    model.createGeometry({ bottomFrame: true, topFrame: false, riser: true }));
-  assert.deepEqual(model.createGeometry({ riser: false }),
-    model.createGeometry({ bottomFrame: true, topFrame: true, riser: false }));
-  assert.deepEqual(model.createGeometry({ tread: false }),
-    model.createGeometry({ bottomFrame: true, topFrame: true, riser: true, tread: false }));
-  assert.deepEqual(model.createGeometry(), original);
-});
-
-test("steps that cannot accommodate frame, upright, or riser stock fail explicitly", () => {
-  assert.throws(() => buildStairway(1, 1, 8), {
-    name: "RangeError", message: "Bottom frame side boards leave no room for the cross brace.",
-  });
-  assert.throws(() => buildStairway(2.5, 2.5, 8), {
-    name: "RangeError", message: "Bottom frame uprights leave no room for the cross-piece.",
-  });
-  assert.throws(() => buildStairway(24, 24, 10000), RangeError);
-  assert.throws(() => buildStairway(24, 24, 20), {
-    name: "RangeError", message: "Bottom frame boards do not fit within the step footprint.",
-  });
-  assert.throws(() => new Step({
-    ...createInitialModel().steps[0], height: FLOOR_CLEARANCE + TREAD_THICKNESS,
-  }), {
-    name: "RangeError", message: "Board length must be a finite positive number of inches.",
-  });
-  assert.throws(() => new Step({
-    ...createInitialModel().steps[0], height: FLOOR_CLEARANCE + FRAME_WIDTH + TREAD_THICKNESS,
-  }), {
-    name: "RangeError", message: "Top frame sideHeight must be a finite positive number of inches.",
-  });
-  assert.throws(() => new Step({
-    ...createInitialModel().steps[0], stepRise: TREAD_THICKNESS,
-  }), {
-    name: "RangeError", message: "Riser height must be a finite positive number of inches.",
-  });
-});
-
-test("invalid stairway and step parameters fail explicitly", () => {
-  for (const value of [0, -1, 1.5, NaN, Infinity, "8", Number.MAX_SAFE_INTEGER + 1]) {
-    assert.throws(() => buildStairway(24, 36, value), {
-      name: "RangeError", message: "Stairway stepCount must be a positive safe integer.",
-    });
-  }
-  for (const value of [0, -1, NaN, Infinity, "24"]) {
-    assert.throws(() => buildStairway(value, 36, 8), RangeError);
-    assert.throws(() => buildStairway(24, value, 8), RangeError);
-  }
-  const valid = createInitialModel().steps[0];
-  for (const name of ["frontWidth", "backWidth", "leftDepth", "rightDepth", "height", "stepRise"]) {
-    for (const value of [0, -1, NaN, Infinity, undefined, "12"]) {
-      assert.throws(() => new Step({ ...valid, [name]: value }), {
-        name: "RangeError", message: `Step ${name} must be a finite positive number of inches.`,
-      });
-    }
-  }
-  assert.throws(() => new Step({ ...valid, rightDepth: valid.leftDepth }), {
-    name: "RangeError", message: "Step edge lengths must form a nondegenerate radial footprint.",
-  });
-  assert.throws(() => new Step({
-    frontWidth: 1, backWidth: 1, leftDepth: 20, rightDepth: 23,
-    height: 1, stepRise: 1,
-  }), RangeError);
 });
 
 test("board dimensions must be finite positive numbers", () => {

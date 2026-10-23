@@ -232,6 +232,10 @@ it to the `github-pages` environment. The Actions run name and job summary
 identify whether a deployment was triggered by the schedule, a push, GitHub's
 **Run workflow** button, or the WIDT update button.
 
+The stairway app is published at `stairs/`, including both Home and Parameters.
+Deployment copies its HTML, CSS, SVG assets, and JavaScript modules, excluding
+`*.test.js`. Documentation and development-only `.mjs` tools are not published.
+
 To enable deployment, open the repository's **Settings**, select **Pages**, and
 set **Source** to **GitHub Actions**. No service account, personal access token,
 or repository secret is required; the workflow uses GitHub's temporary token

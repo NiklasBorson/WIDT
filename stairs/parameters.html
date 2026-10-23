@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WIDT Stairs Project - Parameters</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./main.js"></script>
+</head>
+<body data-page="parameters">
+  <header class="page-header">
+    <h1>WIDT Stairs Project - Parameters</h1>
+    <a id="page-link" href="./index.html">Home</a>
+  </header>
+  <p id="parameter-notice" role="status" hidden></p>
+  <main class="workspace">
+    <section class="stairway-panel" aria-label="Stairway preview">
+      <section class="stage" aria-label="Model preview">
+        <canvas id="viewer" tabindex="0" aria-label="Interactive 3D stairway"
+          aria-describedby="dimensions controls">Interactive curved stairway model.</canvas>
+        <div class="stage-header">
+          <div class="view-controls" role="group" aria-label="3D view controls">
+            <button id="reset" type="button">Reset view</button>
+            <button id="view-modules" type="button" aria-pressed="false">Split modules</button>
+          </div>
+        </div>
+        <p id="error" role="alert" hidden></p>
+      </section>
+      <section id="model-information" aria-label="Model information">
+        <p id="dimensions"></p>
+        <p id="controls">Drag to orbit. Two-finger drag to pan. Scroll or pinch to zoom.
+          Keyboard: arrows to orbit, Shift+arrows to pan, +/- to zoom.</p>
+      </section>
+    </section>
+    <aside class="sidebar" aria-label="Parameters">
+      <h2>Parameters</h2>
+      <div id="parameters-panel" class="tab-panel">
+        <div class="parameter">
+          <div class="parameter-heading">
+            <label for="stair-width">Stair width</label>
+            <output for="stair-width">24 in</output>
+          </div>
+          <input id="stair-width" type="range" min="20" max="36" step="0.25" value="24">
+        </div>
+        <div class="parameter">
+          <div class="parameter-heading">
+            <label for="stair-count">Steps</label>
+            <output for="stair-count">9</output>
+          </div>
+          <input id="stair-count" type="range" min="7" max="9" step="1" value="9">
+        </div>
+        <div class="parameter">
+          <div class="parameter-heading">
+            <label for="module-count">Modules</label>
+            <output for="module-count">3</output>
+          </div>
+          <input id="module-count" type="range" min="2" max="3" step="1" value="3">
+        </div>
+        <div class="parameter">
+          <div class="parameter-heading">
+            <label for="spindle-shoulder-ascent">Railing bottom ascent</label>
+            <output for="spindle-shoulder-ascent">32 in</output>
+          </div>
+          <input id="spindle-shoulder-ascent" type="range" min="25" max="37" step="1" value="32">
+        </div>
+        <button id="reset-defaults" type="button">Reset defaults</button>
+      </div>
+    </aside>
+  </main>
+</body>
+</html>

@@ -1,0 +1,9 @@
+[package]
+name = "mesh-clash"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+glam = "0.33"
+roxmltree = "0.21"
