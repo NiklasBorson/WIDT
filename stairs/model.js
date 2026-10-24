@@ -2232,12 +2232,15 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
     innerRadius: INNER_RADIUS,
     outerRadius: INNER_RADIUS + stairWidth,
     innerArcLength: INNER_ARC_LENGTH,
-    createFootprintGeometry(nodeId = null, stockAligned = false, inset = true, moduleExplosion = 0) {
+    createFootprintGeometry(nodeId = null, stockAligned = false, inset = true, moduleExplosion = 0, moduleNumber = null) {
       if (!Number.isFinite(moduleExplosion) || moduleExplosion < 0 || moduleExplosion > 1) {
         throw new RangeError("Stairway moduleExplosion must be a finite number between 0 and 1.");
       }
+      if (moduleNumber !== null && (!Number.isInteger(moduleNumber) || moduleNumber < 1 || moduleNumber > modules.length)) {
+        throw new RangeError("Footprint moduleNumber must identify an existing module.");
+      }
       if (nodeId === null && moduleExplosion > 0) {
-        const geometry = this.createFootprintGeometry(null, stockAligned, inset);
+        const geometry = this.createFootprintGeometry(null, stockAligned, inset, 0, moduleNumber);
         const positions = geometry.positions.slice();
         for (const module of modules) {
           const rotation = moduleSeparationRotation(module, moduleExplosion);
@@ -2254,11 +2257,17 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
         }
         return { ...geometry, positions };
       }
-      const key = `${nodeId ?? ""}:${stockAligned}:${inset}`;
+      const key = `${nodeId ?? ""}:${stockAligned}:${inset}:${moduleNumber ?? ""}`;
       if (footprints.has(key)) return footprints.get(key);
       if (nodeId === null) {
         const seamInset = 1 / 16, backNormal = [Math.sin(angle), Math.cos(angle)];
         const treads = steps.map((step, index) => {
+          if (moduleNumber !== null) {
+            const module = modules[moduleNumber - 1];
+            if (index < module.startIndex || index >= module.startIndex + module.steps.length) {
+              return combineGeometries([]);
+            }
+          }
           const tread = step.parts.tread.createGeometry(), faces = [];
           const rotation = index * angle, cosine = Math.cos(rotation), sine = Math.sin(rotation);
           for (let i = 0; i < tread.indices.length; i += 3) {
@@ -2291,7 +2300,7 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
       const module = this.partTree.getAncestors(nodeId).find(node => node.kind === "module").component;
       const rotation = (node.stepNumber === null ? module.startIndex : node.stepNumber - 1) * angle;
       const cosine = Math.cos(rotation), sine = Math.sin(rotation);
-      const geometry = this.createFootprintGeometry(null, false, inset);
+      const geometry = this.createFootprintGeometry(null, false, inset, 0, moduleNumber);
       const positions = geometry.positions.map((value, i) => {
         const axis = i % 3, start = i - axis;
         return axis === 1 ? 0 : axis === 0

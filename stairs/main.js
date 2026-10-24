@@ -157,7 +157,8 @@ try {
   function modelGeometry(model, locatedId = locatedOccurrenceId) {
     pickRanges = [];
     const bounds = model.createGeometry({}, 0, moduleExplosion);
-    const orbitKey = model.partTree.root.id;
+    const moduleNumber = !isParameters && moduleFilter.value ? Number(moduleFilter.value) : null;
+    const orbitKey = moduleNumber === null ? model.partTree.root.id : model.partTree.root.children[moduleNumber - 1].id;
     const camera = {
       orbitKey,
       orbitGeometry: orbitKey === model.partTree.root.id ? bounds : model.createNodeGeometry(orbitKey, 0, moduleExplosion),
@@ -179,7 +180,8 @@ try {
             ? value * 0.25 + [0.18, 0.8, 1][index % 3] * 0.75 : value * 0.6);
           return { ...geometry, colors };
         }));
-      camera.renderGeometry = combineGeometries([visible, model.createFootprintGeometry(null, false, true, moduleExplosion)]);
+      camera.renderGeometry = combineGeometries([visible,
+        model.createFootprintGeometry(null, false, true, moduleExplosion, moduleNumber)]);
       return { visible, bounds, camera };
     }
     camera.renderGeometry = combineGeometries([bounds, model.createFootprintGeometry(null, false, true, moduleExplosion)]);

@@ -1672,6 +1672,51 @@ test("Parts subsets preserve visible geometry across content tabs and support em
   assert.ok(controls.calls.every(([name]) => name !== "reset"));
 });
 
+test("Module filters limit footprints and orbit around the module while retaining orientation and framing scale", () => {
+  const model = buildStairway(), controls = createControls({ buildModel: () => model });
+  const viewer = controls.mainViewer, filter = controls.node("#parts-module");
+  viewer.orbit(25, -14);
+  viewer.roll(0.3);
+  viewer.zoom(0.8);
+  const orientation = viewer.orientation.map(axis => [...axis]);
+  const radius = viewer.radius, center = [...viewer.orbitCenter];
+  for (const amount of [0, 0.5, 1]) {
+    if (amount === 0.5) {
+      controls.node("#view-modules").dispatch("click");
+      controls.advance(300);
+    } else if (amount === 1) controls.advance(300);
+    for (const [index, module] of model.partTree.root.children.entries()) {
+      viewer.pan(12, -8);
+      filter.value = String(index + 1);
+      filter.dispatch("change");
+      const geometry = model.createNodeGeometry(module.id, 0, amount);
+      const expectedCenter = [0, 1, 2].map(axis => {
+        const values = geometry.positions.filter((_, i) => i % 3 === axis);
+        return (Math.min(...values) + Math.max(...values)) / 2;
+      });
+      assert.deepEqual(viewer.orbitCenter, expectedCenter);
+      assert.deepEqual(viewer.panOffset, [0, 0]);
+      assert.deepEqual(viewer.orientation, orientation);
+      assert.equal(viewer.zoomFactor, 0.8);
+      assert.deepEqual(controls.renderGeometry.positions.slice(controls.geometry.positions.length),
+        model.createFootprintGeometry(null, false, true, amount, index + 1).positions);
+      const projected = screenPoint(viewer, expectedCenter);
+      viewer.orbit(20, -15);
+      const rotated = screenPoint(viewer, expectedCenter);
+      close(rotated.x, projected.x);
+      close(rotated.y, projected.y);
+      viewer.orientation = orientation.map(axis => [...axis]);
+    }
+    filter.value = "";
+    filter.dispatch("change");
+    assert.deepEqual(controls.bounds, model.createGeometry({}, 0, amount));
+  }
+  controls.node("#view-modules").dispatch("click");
+  controls.advance(600);
+  assert.deepEqual(viewer.orbitCenter, center);
+  assert.equal(viewer.radius, radius);
+});
+
 test("each Parts subset updates actual geometry, counts, weight, and Find without changing the camera", () => {
   const model = buildStairway(), inventory = new PartInventory(model.partTree);
   const controls = createControls({ buildModel: () => model });

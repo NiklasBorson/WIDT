@@ -53,6 +53,40 @@ test("split footprints follow actual module tread positions without changing ass
   }
 });
 
+test("module footprints omit other modules in assembled and split layouts without retaining hidden vertices", () => {
+  for (const [steps, modules] of [[7, 2], [8, 2], [9, 3]]) {
+    const model = buildStairway(24, steps, modules);
+    const assembled = model.createFootprintGeometry();
+    for (const amount of [0, 0.5, 1]) {
+      const full = model.createFootprintGeometry(null, false, true, amount);
+      for (const [index, module] of model.modules.entries()) {
+        const footprint = model.createFootprintGeometry(null, false, true, amount, index + 1);
+        const expected = [], actual = [];
+        for (let step = 0; step < steps; step++) {
+          const [start, end] = footprint.treadRanges[step];
+          const included = step >= module.startIndex && step < module.startIndex + module.steps.length;
+          assert.equal(end > start, included);
+          if (included) {
+            const [fullStart, fullEnd] = full.treadRanges[step];
+            for (const vertex of full.indices.slice(fullStart, fullEnd)) {
+              expected.push(...full.positions.slice(vertex * 3, vertex * 3 + 3));
+            }
+          }
+        }
+        for (const vertex of footprint.indices) {
+          actual.push(...footprint.positions.slice(vertex * 3, vertex * 3 + 3));
+        }
+        assert.deepEqual(actual, expected);
+        assert.equal(new Set(footprint.indices).size * 3, footprint.positions.length);
+      }
+    }
+    assert.equal(model.createFootprintGeometry(), assembled);
+    for (const moduleNumber of [0, modules + 1, 1.5, NaN]) {
+      assert.throws(() => model.createFootprintGeometry(null, false, true, 0, moduleNumber), /moduleNumber/);
+    }
+  }
+});
+
 test("front tread continues step 2's right edge and aligns the newel framing with it", () => {
   for (const stepCount of [7, 8, 9]) {
     const [first, second] = buildStairway(24, stepCount, 3).steps;

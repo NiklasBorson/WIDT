@@ -96,8 +96,11 @@ The Parts sidebar's collapsed **Filters** section combines independent Module,
 Subset, and stock-Type filters, initially showing all parts.
 These filters narrow both the Parts list and visible model geometry. Parameters
 always shows the complete model, without applying Parts visibility or selection.
-Visibility changes preserve framing based on the complete assembly, so filtering
-does not move the camera or rescale the remaining parts.
+Visibility changes preserve the framing scale based on the complete assembly,
+so filtering does not rescale the remaining parts.
+The Module filter also limits the footprint to that module and makes it the
+orbit center. Changing the Module filter clears the pan offset; orientation and
+zoom are retained. Subset and Type filters do not change the orbit center.
 
 **Clear selection** beside the Parts heading removes the part highlight and
 restores normal model brightness without changing the filters, Find text, camera,
