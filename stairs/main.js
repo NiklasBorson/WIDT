@@ -31,6 +31,9 @@ try {
   const moduleCount = document.querySelector("#module-count");
   const spindleShoulderAscent = document.querySelector("#spindle-shoulder-ascent");
   const modulesView = document.querySelector("#view-modules");
+  const castleView = isParameters ? null : document.querySelector("#view-castle");
+  const identityTransform = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  let castleShown = false;
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   let modulesSeparated = false;
   let moduleExplosion = 0;
@@ -112,6 +115,7 @@ try {
         subset: subsetFilter.value,
         type: typeFilter.value,
         part: locatedOccurrenceId ?? "",
+        castle: castleShown ? "shown" : "",
       };
       for (const [key, value] of Object.entries(state)) {
         if (value) url.searchParams.set(key, value);
@@ -141,6 +145,8 @@ try {
       return fallback;
     };
     activeTab = read("tab", "stairway", value => tabs.includes(value), "Selected tab");
+    castleShown = read("castle", "hidden", value => ["shown", "hidden"].includes(value), "Castle visibility") === "shown";
+    renderCastleButton();
     setPartsHidden(read("parts", "shown", value => ["shown", "hidden"].includes(value), "Parts visibility") === "hidden");
     moduleFilter.value = read("module", "", value => value === "" ||
       model.partTree.root.children.some((_, index) => value === String(index + 1)), "Module filter");
@@ -155,6 +161,10 @@ try {
     renderTabs();
     return warnings;
   }
+  function viewerTransforms() {
+    const transforms = model.getModuleTransforms(moduleExplosion);
+    return castleShown ? [...transforms, identityTransform] : transforms;
+  }
   function modelGeometry(model, locatedId = locatedOccurrenceId) {
     if (meshCache?.model !== model) {
       const modules = model.partTree.root.children.map((node, index) => ({
@@ -167,7 +177,8 @@ try {
       meshCache = { model, modules, bounds: combineGeometries(modules.map(module => module.bounds)) };
     }
     pickRanges = [];
-    const bounds = meshCache.bounds;
+    const castle = castleShown ? model.createCastleGeometry() : null;
+    const bounds = castle ? combineGeometries([meshCache.bounds, castle]) : meshCache.bounds;
     const moduleNumber = !isParameters && moduleFilter.value ? Number(moduleFilter.value) : null;
     const orbitKey = moduleNumber === null ? model.partTree.root.id : model.partTree.root.children[moduleNumber - 1].id;
     const visibleIds = isParameters ? null :
@@ -193,6 +204,13 @@ try {
       return { geometry, boundsGeometry: module.bounds, footprint,
         renderGeometry: combineGeometries([geometry, footprint]), transform: transforms[index] };
     });
+    if (castle) {
+      const empty = combineGeometries([]);
+      // Hit-test the castle as an occluder without assigning it a selectable part.
+      pickRanges.push({ id: null, start: triangleCount, end: triangleCount + castle.indices.length / 3 });
+      batches.push({ geometry: castle, boundsGeometry: castle, footprint: empty,
+        renderGeometry: castle, transform: identityTransform });
+    }
     const visible = isParameters ? bounds : combineGeometries(batches.map(batch => batch.geometry));
     const camera = { orbitKey, orbitBatch: moduleNumber === null ? null : moduleNumber - 1, batches,
       renderGeometry: combineGeometries([visible, ...batches.map(batch => batch.footprint)]) };
@@ -927,7 +945,7 @@ try {
     try {
       if (reducedMotion.matches || startValue === target) {
         moduleExplosion = target;
-        viewer.setBatchTransforms(model.getModuleTransforms(moduleExplosion));
+        viewer.setBatchTransforms(viewerTransforms());
         return;
       }
       function animate(time) {
@@ -936,7 +954,7 @@ try {
           const progress = Math.max(0, Math.min(1, (time - startTime) / 600));
           const eased = progress * progress * (3 - 2 * progress);
           moduleExplosion = startValue + (target - startValue) * eased;
-          viewer.setBatchTransforms(model.getModuleTransforms(moduleExplosion));
+          viewer.setBatchTransforms(viewerTransforms());
           if (progress < 1) animationFrame = requestAnimationFrame(animate);
         } catch (cause) {
           reportUpdateError(cause);
@@ -956,6 +974,21 @@ try {
     modulesSeparated = !modulesSeparated;
     renderModulesButton();
     setView();
+  });
+  function renderCastleButton() {
+    if (!castleView) return;
+    castleView.textContent = castleShown ? "Hide castle" : "Show castle";
+    castleView.setAttribute("aria-pressed", String(castleShown));
+  }
+  castleView?.addEventListener("click", () => {
+    try {
+      castleShown = !castleShown;
+      renderCastleButton();
+      updateGeometry();
+      syncURL();
+    } catch (cause) {
+      reportUpdateError(cause);
+    }
   });
   reducedMotion.addEventListener("change", setView);
   function updateParameters(next, restoreFromURL = false) {
@@ -1107,7 +1140,8 @@ try {
       }
       const hit = pickRanges.find(range => triangle >= range.start && triangle < range.end);
       if (!hit) throw new Error("The selected triangle has no matching part.");
-      selectPart(hit.id, true);
+      if (hit.id === null) clearSelection();
+      else selectPart(hit.id, true);
     } catch (cause) { reportUpdateError(cause); }
   });
   if (!isParameters) {

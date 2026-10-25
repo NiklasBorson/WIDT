@@ -223,6 +223,19 @@ export function combineGeometries(geometries) {
   };
 }
 
+let castleGeometry;
+
+function createCastleGeometry() {
+  if (!castleGeometry) {
+    const footprint = tessellateOutline([{
+      type: "arc", center: [0, 0], radius: INNER_RADIUS, startAngle: 0, sweepRadians: Math.PI * 2,
+    }]);
+    castleGeometry = extrudeFootprint(footprint, 0, TOTAL_HEIGHT, [0.5, 0.5, 0.5],
+      { direction: [0, 1, 0], endFaces: [], solidColor: true });
+  }
+  return castleGeometry;
+}
+
 let casterGeometry;
 
 function createCasterGeometry() {
@@ -2735,6 +2748,7 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
     innerRadius: INNER_RADIUS,
     outerRadius: INNER_RADIUS + stairWidth,
     innerArcLength: INNER_ARC_LENGTH,
+    createCastleGeometry,
     getModuleTransforms(moduleExplosion = 0) {
       if (!Number.isFinite(moduleExplosion) || moduleExplosion < 0 || moduleExplosion > 1) {
         throw new RangeError("Stairway moduleExplosion must be a finite number between 0 and 1.");

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   Board, OneByFour, NotchedBoard, Siding, Tread, BentPlywood, ProfiledPlywood, BASE_RAIL_THICKNESS, SpindleShim, Caster, CASTER_DIMENSIONS, INNER_RADIUS,
-  buildStairway, combineGeometries, OAK, PLYWOOD, PARTICLE_BOARD,
+  buildStairway, combineGeometries, OAK, PLYWOOD, PARTICLE_BOARD, TOTAL_HEIGHT,
 } from "./model.js";
 import { PartNode } from "./parts.js";
 import { outlinePoint, outlineArea, outlineBounds, tessellateOutline, clipOutline, constructionTrapezoid, notchRectangle, constructionProfile, profileContains, reverseOutline } from "./plywood-outline.js";
@@ -10,6 +10,21 @@ import { outlinePoint, outlineArea, outlineBounds, tessellateOutline, clipOutlin
 function close(actual, expected, tolerance = 1e-5) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} differs from ${expected}`);
 }
+
+test("castle is a closed gray cylinder at the origin, separate from the part tree and stairway geometry", () => {
+  const model = buildStairway(), stairway = model.createGeometry(), castle = model.createCastleGeometry();
+  assertBoardsGeometry(castle);
+  for (let i = 0; i < castle.positions.length; i += 3) {
+    const [x, y, z] = castle.positions.slice(i, i + 3);
+    close(Math.hypot(x, z), INNER_RADIUS);
+    assert.ok(y === 0 || y === TOTAL_HEIGHT);
+    assert.deepEqual(Array.from(castle.colors.slice(i, i + 3)), [0.5, 0.5, 0.5]);
+  }
+  close(meshVolume(castle) / (Math.PI * INNER_RADIUS ** 2 * TOTAL_HEIGHT), 1, 0.0001);
+  assert.ok(castle.grain.every(value => value === 0));
+  assert.ok(!model.partTree.getLeaves().some(node => /castle/i.test(node.id)));
+  assert.deepEqual(model.createGeometry(), stairway);
+});
 
 test("flat arc-cut plywood retains analytic bounds and volume with bounded-error closed meshes", () => {
   const outline = [

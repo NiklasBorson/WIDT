@@ -71,7 +71,8 @@ Both pages read and retain the four model parameters in the URL query:
 `width`, `steps`, `modules`, and `shoulderAscent`. Home also encodes the selected
 content `tab` (`stairway`, `details`, or `placement`), Parts sidebar visibility
 (`parts=hidden` or `parts=shown`), and the Module (`module`), Subset (`subset`),
-and stock-Type (`type`) filters. `part` identifies the exact installed occurrence,
+and stock-Type (`type`) filters. `castle=shown` enables the optional castle;
+hidden is the default and is omitted from the URL. `part` identifies the exact installed occurrence,
 including its module and step, rather than just its unique manufacturing group.
 Default viewer settings are omitted: Stairway, Parts shown, all filters cleared,
 and no selected part. Find text, drawing direction, camera position, and split
@@ -590,8 +591,8 @@ Changing module count also changes rear-upright quantities and the support beam
 lengths, so it can change the total weight even when
 step count and width stay fixed.
 
-Two buttons float over the upper-left corner of the 3D panel: **Reset view**
-on top and **Split modules** below. There is no bottom View panel.
+Three buttons float over the upper-left corner of the 3D panel: **Reset view**,
+**Split modules**, and **Show castle**, in that order. There is no bottom View panel.
 Step dimensions and interaction instructions occupy a full-width information
 panel below the 3D canvas instead of floating over the model.
 Modules are joined by default. Clicking **Split modules** changes its label to
@@ -602,6 +603,14 @@ front modules rotate clockwise and rear modules counter-clockwise. For the
 default three equal modules, the extra rotations are -30, 0, and +30 degrees,
 so the middle module stays stationary. Clicking **Join modules** restores the
 assembled quarter-turn stairway.
+
+**Show castle** toggles a gray cylinder centered at the world origin, with radius
+`INNER_RADIUS`, bottom at the floor, and top at `TOTAL_HEIGHT`. Its label becomes
+**Hide castle** when enabled, and visibility is retained in the URL. The cylinder
+stays fixed during Split/Join animation. It is not a part, cannot be selected,
+and does not appear in Details, Placement, inventory, or weight estimates.
+It occludes picking of parts hidden behind it. It is included in clash checks
+regardless of the viewer's visibility setting.
 
 Individual step assemblies cannot be separated in the UI because module-level
 parts connect them. Dimensions, elevations, materials, and component positions
@@ -2556,7 +2565,7 @@ than displaying a rounded fraction for an unrounded model dimension.
 The current preview renders bottom-frame
 assemblies, top frames, separate risers, and treads at these step-top heights.
 The upright and top-frame tops are `TREAD_THICKNESS` below those heights.
-The castle is not rendered.
+The optional castle cylinder can be shown in Stairway view.
 
 ## Command-line interference checks
 
@@ -2573,7 +2582,7 @@ failed/error cases remain in `.clash-results` for investigation. An optional
 results directory can be supplied with `npm run check:intersections -- DIRECTORY`.
 
 The matrix includes every physical piece, including curved siding, treads,
-flat step-1 siding, base rails, and hardware. The curved-tread framing and post
+flat step-1 siding, base rails, and hardware, plus the castle cylinder. The curved-tread framing and post
 reliefs eliminate the former accepted siding overlaps. The Rust analysis inset
 remains `0.001 in` per part.
 
@@ -2585,7 +2594,9 @@ cargo run --release --locked --manifest-path mesh-clash\Cargo.toml -- .clash-res
 ```
 
 The standalone exporter includes every piece by default, including curved
-panels. Add repeatable `--exclude-piece ID` options to omit specific physical
+panels, and the castle (`id="castle"`, `kind="environment"`). The castle uses the
+same production mesh as the viewer and cannot be excluded through part filters.
+Add repeatable `--exclude-piece ID` options to omit specific physical
 pieces, for example `--exclude-piece stairway/module-1/siding`. Unknown IDs
 are errors; exclusions never silently expand to all curved parts.
 

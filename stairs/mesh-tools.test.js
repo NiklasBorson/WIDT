@@ -24,7 +24,11 @@ test("scene export is deterministic and includes every physical part in assemble
   assert.equal(xml, serializeScene(model));
   assert.match(xml, /version="1" units="inches" space="world" axes="east-up-south"/);
   assert.match(xml, /stairWidth="24" stairCount="7" moduleCount="2"/);
-  assert.equal((xml.match(/<part /g) ?? []).length, model.partTree.getLeaves().length);
+  assert.equal((xml.match(/<part /g) ?? []).length, model.partTree.getLeaves().length + 1);
+  assert.match(xml, /<part id="castle" name="Castle" kind="environment">/);
+  const castle = xml.slice(xml.indexOf('<part id="castle"'), xml.lastIndexOf("</part>"));
+  assert.deepEqual(castle.match(/<vertices>([\s\S]*?)<\/vertices>/)[1].trim().split(/\s+/).map(Number),
+    Array.from(model.createCastleGeometry().positions, value => value === 0 ? 0 : value));
   assert.equal((xml.match(/kind="hardware"/g) ?? []).length, 8);
   for (const node of model.partTree.getLeaves()) {
     const start = xml.indexOf(`<part id="${node.id}"`);
@@ -114,6 +118,7 @@ test("matrix builds once, runs all six configurations and retains only failures 
     assert.match(scene, /id="stairway\/module-\d+\/siding"/);
     assert.match(scene, /id="stairway\/module-1\/step-1-siding"/);
     assert.match(scene, /id="stairway\/module-1\/step-1-frontSiding"/);
+    assert.match(scene, /id="castle" name="Castle" kind="environment"/);
   }
   assert.deepEqual(calls.slice(1).map(call => call.args[0]),
     [7, 8, 9].flatMap(count => [2, 3].map(modules => join(directory, `${count}-steps-${modules}-modules.xml`))));
@@ -234,6 +239,19 @@ test("Rust geometry regressions and CLI exit codes cover clear, touching, interf
   assert.equal(duplicateUpright.status, 1, `${duplicateUpright.stdout}\n${duplicateUpright.stderr}`);
   assert.ok(duplicateUpright.stdout.includes(`[${node.id}] intersects`));
   assert.match(duplicateUpright.stdout, /Overlap probe \[overlap-probe\]/);
+  for (const [offset, status] of [[0, 1], [model.innerRadius + 3, 0]]) {
+    await writeFile(file, serializeScene({
+      ...model,
+      partTree: { getLeaves: () => [{ ...node, id: "castle-probe", name: "Castle probe" }],
+        getNode: () => ({ name: "Test module" }) },
+      createNodeGeometry: () => ({
+        ...geometry, positions: geometry.positions.map((value, i) => value + (i % 3 === 0 ? offset : 0)),
+      }),
+    }));
+    const castleCheck = spawnSync(executable, [file], { encoding: "utf8", timeout: 30000 });
+    assert.equal(castleCheck.status, status, `${castleCheck.stdout}\n${castleCheck.stderr}`);
+    if (status) assert.match(castleCheck.stdout, /INTERFERENCE:.*Castle probe.*Castle \[castle\]/);
+  }
   await writeFile(file, "<scene/>");
   const invalid = spawnSync(executable, [file], { encoding: "utf8" });
   assert.equal(invalid.status, 2);

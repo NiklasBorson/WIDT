@@ -2280,7 +2280,7 @@ test("invalid, duplicate, and filtered-out viewer URL settings show notices and 
 
 test("Parameters links, slider edits, and Reset defaults retain Home viewer URL settings", () => {
   const state = { tab: "placement", parts: "hidden", module: "2", subset: "framing",
-    type: "a stock type", part: "stairway/module-2/step-5-rightUpright" };
+    type: "a stock type", part: "stairway/module-2/step-5-rightUpright", castle: "shown" };
   const controls = createControls({ page: "parameters", search: `?${new URLSearchParams(state)}` });
   for (const action of [
     () => { const slider = controls.node("#stair-width"); slider.valueAsNumber = 30; slider.dispatch("input"); },
@@ -2949,10 +2949,73 @@ test("view buttons float inside the 3D stage while model information occupies th
   const stage = html.slice(start, html.indexOf("</section>", start));
   assert.match(stage, /class="view-controls" role="group" aria-label="3D view controls"/);
   assert.match(stage, /id="reset"[^>]*>Reset view<\/button>\s*<button id="view-modules"[^>]*>Split modules<\/button>/);
+  assert.match(stage, /id="view-modules"[^>]*>Split modules<\/button>\s*<button id="view-castle"[^>]*>Show castle<\/button>/);
   assert.doesNotMatch(html, /<section class="view-controls"|<legend>View<\/legend>|type="checkbox"/);
   assert.doesNotMatch(stage, /id="model-information"/);
   assert.match(html.slice(html.indexOf("</section>", start)),
     /<section id="model-information" aria-label="Model information">[\s\S]*id="dimensions"[\s\S]*id="controls"/);
+});
+
+test("castle visibility persists in the URL, stays fixed during splitting, and never selects a part", () => {
+  const model = buildStairway(), part = model.partTree.getLeaves()[0].id;
+  const controls = createControls({ buildModel: () => model,
+    search: `?part=${encodeURIComponent(part)}` });
+  const button = controls.node("#view-castle"), partsCount = controls.node("#parts-groups").children.length;
+  assert.equal(button.textContent, "Show castle");
+  const stairGeometry = controls.geometry;
+  button.dispatch("click");
+  assert.equal(button.textContent, "Hide castle");
+  assert.equal(button.getAttribute("aria-pressed"), "true");
+  assert.equal(controls.url.searchParams.get("castle"), "shown");
+  assert.equal(new URL(controls.node("#page-link").href).searchParams.get("castle"), "shown");
+  const castle = controls.mainViewer.batches.at(-1);
+  closeGeometry(castle.geometry, model.createCastleGeometry());
+  controls.node("#view-modules").dispatch("click");
+  controls.advance(300);
+  closeGeometry(controls.bounds, combineGeometries([model.createGeometry({}, 0, 0.5), castle.geometry]));
+  assert.deepEqual(Array.from(castle.transform), [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  controls.advance(300);
+  controls.mainViewer.setStandardView("Top");
+  const point = screenPoint(controls.mainViewer, [0, model.totalHeight, 0]);
+  assert.ok(controls.mainViewer.hitTest(point.x, point.y) >= stairGeometry.indices.length / 3);
+  tapPart(controls, point);
+  assert.equal(controls.url.searchParams.get("part"), null);
+  assert.equal(controls.node("#parts-groups").children.length, partsCount);
+  assert.deepEqual(controls.errors, []);
+  button.dispatch("click");
+  assert.equal(button.textContent, "Show castle");
+  assert.equal(button.getAttribute("aria-pressed"), "false");
+  assert.equal(controls.url.searchParams.get("castle"), null);
+  assert.equal(controls.mainViewer.batches.length, model.moduleCount);
+});
+
+test("castle URL restoration validates visibility without changing Details or Placement geometry", () => {
+  const model = buildStairway();
+  const controls = createControls({ buildModel: () => model, search: "?castle=shown" });
+  assert.equal(controls.node("#view-castle").textContent, "Hide castle");
+  controls.node("#parts-groups").children[0].dispatch("click");
+  for (const tab of ["details", "placement"]) {
+    controls.node(`#${tab}-tab`).dispatch("click");
+    const views = controls.partViewers.map(view => ({ view, geometry: view.geometry, render: view.renderGeometry }));
+    const annotations = controls.node("#part-view-annotations").textContent;
+    controls.node("#view-castle").dispatch("click");
+    for (const { view, geometry, render } of views) {
+      assert.deepEqual(view.geometry, geometry);
+      assert.deepEqual(view.renderGeometry, render);
+    }
+    assert.equal(controls.node("#part-view-annotations").textContent, annotations);
+  }
+  for (const search of ["?castle=hidden", "", "?castle=yes", "?castle=shown&castle=shown"]) {
+    controls.restoreURL(search);
+    assert.equal(controls.node("#view-castle").textContent, "Show castle");
+    assert.equal(controls.url.searchParams.has("castle"), false);
+    if (search.includes("yes") || search.includes("&")) {
+      assert.match(controls.node("#parameter-notice").textContent, /Castle visibility was invalid/);
+    }
+  }
+  controls.restoreURL("?castle=shown");
+  assert.equal(controls.node("#view-castle").textContent, "Hide castle");
+  assert.deepEqual(controls.errors, []);
 });
 
 test("Split and Join modules buttons preserve smooth reversible animation and camera-only reset", () => {
