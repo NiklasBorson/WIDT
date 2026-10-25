@@ -209,15 +209,17 @@ The former **Newel beam block** beneath the right beam is omitted.
 
 A separate pine 2x4 **Newel block - rear** runs on edge, parallel to
 the newel's side faces. Its front end butts against the newel's back face,
-and its rear end shares the inner block's square back-end plane.
-Its default length is approximately `9.6779 in`.
+and its square rear end stops before step 2's extended right upright.
+The inner block retains its separate back-end position.
+The rear block's default length is approximately `6.2043 in`.
 Its left face is against the inner block's right face. It shares the inner
 block's `3` to `6.5 in` elevations and has square ends.
 
 The former right 1x4 side support is omitted. Both module-1 beams have
 front ends mitered to butt against the front cross-piece's back face.
 The right beam shifts inward so its outer front corner meets the
-cross-piece immediately to the left of the inner block. It retains the
+cross-piece immediately to the left of the inner block, or farther inward
+if required to clear the extended right uprights. It retains the
 module's beam heading and a square rear cut fitted within the module.
 Both front caster plates clear the cross-piece by at least `1/8 in`.
 The right front caster is set back an additional `1 in` along its beam.
@@ -274,11 +276,14 @@ needs a separate support solution.
 
 Casters mount directly beneath both ends of each beam. The beam bottoms remain
 at the modeled caster mounting-face elevation, `5 in`, and their tops are at
-`6.5 in`. All uprights now start at that elevation, so beam lateral placement
-is limited by the module footprint and first-step side supports rather than
-the uprights. Right support beams are inset an additional `3/4 in` toward
+`6.5 in`. Left uprights start at that elevation; right front and rear uprights
+extend down to the siding bottom, `1 in` above the floor.
+Right support beams are inset an additional `3/4 in` toward
 the inside of the curve to give their casters more clearance from the siding,
 except in module 1 where the newel inner block determines the right beam position.
+Each right beam moves farther inward only as needed to clear the extended
+right uprights, accounting for their front bevels and the half-inch material
+removed from their inward faces by the bottom-open notches.
 Left beam placement is unchanged. Casters follow their supporting beams. End rounding does
 not change either beam's lateral position. Apart from the newel blocking,
 there are no caster platforms, reinforcement blocks, links, or extra step-2 casters.
@@ -307,8 +312,10 @@ above the first tread's underside at `7.25 in`; the beams themselves clear
 that tread by `0.75 in`.
 
 Each end extends `1/2 in` into the corresponding front upright, with a matching
-`1.5 in`-high, `1/2 in`-deep notch across the upright's inward face, open at
-its bottom end. The overhang beyond
+`1/2 in`-deep notch across the upright's inward face, open at its bottom end.
+The left notch is `1.5 in` high; the extended right notch is `7 in` high.
+Both keep their shoulders at the cross-piece's `8 in` top elevation.
+The overhang beyond
 each beam varies to bridge the gap to its upright. The ends are mitered to match
 the upright faces. Where the front board reaches the left-rear upright, its
 existing through corner clearance notch is retained.
@@ -1829,16 +1836,17 @@ entire assembly by 0.11 inch, including the uprights and beam tops;
 no compensating cuts are needed or modeled.
 
 All elevations below are measured from the modeled flat floor, using this
-5-inch caster height. `FLOOR_CLEARANCE = 1` still applies to the first riser,
-not the raised uprights.
+5-inch caster height. `FLOOR_CLEARANCE = 1` applies to the first riser,
+siding bottoms, and extended right uprights.
 
 | Feature or clearance | Nominal value |
 |---|---|
 | Caster mounting face / underside of flat support beam above floor | `5 in` |
 | Top of flat support beam above floor | `6.5 in` |
 | Top of support cross-piece / bottom-notch shoulder above floor | `8 in` |
-| Bottom of all uprights above floor | `6.5 in` |
-| Bottom of uprights above caster mounting face | `1.5 in` |
+| Bottom of left uprights above floor | `6.5 in` |
+| Bottom of right front/rear uprights above floor | `1 in` |
+| Bottom of left uprights above caster mounting face | `1.5 in` |
 | Wheel axle above floor, estimated as half the wheel diameter | `1.97 in` |
 | Top of wheel above floor | `3.93 in` |
 | Mounting face above top of wheel | `1.07 in` |
@@ -2113,7 +2121,8 @@ To place step $i$:
 
 The rotation changes both position and orientation. It is not a rotation about
 the step's translated local origin. The local vertical origin remains floor
-level; the lower support cross-pieces and uprights start at the `6.5 in` beam tops.
+level; the lower support cross-pieces and left uprights start at the `6.5 in`
+beam tops. Right uprights start at the siding bottom, `1 in` above the floor.
 
 The implementation maps East to `+X`, Up to `+Y`, and North to `-Z`. The camera
 orbits the assembled model's bounding-box center; the geometry retains its
@@ -2174,13 +2183,14 @@ slightly forward so its beveled uprights still fit 2x4 stock; adjoining
 side supports are refitted to their new rear planes. The uncut stock
 outline remains rectangular.
 
-All uprights start at the beam tops, `CASTER_HEIGHT + SUPPORT_BEAM_THICKNESS`,
-or `6.5` inches above the floor. Their
+Left uprights start at the beam tops, `CASTER_HEIGHT + SUPPORT_BEAM_THICKNESS`,
+or `6.5` inches above the floor. Right front and rear uprights start at
+`FLOOR_CLEARANCE`, or `1` inch, flush with the siding bottom. Their
 tops are at `height - TREAD_THICKNESS`, level with the tread's underside.
 Each upright's vertical length is therefore:
 
 ```js
-height - TREAD_THICKNESS - (CASTER_HEIGHT + SUPPORT_BEAM_THICKNESS)
+height - TREAD_THICKNESS - bottomHeight
 ```
 
 Each front upright uses `NotchedBoard` with an `endNear` cut for the upper
@@ -2201,7 +2211,8 @@ below the flat front step support. The beams start behind its back face.
 
 Every remaining front upright and each separate rear upright has an inward-facing
 bottom-open face notch for its support cross-piece. Combined left uprights share one notch between
-the front and rear cross-pieces. The openings span floor elevations `6.5` to `8` inches,
+the front and rear cross-pieces. The left openings span floor elevations
+`6.5` to `8` inches; the right openings span `1` to `8` inches,
 are `SUPPORT_NOTCH_DEPTH = 1/2` inch deep, and leave `1` inch of stock thickness.
 The left upright uses its positive-Y stock face; the right uses its negative-Y
 face. There are no remaining caster-platform dados.

@@ -783,19 +783,30 @@ function createSupportBeams(steps, firstModule) {
     return [["leftBoundary", { footprint: [step.footprint[0], step.footprint[3]] }],
       ["rightBoundary", { footprint: [step.footprint[1], step.footprint[2]] }],
       ...[["leftFrontSupport", step.parts.topFrame.boards.frontStepLeftSupport],
-        ["rightFrontSupport", step.parts.topFrame.boards.frontStepRightSupport]].filter(([, board]) => board)]
-      .map(([name, board]) => ({
-      name, footprint: board.footprint.map(([east, north]) =>
-        [c * (east + cornerRadius) - s * north, s * (east + cornerRadius) + c * north]),
-    }));
+        ["rightFrontSupport", step.parts.topFrame.boards.frontStepRightSupport],
+        ["rightUpright", step.parts.uprights.boards.rightUpright],
+        ["rightUpright", step.parts.uprights.boards.rightRearUpright]].filter(([, board]) => board)]
+      .map(([name, board]) => {
+        let footprint = board.footprint;
+        if (name === "rightUpright") {
+          const [inner, outer] = footprint;
+          const length = Math.hypot(outer[0] - inner[0], outer[1] - inner[1]);
+          const outward = outer.map((value, axis) => (value - inner[axis]) / length);
+          // The bottom-open notch removes the inward half inch throughout the beam's height.
+          footprint = clipFootprint(finishedFootprint(board), outward,
+            inner[0] * outward[0] + inner[1] * outward[1] + SUPPORT_NOTCH_DEPTH);
+        }
+        return { name, footprint: footprint.map(([east, north]) =>
+          [c * (east + cornerRadius) - s * north, s * (east + cornerRadius) + c * north]) };
+      });
   });
   const left = Math.max(...obstacles.filter(board => board.name.startsWith("left"))
     .flatMap(board => board.footprint.map(point => point[0])));
   // The outer end corners sit farther from the radii than the inner corners.
   const rightInset = frontSetback + width * sine;
-  const right = Math.min(...obstacles.filter(board => board.name.startsWith("right")).flatMap(board =>
-    clipFootprint(clipFootprint(board.footprint, [sine, cosine], rightInset), [sine, -cosine], width * sine)
-      .map(point => point[0])));
+  const right = Math.min(...obstacles.filter(board => board.name.startsWith("right") && board.name !== "rightUpright")
+    .flatMap(board => clipFootprint(clipFootprint(board.footprint, [sine, cosine], rightInset),
+      [sine, -cosine], width * sine).map(point => point[0])));
   const beam = (name, across) => {
     const end = across * sine / cosine;
     const front = (frontSetback - across * sine) / cosine;
@@ -818,11 +829,14 @@ function createSupportBeams(steps, firstModule) {
   const frame = firstModule ? newelPlanFrame(steps[0].parts.newel) : null;
   const innerCorner = firstModule ? pointAtNorth(frame.place([-TWO_BY_FOUR_STOCK.thickness, 0]),
     frame.place([-TWO_BY_FOUR_STOCK.thickness, 1]), RISER_THICKNESS + TWO_BY_FOUR_STOCK.thickness) : null;
+  const rightAcross = firstModule
+    ? (innerCorner[0] + cornerRadius) * cosine + innerCorner[1] * sine - width
+    : right - width - 3 / 4;
+  const uprightLimit = Math.min(...obstacles.filter(board => board.name === "rightUpright")
+    .flatMap(board => board.footprint.map(point => point[0])));
   const boards = {
     leftSupportBeam: beam("Beam - caster left", left),
-    rightSupportBeam: beam("Beam - caster right", firstModule
-      ? (innerCorner[0] + cornerRadius) * cosine + innerCorner[1] * sine - width
-      : right - width - 3 / 4),
+    rightSupportBeam: beam("Beam - caster right", Math.min(rightAcross, uprightLimit - width)),
   };
   return boards;
 }
@@ -1371,7 +1385,10 @@ function addNewelFraming(first, second, beams) {
   cheek.name = "Newel block - inner";
   boards.newelInnerBlock = cheek;
 
-  const backLength = blockBack - newel.width;
+  const rearObstruction = clipFootprint(clipFootprint(upright, [1, 0], 0),
+    [-1, 0], -TWO_BY_FOUR_STOCK.thickness);
+  const rearBack = Math.min(blockBack, ...rearObstruction.map(point => point[1]));
+  const backLength = rearBack - newel.width;
   const rearBlock = new FrameBoard([
     [0, newel.width], [TWO_BY_FOUR_STOCK.thickness, newel.width],
     [TWO_BY_FOUR_STOCK.thickness, newel.width + backLength], [0, newel.width + backLength],
@@ -1415,7 +1432,7 @@ export class Uprights {
       leftRearUpright: new UprightBoard(leftFront, leftBack, 1, height,
         { bottomHeight, rearBoundary: [footprint[3], footprint[2]] }),
       rightRearUpright: new UprightBoard(rightFront, rightBack, -1, height,
-        { bottomHeight, rearBoundary: [footprint[3], footprint[2]] }),
+        { bottomHeight: FLOOR_CLEARANCE, rearBoundary: [footprint[3], footprint[2]] }),
     } : {};
     const front = new UprightBoard(leftFront, leftBack, 1, height, { bottomHeight, frontSetback, frontBevel });
     const direction = front.footprint[3].map((value, axis) => (value - front.footprint[0][axis]) / front.width);
@@ -1437,7 +1454,8 @@ export class Uprights {
         delete rear.leftRearUpright;
       }
     }
-    const rightUpright = new UprightBoard(rightFront, rightBack, -1, height, { bottomHeight, frontSetback, frontBevel });
+    const rightUpright = new UprightBoard(rightFront, rightBack, -1, height,
+      { bottomHeight: FLOOR_CLEARANCE, frontSetback, frontBevel });
     if (leftInward.reduce((sum, value, axis) =>
       sum + value * (rightUpright.footprint[0][axis] - leftUpright.footprint[1][axis]), 0) <= 0) {
       throw new RangeError("Uprights overlap.");

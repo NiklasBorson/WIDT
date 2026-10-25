@@ -147,13 +147,99 @@ test("front tread continues step 2's right edge and aligns the newel framing wit
       }
     }
     close(project(newel.footprint[0], along), project(boards.southCrossPiece.footprint[2], along));
+    close(project(boards.newelRearBlock.footprint[0], along), project(newel.footprint[3], along));
+    close(project(boards.newelRearBlock.footprint[2], along), project(boards.newelRearBlock.footprint[3], along));
     for (const point of boards.newelRearBlock.footprint.slice(2)) {
-      close(project(point, along), project(boards.newelInnerBlock.footprint[2], along));
+      assert.ok(project(point, along) < project(boards.newelInnerBlock.footprint[2], along));
     }
     assert.equal(boards.southCrossPiece.cutFootprint, undefined);
     assert.equal(Object.keys(newel.notches).length, 0);
     close(boards.newelInnerBlock.footprint[0][1], 1.75);
     close(boards.newelInnerBlock.footprint[1][1], 1.75);
+  }
+});
+
+test("right uprights reach the siding bottom without moving their tops or cross-beam shoulders", () => {
+  for (const width of [20, 24, 36]) for (const count of [4, 5, 6, 7, 8, 9]) for (const modules of [2, 3]) {
+    if (count < modules * 2) continue;
+    const model = buildStairway(width, count, modules);
+    for (const step of model.steps.slice(1)) {
+      for (const [key, board] of Object.entries(step.parts.uprights.boards)) {
+        const right = key.startsWith("right"), bottom = right ? 1 : 6.5;
+        close(board.bottomHeight, bottom);
+        if (right) close(board.bottomHeight, step.parts.siding.bottomHeight);
+        close(board.bottomHeight + board.length, step.height - 0.5);
+        const crossPiece = step.parts.bottomFrame.boards[key.includes("Rear") ?
+          "rearSupportCrossPiece" : "supportCrossPiece"];
+        const description = board.getManufacturingDescription();
+        const notch = description.dados.find(cut => cut.endNotch && cut.start === 0);
+        assert.ok(notch);
+        assert.equal(notch.face, right ? "negativeY" : "positiveY");
+        close(notch.depth, 0.5);
+        close(board.bottomHeight + notch.width, 8);
+        close(board.bottomHeight + notch.width, crossPiece.bottomHeight + crossPiece.thickness);
+        close(description.cutLength, step.height - 0.5 - bottom);
+        const installed = board.createGeometry();
+        for (const geometry of [installed, board.createStockGeometry()]) {
+          assertBoardsGeometry(geometry);
+          close(meshVolume(geometry), cutBoardVolume(board), 1e-3);
+        }
+        const heights = Array.from(installed.positions).filter((_, index) => index % 3 === 1);
+        close(Math.min(...heights), bottom);
+        close(Math.max(...heights), step.height - 0.5);
+      }
+    }
+  }
+});
+
+function horizontalSection(board, height) {
+  const { positions, indices } = board.createGeometry(), points = [];
+  for (let index = 0; index < indices.length; index += 3) {
+    const triangle = Array.from(indices.subarray(index, index + 3), vertex =>
+      Array.from(positions.subarray(vertex * 3, vertex * 3 + 3)));
+    for (let edge = 0; edge < 3; edge++) {
+      const start = triangle[edge], end = triangle[(edge + 1) % 3];
+      if ((start[1] - height) * (end[1] - height) > 0 || start[1] === end[1]) continue;
+      const t = (height - start[1]) / (end[1] - start[1]);
+      points.push([start[0] + t * (end[0] - start[0]), -(start[2] + t * (end[2] - start[2]))]);
+    }
+  }
+  assert.ok(points.length > 0);
+  return points;
+}
+
+function assertOutsideFootprint(points, footprint, message) {
+  assert.ok(footprint.some((start, index) => {
+    const end = footprint[(index + 1) % footprint.length];
+    return points.every(point => (end[0] - start[0]) * (point[1] - start[1]) -
+      (end[1] - start[1]) * (point[0] - start[0]) <= 1e-4);
+  }), message);
+}
+
+test("extended right uprights clear the newel blocks and caster beams across module layouts", () => {
+  for (const width of [20, 24, 36]) for (const count of [4, 5, 6, 7, 8, 9]) for (const modules of [2, 3]) {
+    if (count < modules * 2) continue;
+    const model = buildStairway(width, count, modules);
+    const rotate = (points, angle) => points.map(([east, north]) =>
+      [Math.cos(angle) * (east + model.cornerRadius) - Math.sin(angle) * north - model.cornerRadius,
+        Math.sin(angle) * (east + model.cornerRadius) + Math.cos(angle) * north]);
+    const secondUpright = model.steps[1].parts.uprights.boards.rightUpright;
+    const newelSection = rotate(horizontalSection(secondUpright, 4.75), model.steps[1].angle);
+    for (const key of ["newelRearBlock", "newelInnerBlock"]) {
+      assertOutsideFootprint(newelSection, model.steps[0].parts.topFrame.boards[key].footprint,
+        `${width}/${count}/${modules}: step-2 upright intersects ${key}`);
+    }
+    for (const [moduleIndex, module] of model.modules.entries()) for (const [index, step] of module.steps.entries()) {
+      for (const key of ["rightUpright", "rightRearUpright"]) {
+        const upright = step.parts.uprights.boards[key];
+        if (!upright) continue;
+        const section = rotate(horizontalSection(upright, 5.75), index * step.angle);
+        for (const [beamKey, beam] of Object.entries(module.boards)) {
+          assertOutsideFootprint(section, beam.footprint,
+            `${width}/${count}/${modules}, module ${moduleIndex + 1}, step ${index + 1}: ${key} intersects ${beamKey}`);
+        }
+      }
+    }
   }
 });
 
@@ -530,21 +616,31 @@ test("plan cutouts preserve closed concave meshes and describe cuts inside the o
   }
 });
 
-test("caster plates stay aligned and fully supported after a beam front is mitered", () => {
-  const model = buildStairway(), beam = model.modules[0].boards.rightSupportBeam;
-  const caster = model.steps[0].parts.bottomFrame.hardware.rightCaster;
-  const along = [-Math.sin(caster.heading), Math.cos(caster.heading)];
-  const across = [Math.cos(caster.heading), Math.sin(caster.heading)];
-  for (const lengthSign of [-1, 1]) {
-    for (const widthSign of [-1, 1]) {
-      const corner = [caster.east, caster.north].map((value, axis) =>
-        value + along[axis] * lengthSign * CASTER_DIMENSIONS.plateLength / 2 +
-        across[axis] * widthSign * CASTER_DIMENSIONS.plateWidth / 2);
-      assert.ok(corner[1] >= beam.casterFrontBoundary + 0.125 - 1e-8);
-      for (const [i, start] of beam.footprint.entries()) {
-        const end = beam.footprint[(i + 1) % beam.footprint.length];
-        assert.ok((end[0] - start[0]) * (corner[1] - start[1]) -
-          (end[1] - start[1]) * (corner[0] - start[0]) >= -1e-8);
+test("caster plates stay aligned and fully supported after beam miters and upright clearance shifts", () => {
+  for (const width of [20, 24, 36]) for (const count of [4, 5, 6, 7, 8, 9]) for (const modules of [2, 3]) {
+    if (count < modules * 2) continue;
+    const model = buildStairway(width, count, modules);
+    for (const module of model.modules) for (const side of ["left", "right"]) for (const rear of [false, true]) {
+      const beam = module.boards[`${side}SupportBeam`];
+      const caster = (rear ? module.steps.at(-1) : module.steps[0])
+        .parts.bottomFrame.hardware[`${side}${rear ? "Rear" : ""}Caster`];
+      const angle = rear ? (module.steps.length - 1) * module.steps[0].angle : 0;
+      const along = [-Math.sin(caster.heading), Math.cos(caster.heading)];
+      const across = [Math.cos(caster.heading), Math.sin(caster.heading)];
+      for (const lengthSign of [-1, 1]) for (const widthSign of [-1, 1]) {
+        const [east, north] = [caster.east, caster.north].map((value, axis) =>
+          value + along[axis] * lengthSign * CASTER_DIMENSIONS.plateLength / 2 +
+          across[axis] * widthSign * CASTER_DIMENSIONS.plateWidth / 2);
+        const corner = [Math.cos(angle) * (east + model.cornerRadius) - Math.sin(angle) * north - model.cornerRadius,
+          Math.sin(angle) * (east + model.cornerRadius) + Math.cos(angle) * north];
+        if (!rear && beam.casterFrontBoundary !== undefined) {
+          assert.ok(corner[1] >= beam.casterFrontBoundary + 0.125 - 1e-8);
+        }
+        for (const [i, start] of beam.footprint.entries()) {
+          const end = beam.footprint[(i + 1) % beam.footprint.length];
+          assert.ok((end[0] - start[0]) * (corner[1] - start[1]) -
+            (end[1] - start[1]) * (corner[0] - start[0]) >= -1e-8);
+        }
       }
     }
   }

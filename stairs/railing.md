@@ -32,8 +32,10 @@ steps or that all sections have equal lengths.
 
 The present foundation has right-front uprights at each step and an additional
 right-rear upright at each module's back. All of these uprights are pine, based on
-`0.75 x 3.5 in` stock, with existing notches and dados. Their outer faces now
-align with the step sides. There are no side boards.
+`1.5 x 3.5 in` stock, with existing notches and dados. Their outer faces
+align with the step sides. Their bottoms reach the siding bottom, `1 in`
+above the floor; the bottom-open cross-beam notches retain their `8 in`
+shoulder elevation. There are no side boards.
 
 Those uprights provide useful attachment locations, but they should not be
 assumed adequate as freestanding railing posts. They are thin in one bending
