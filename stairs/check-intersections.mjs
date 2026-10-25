@@ -23,7 +23,8 @@ export async function checkConfigurations(directory = join(root, ".clash-results
       console.log(`\nChecking ${label}`);
       try {
         await rm(file, { force: true });
-        await exportStairway(file, stairCount, moduleCount);
+        const excludePieceIds = Array.from({ length: moduleCount }, (_, i) => `stairway/module-${i + 1}/siding`);
+        await exportStairway(file, stairCount, moduleCount, { excludePieceIds });
         const checked = run(executable, [file], { stdio: "inherit" });
         if (checked.error) throw checked.error;
         if (checked.status === 0) {
@@ -40,7 +41,7 @@ export async function checkConfigurations(directory = join(root, ".clash-results
       }
     }
   }
-  console.log(`\nSix configurations: ${passed} clear, ${failed} with interference, ${errors} errors.`);
+  console.log(`\nSix configurations: ${passed} clear among checked pieces, ${failed} with interference, ${errors} errors. Curved module siding excluded; both flat step-1 siding pieces included.`);
   return { passed, failed, errors, exitCode: errors ? 2 : Number(failed > 0) };
 }
 

@@ -36,6 +36,10 @@ const FOUR_BY_FOUR_STOCK = { kind: "lumber", nominalSize: "4x4", thickness: 3.5,
 function estimateWoodWeightLb(boards) {
   let weight = 0;
   for (const board of boards) {
+    if (typeof board.getMaterialVolume === "function") {
+      weight += board.getMaterialVolume() / 1728 * board.material.density;
+      continue;
+    }
     const { positions: p, indices } = board.createGeometry();
     let volume = 0;
     // Sum signed tetrahedra for the closed board meshes, in cubic inches.
@@ -1834,6 +1838,206 @@ export class Siding extends FrameBoard {
   }
 }
 
+const distinctCoordinates = values => values.sort((a, b) => a - b)
+  .filter((value, i, all) => i === 0 || value - all[i - 1] > 1e-8);
+
+export class BentPlywood extends Board {
+  constructor({ profile, thickness, innerRadius, startAngle = 0, center = [0, 0], bottomHeight = 0 }) {
+    validateDimensions("Bent plywood", { innerRadius });
+    if (!Array.isArray(profile) || profile.length < 4 || profile.some(point =>
+      point.length !== 2 || point.some(value => !Number.isFinite(value))) ||
+      Math.min(...profile.map(point => point[0])) !== 0 ||
+      Math.min(...profile.map(point => point[1])) !== 0 ||
+      !Number.isFinite(startAngle) || !Number.isFinite(bottomHeight) ||
+      center.length !== 2 || center.some(value => !Number.isFinite(value))) {
+      throw new RangeError("Bent plywood requires a finite, origin-aligned flat outline and placement.");
+    }
+    triangulateProfile(profile);
+    super({ length: Math.max(...profile.map(point => point[0])),
+      width: Math.max(...profile.map(point => point[1])), thickness, material: PLYWOOD,
+      stock: { kind: "plywood", thickness } });
+    this.profile = profile.map(point => [...point]);
+    this.bend = Object.freeze({ innerRadius, neutralRadius: innerRadius + thickness / 2,
+      sweepRadians: this.length / (innerRadius + thickness / 2) });
+    if (this.bend.sweepRadians >= Math.PI * 2) throw new RangeError("Bent plywood must not wrap onto itself.");
+    this.startAngle = startAngle;
+    this.center = [...center];
+    this.bottomHeight = bottomHeight;
+  }
+
+  get grain() {
+    return { direction: [0, 0, 1], endFaces: [], plyDirection: [0, 1, 0], plyThickness: this.thickness / 3 };
+  }
+
+  getBlankShape() {
+    const count = this.profile.length;
+    return {
+      vertices: [0, this.thickness].flatMap(y => this.profile.map(([x, z]) => [x, y, z])),
+      faces: [
+        { name: "Outer face", axis: "thickness", indices: this.profile.map((_, i) => i) },
+        { name: "Inner face", axis: "thickness", indices: this.profile.map((_, i) => count + i).reverse() },
+        ...this.profile.map((point, i) => {
+          const next = (i + 1) % count;
+          return { name: `Edge ${i + 1}`,
+            axis: Math.abs(point[0] - this.profile[next][0]) < 1e-8 ? "length" : "width",
+            indices: [i, count + i, count + next, next] };
+        }),
+      ],
+    };
+  }
+
+  getManufacturingDescription() { return { ...super.getManufacturingDescription(), bend: { ...this.bend } }; }
+
+  getMaterialVolume() {
+    return this.thickness * this.profile.reduce((sum, [x, z], i) => {
+      const next = this.profile[(i + 1) % this.profile.length];
+      return sum + x * next[1] - next[0] * z;
+    }, 0) / 2;
+  }
+
+  getStockAxes() {
+    const angle = this.startAngle + this.bend.sweepRadians / 2, c = Math.cos(angle), s = Math.sin(angle);
+    return [[-s, 0, -c], [-c, 0, s], [0, 1, 0]];
+  }
+
+  createStockGeometry() {
+    return geometryFromProfiles([this.profile, this.profile], [0, this.thickness], this.color,
+      this.grain, this.profile.map((_, i) => i));
+  }
+
+  createGeometry() {
+    const { innerRadius, neutralRadius, sweepRadians } = this.bend;
+    // Include outline corners in the angular grid; keep every shared strip edge conforming.
+    const count = Math.ceil(sweepRadians / (2 * Math.acos(1 - 0.001 / (innerRadius + this.thickness))));
+    const xs = distinctCoordinates([...this.profile.map(point => point[0]),
+      ...Array.from({ length: count + 1 }, (_, i) => this.length * i / count)]);
+    const edges = this.profile.map((a, i) => [a, this.profile[(i + 1) % this.profile.length]]);
+    const zAt = ([a, b], x) => a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0]);
+    const levels = xs.map(x => distinctCoordinates(edges.flatMap(edge => {
+      const [a, b] = edge;
+      if (x < Math.min(a[0], b[0]) - 1e-9 || x > Math.max(a[0], b[0]) + 1e-9) return [];
+      return Math.abs(a[0] - b[0]) < 1e-9 ? [a[1], b[1]] : [zAt(edge, x)];
+    })));
+    const faces = [], endFaces = [];
+    const at = ([x, z], y) => [x, y, z];
+    for (let i = 0; i < xs.length - 1; i++) {
+      const left = xs[i], right = xs[i + 1], mid = (left + right) / 2;
+      if (right - left < 1e-9) continue;
+      const crossing = edges.filter(([a, b]) => mid > Math.min(a[0], b[0]) && mid < Math.max(a[0], b[0]))
+        .sort((a, b) => zAt(a, mid) - zAt(b, mid));
+      for (let j = 0; j < crossing.length; j += 2) {
+        const low = crossing[j], high = crossing[j + 1];
+        const bottom = [zAt(low, left), zAt(low, right)], top = [zAt(high, left), zAt(high, right)];
+        const polygon = [
+          [left, bottom[0]], [right, bottom[1]],
+          ...levels[i + 1].filter(z => z > bottom[1] + 1e-9 && z < top[1] - 1e-9).map(z => [right, z]),
+          [right, top[1]], [left, top[0]],
+          ...levels[i].filter(z => z > bottom[0] + 1e-9 && z < top[0] - 1e-9).reverse().map(z => [left, z]),
+        ].filter((point, k, all) => k === 0 || Math.hypot(...point.map((v, axis) => v - all[k - 1][axis])) > 1e-9);
+        for (const triangle of triangulateProfile(polygon)) {
+          faces.push(triangle.map(index => at(polygon[index], 0)),
+            triangle.map(index => at(polygon[index], this.thickness)).reverse());
+        }
+      }
+    }
+    for (const [a, b] of edges) {
+      const vertical = Math.abs(a[0] - b[0]) < 1e-9;
+      const interior = vertical
+        ? levels[xs.findIndex(x => Math.abs(x - a[0]) < 1e-8)]
+          .filter(z => z > Math.min(a[1], b[1]) + 1e-8 && z < Math.max(a[1], b[1]) - 1e-8).map(z => [a[0], z])
+        : xs.filter(x => x > Math.min(a[0], b[0]) + 1e-8 && x < Math.max(a[0], b[0]) - 1e-8)
+          .map(x => [x, zAt([a, b], x)]);
+      interior.sort((p, q) => vertical ? (p[1] - q[1]) * Math.sign(b[1] - a[1])
+        : (p[0] - q[0]) * Math.sign(b[0] - a[0]));
+      const points = [a, ...interior, b];
+      for (let i = 0; i < points.length - 1; i++) {
+        const corners = [at(points[i], 0), at(points[i], this.thickness),
+          at(points[i + 1], this.thickness), at(points[i + 1], 0)];
+        for (const indices of [[0, 1, 2], [0, 2, 3]]) {
+          endFaces.push(faces.length);
+          faces.push(indices.map(index => corners[index]));
+        }
+      }
+    }
+    const geometry = geometryFromFaces(faces, this.color, { ...this.grain, endFaces, origin: [0, 0, 0] });
+    for (let i = 0; i < geometry.positions.length; i += 3) {
+      const angle = this.startAngle + geometry.positions[i] / neutralRadius;
+      const radius = innerRadius + this.thickness - geometry.positions[i + 1];
+      const height = geometry.positions[i + 2];
+      geometry.positions.set([this.center[0] + radius * Math.cos(angle), this.bottomHeight + height,
+        -this.center[1] - radius * Math.sin(angle)], i);
+    }
+    for (let i = 0; i < geometry.indices.length; i += 3) {
+      const vertices = Array.from(geometry.indices.slice(i, i + 3), index => index * 3);
+      const [a, b, c] = vertices.map(index => geometry.positions.slice(index, index + 3));
+      const ab = b.map((v, axis) => v - a[axis]), ac = c.map((v, axis) => v - a[axis]);
+      const normal = [ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2],
+        ab[0] * ac[1] - ab[1] * ac[0]];
+      const length = Math.hypot(...normal);
+      for (const vertex of vertices) geometry.normals.set(normal.map(v => v / length), vertex);
+    }
+    return geometry;
+  }
+}
+
+function createModuleSiding(module, spindles) {
+  const { cornerRadius, angle } = module.steps[0];
+  const rear = module.steps.at(-1).parts.uprights.boards.rightRearUpright;
+  const innerRadius = Math.max(...rear.footprint.map(([east, north]) => Math.hypot(east + cornerRadius, north)));
+  const neutralRadius = innerRadius + SIDING_THICKNESS / 2;
+  const start = module.startIndex === 0 ? angle : 0;
+  const end = module.steps.length * angle, cuts = [];
+  if (!Number.isFinite(start) || start >= end) throw new RangeError("Curved siding requires a finite positive angular span.");
+  for (const { spindle, index } of spindles) {
+    const rotation = (index - module.startIndex) * angle, c = Math.cos(rotation), s = Math.sin(rotation);
+    const footprint = spindle.footprint.map(([east, north]) =>
+      [c * (east + cornerRadius) - s * north, s * (east + cornerRadius) + c * north]);
+    const points = footprint.filter(point => {
+      const radius = Math.hypot(...point);
+      return radius >= innerRadius && radius <= innerRadius + SIDING_THICKNESS;
+    });
+    for (let i = 0; i < footprint.length; i++) {
+      const a = footprint[i], b = footprint[(i + 1) % footprint.length], d = b.map((v, axis) => v - a[axis]);
+      const aa = d[0] ** 2 + d[1] ** 2, bb = 2 * (a[0] * d[0] + a[1] * d[1]);
+      for (const radius of [innerRadius, innerRadius + SIDING_THICKNESS]) {
+        const discriminant = bb ** 2 - 4 * aa * (a[0] ** 2 + a[1] ** 2 - radius ** 2);
+        if (discriminant < 0) continue;
+        for (const t of [(-bb - Math.sqrt(discriminant)) / (2 * aa), (-bb + Math.sqrt(discriminant)) / (2 * aa)]) {
+          if (t >= 0 && t <= 1) points.push(a.map((v, axis) => v + d[axis] * t));
+        }
+      }
+    }
+    if (!points.length) continue;
+    const angles = points.map(([x, y]) => Math.atan2(y, x));
+    const left = Math.max(start, Math.min(...angles)), right = Math.min(end, Math.max(...angles));
+    if (right <= left) continue;
+    const outward = footprint[1].map((v, i) => (v - footprint[0][i]) / spindle.width);
+    // A through-cut clears both faces of the bent sheet, including the sloped spindle bottom.
+    const floor = Math.min(...[left, right].flatMap(theta =>
+      [innerRadius, innerRadius + SIDING_THICKNESS].map(radius =>
+        spindle.bottomHeight + outward.reduce((sum, v, axis) =>
+          sum + v * (radius * [Math.cos(theta), Math.sin(theta)][axis] - footprint[0][axis]), 0))));
+    cuts.push({ left, right, floor });
+  }
+  const boundaries = distinctCoordinates([start, end, ...module.steps.map((_, i) => i * angle)
+    .filter(value => value > start && value < end), ...cuts.flatMap(cut => [cut.left, cut.right])]);
+  const top = [];
+  for (let i = 0; i < boundaries.length - 1; i++) {
+    const left = boundaries[i], right = boundaries[i + 1], mid = (left + right) / 2;
+    const height = Math.min(module.steps[Math.floor(mid / angle)].height,
+      ...cuts.filter(cut => mid > cut.left && mid < cut.right).map(cut => cut.floor)) - FLOOR_CLEARANCE;
+    if (height <= 0) throw new RangeError("Curved siding clearance removes the full panel height.");
+    top.push([(left - start) * neutralRadius, height], [(right - start) * neutralRadius, height]);
+  }
+  const outline = [[0, 0], [(end - start) * neutralRadius, 0], ...top.reverse()];
+  const profile = outline.filter((point, i) => i === 0 ||
+    Math.hypot(...point.map((v, axis) => v - outline[i - 1][axis])) > 1e-8);
+  const board = new BentPlywood({ profile, thickness: SIDING_THICKNESS, innerRadius, startAngle: start,
+    center: [-cornerRadius, 0], bottomHeight: FLOOR_CLEARANCE });
+  board.name = "Side panel - curved";
+  return board;
+}
+
 export class BackPanel extends FrameBoard {
   constructor(step) {
     const { leftRearUpright, leftUpright, rightRearUpright } = step.parts.uprights.boards;
@@ -2229,16 +2433,9 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
       [rear.footprint[3], rear.footprint[2], boundary[1], boundary[0]],
       rearTop, angle);
   }
-  for (const [index, step] of steps.entries()) {
-    if (step === first) continue;
-    for (const { spindle, index: sourceIndex } of spindles) {
-      const rotation = (sourceIndex - index) * angle, c = Math.cos(rotation), s = Math.sin(rotation);
-      const footprint = spindle.footprint.map(([east, north]) => [
-        c * (east + cornerRadius) - s * north - cornerRadius,
-        s * (east + cornerRadius) + c * north,
-      ]);
-      step.parts.siding.notchForSpindle(footprint, spindle.bottomHeight);
-    }
+  for (const module of modules) {
+    module.boards.siding = createModuleSiding(module, spindles);
+    for (const step of module.steps) if (step !== first) delete step.parts.siding;
   }
   for (const module of modules) {
     module.estimatedWeightLb = module.steps.reduce((sum, step) =>
@@ -2334,6 +2531,7 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
         return geometry;
       }
       const node = this.partTree.getNode(nodeId), part = node.component;
+      if (stockAligned && part.bend) return combineGeometries([]);
       const module = this.partTree.getAncestors(nodeId).find(node => node.kind === "module").component;
       const rotation = (node.stepNumber === null ? module.startIndex : node.stepNumber - 1) * angle;
       const cosine = Math.cos(rotation), sine = Math.sin(rotation);
@@ -2399,9 +2597,10 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
         return [
           ...module.steps.map((step, index) =>
             placeGeometry(step.createGeometry(visibility, includedBoards), module.startIndex + index, moduleRotation)),
-          ...Object.values(module.boards)
-            .filter(board => visibility.supportBeams !== false && (!includedBoards || includedBoards.has(board)))
-            .map(board => placeGeometry(board.createGeometry(), module.startIndex, moduleRotation)),
+          ...Object.entries(module.boards)
+            .filter(([key, board]) => visibility[key === "siding" ? "siding" : "supportBeams"] !== false &&
+              (!includedBoards || includedBoards.has(board)))
+            .map(([, board]) => placeGeometry(board.createGeometry(), module.startIndex, moduleRotation)),
         ];
       }));
     },

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildStairway, NotchedBoard, SpindleShim, PINE, OAK, PARTICLE_BOARD } from "./model.js";
+import { buildStairway, NotchedBoard, Siding, BentPlywood, SpindleShim, PINE, OAK, PARTICLE_BOARD } from "./model.js";
 import { PartInventory, PART_SUBSETS, manufacturingSpecification } from "./part-list.js";
 import { formatLength, formatPartDescription, getSimpleEdgeBevel } from "./part-description.js";
 import { getPartFeatures } from "./part-annotations.js";
@@ -47,7 +47,7 @@ test("modeled part names use family-first qualifiers across every supported layo
     newelInnerBlock: "Newel block - inner", newelRearBlock: "Newel block - rear",
     newel: "Newel post", riser: "Riser", tread: "Tread", backPanel: "Rear panel",
     frontSpindle: "Spindle - front", rearSpindle: "Spindle - rear", spindleShim: "Spindle shim",
-    siding: ["Side panel - right", "Side panel - right rear section"],
+    siding: ["Side panel - curved", "Side panel - right rear section"],
     frontSiding: "Side panel - right front section",
   };
   const seen = new Set();
@@ -57,7 +57,7 @@ test("modeled part names use family-first qualifiers across every supported layo
       assert.ok([names[node.key]].flat().includes(node.name), `${node.id}: ${node.name}`);
       assert.equal(node.getDescription().name, node.name);
       if (node.key === "siding") assert.equal(node.name,
-        node.stepNumber === 1 ? "Side panel - right rear section" : "Side panel - right");
+        node.stepNumber === 1 ? "Side panel - right rear section" : "Side panel - curved");
       const entry = inventory.findOccurrence(node.id);
       assert.ok(entry.roles.some(role => role.label === node.name));
       assert.equal(entry.locations.find(location => location.id === node.id).name, node.name);
@@ -461,7 +461,7 @@ test("simple edge bevels need only an actual end-profile angle, not linked featu
     }
   }
   for (const id of ["stairway/module-1/step-1-newel", "stairway/module-1/step-3-rightUpright",
-    "stairway/module-1/step-3-spindleShim", "stairway/module-1/step-2-siding"]) {
+    "stairway/module-1/step-3-spindleShim", "stairway/module-1/siding"]) {
     assert.equal(getSimpleEdgeBevel(model.partTree.getNode(id).getDescription()), null, id);
   }
   for (const [length, depth] of [[5, [0, 0.25]], [10, [0.25, 0.5]]]) {
@@ -603,8 +603,12 @@ test("upright bevel callouts give full-face width difference, not bevel length o
 
 test("single-view plywood retains both notch profiles and labels separate true-angle plane constructions", () => {
   const model = buildStairway();
-  const node = model.partTree.getNode("stairway/module-1/step-2-siding");
-  const description = node.getDescription(), views = model.partTree.getStockViews(node.id);
+  const step = model.steps[1], sheet = new Siding(step.footprint, step.height, step.cornerRadius);
+  sheet.edgeNotches.push({ profiles: [0, 1].map(face =>
+    [[2, sheet.width - 2 + face / 8], [3.5, sheet.width - 2 + face / 8]]) });
+  step.parts.siding = sheet;
+  const tree = new PartTree(model), node = tree.getNode("stairway/module-1/step-2-siding");
+  const description = node.getDescription(), views = tree.getStockViews(node.id);
   const view = views.find(view => view.name === "Right");
   const features = getPartFeatures(description, view, views);
   const notch = features.find(feature => feature.id === "N1");
@@ -619,6 +623,22 @@ test("single-view plywood retains both notch profiles and labels separate true-a
       assert.ok(Math.abs(normal.reduce((sum, value, axis) => sum + value * angle.viewDirection[axis], 0)) < 1e-8);
     }
   }
+});
+
+test("bending requirements distinguish identical flat patterns and explain the installed versus stock views", () => {
+  const profile = [[0, 0], [20, 0], [20, 12], [10, 12], [10, 6], [0, 6]];
+  const make = (innerRadius, startAngle = 0) => new BentPlywood({
+    profile, thickness: 0.125, innerRadius, startAngle,
+  }).getManufacturingDescription();
+  const original = make(60);
+  assert.equal(specification(original), specification(make(60, 0.5)));
+  assert.notEqual(specification(original), specification(make(61)));
+  const flat = structuredClone(original);
+  delete flat.bend;
+  assert.notEqual(specification(original), specification(flat));
+  const formatted = formatPartDescription(original);
+  assert.match(formatted.cuts.join(" "), /inner radius of 60 in.*mid-thickness/);
+  assert.match(formatted.note, /flat cutting pattern.*installed bend/);
 });
 
 test("identity ignores naming, vertex enumeration, feature order, and numerical noise but not geometry", () => {

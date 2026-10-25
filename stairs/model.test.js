@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  Board, OneByFour, NotchedBoard, Siding, SpindleShim, CASTER_DIMENSIONS, INNER_RADIUS,
+  Board, OneByFour, NotchedBoard, Siding, BentPlywood, SpindleShim, CASTER_DIMENSIONS, INNER_RADIUS,
   buildStairway, combineGeometries, OAK, PLYWOOD, PARTICLE_BOARD,
 } from "./model.js";
 import { PartNode } from "./parts.js";
@@ -190,7 +190,8 @@ test("right uprights reach the siding bottom without moving their tops or cross-
       for (const [key, board] of Object.entries(step.parts.uprights.boards)) {
         const right = key.startsWith("right"), bottom = right ? 1 : 6.5;
         close(board.bottomHeight, bottom);
-        if (right) close(board.bottomHeight, step.parts.siding.bottomHeight);
+        if (right) close(board.bottomHeight,
+          model.modules.find(module => module.steps.includes(step)).boards.siding.bottomHeight);
         close(board.bottomHeight + board.length, step.height - 0.5);
         const crossPiece = step.parts.bottomFrame.boards[key.includes("Rear") ?
           "rearSupportCrossPiece" : "supportCrossPiece"];
@@ -258,6 +259,7 @@ test("extended right uprights clear the newel blocks and caster beams across mod
         if (!upright) continue;
         const section = rotate(horizontalSection(upright, 5.75), index * step.angle);
         for (const [beamKey, beam] of Object.entries(module.boards)) {
+          if (beamKey === "siding") continue;
           assertOutsideFootprint(section, beam.footprint,
             `${width}/${count}/${modules}, module ${moduleIndex + 1}, step ${index + 1}: ${key} intersects ${beamKey}`);
         }
@@ -300,15 +302,18 @@ test("front step support reaches both tread edges while retaining its stock, hei
   }
 });
 
-test("bottom-step siding retains front and rear pieces fitted around the newel", () => {
+test("step 1 keeps both flat siding pieces around the newel; curved siding starts at step 2", () => {
   for (const stepCount of [7, 8, 9]) {
-    const first = buildStairway(24, stepCount, 3).steps[0];
+    const model = buildStairway(24, stepCount, 3), first = model.steps[0];
     const { newel, frontSiding, siding } = first.parts;
+    const curved = model.modules[0].boards.siding;
     const along = newel.footprint[3].map((value, axis) => (value - newel.footprint[0][axis]) / newel.width);
     const project = point => point.reduce((sum, value, axis) =>
       sum + (value - newel.footprint[0][axis]) * along[axis], 0);
     for (const point of frontSiding.footprint.slice(2)) close(project(point), 0);
     for (const point of siding.footprint.slice(0, 2)) close(project(point), newel.width);
+    close(curved.startAngle, first.angle);
+    close(curved.bend.sweepRadians, (model.modules[0].steps.length - 1) * first.angle);
     assert.ok(project(frontSiding.footprint[0]) < 0);
     assert.ok(project(siding.footprint[3]) > newel.width);
     for (const sheet of [frontSiding, siding]) {
@@ -320,6 +325,42 @@ test("bottom-step siding retains front and rear pieces fitted around the newel",
       close(meshVolume(world), meshVolume(stock), 1e-4);
       close(sheet.getManufacturingDescription().blank.thickness, 0.125);
     }
+  }
+});
+
+test("curved module siding has a flat cutting pattern, midpoint bend, closed mesh and exact material weight", () => {
+  for (const width of [20, 24, 36]) for (const steps of [4, 5, 6, 7, 8, 9]) for (const modules of [2, 3]) {
+    if (steps < modules * 2) continue;
+    const model = buildStairway(width, steps, modules);
+    const leaves = model.partTree.getLeaves(), panels = leaves.filter(node => node.component instanceof BentPlywood);
+    assert.equal(panels.length, modules);
+    assert.equal(leaves.filter(node => node.category === "siding").length, modules + 2);
+    assert.ok(model.steps.slice(1).every(step => !step.parts.siding));
+    for (const node of panels) {
+      const board = node.component, module = model.modules.find(module => module.boards.siding === board);
+      const rear = module.steps.at(-1).parts.uprights.boards.rightRearUpright.createGeometry();
+      const radius = Math.max(...Array.from({ length: rear.positions.length / 3 }, (_, i) =>
+        Math.hypot(rear.positions[i * 3] + model.cornerRadius, rear.positions[i * 3 + 2])));
+      close(board.bend.innerRadius, radius);
+      close(board.bend.neutralRadius, radius + board.thickness / 2);
+      close(board.length, board.bend.neutralRadius * board.bend.sweepRadians);
+      const stock = board.createStockGeometry(), installed = board.createGeometry();
+      assertBoardsGeometry(stock);
+      assertBoardsGeometry(installed);
+      close(meshVolume(stock), board.getMaterialVolume(), 1e-3);
+      assert.ok(Math.abs(meshVolume(installed) / board.getMaterialVolume() - 1) < 0.0001);
+      for (let i = 0; i < installed.positions.length; i += 3) {
+        const r = Math.hypot(installed.positions[i] + model.cornerRadius, installed.positions[i + 2]);
+        assert.ok(Math.min(Math.abs(r - radius), Math.abs(r - radius - board.thickness)) < 1e-4);
+      }
+      const expectedWeight = board.getMaterialVolume() / 1728 * PLYWOOD.density;
+      close(model.estimateNodeWeightLb(node.id), expectedWeight, 1e-10);
+      board.createGeometry = () => assert.fail("Weight must use the cutting pattern, not tessellation");
+      close(model.estimateNodeWeightLb(node.id), expectedWeight, 1e-10);
+      assert.equal(model.createFootprintGeometry(node.id, true).indices.length, 0);
+      assert.equal(model.partTree.getStockViews(node.id).length, 6);
+    }
+    close(model.estimatedWeightLb, model.estimateNodeWeightLb(), 1e-7);
   }
 });
 

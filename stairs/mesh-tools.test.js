@@ -59,6 +59,32 @@ test("XML names are escaped and malformed meshes are rejected with the part ID",
   }
 });
 
+test("explicit piece exclusions omit only selected panels, reject unknown IDs, and leave full exports unchanged", async context => {
+  const model = buildStairway(24, 7, 2), ids = model.modules.map((_, i) => `stairway/module-${i + 1}/siding`);
+  const full = serializeScene(model), filtered = serializeScene(model, { excludePieceIds: ids });
+  for (const id of ids) {
+    assert.ok(full.includes(`<part id="${id}"`));
+    assert.ok(!filtered.includes(`<part id="${id}"`));
+  }
+  for (const id of ["stairway/module-1/step-1-siding", "stairway/module-1/step-1-frontSiding"]) {
+    assert.ok(filtered.includes(`<part id="${id}"`), "Both flat step-1 panels remain checked.");
+  }
+  assert.equal((full.match(/<part /g) ?? []).length - (filtered.match(/<part /g) ?? []).length, 2);
+  assert.throws(() => serializeScene(model, { excludePieceIds: ["stairway/module-99/siding"] }), /Unknown excluded piece/);
+  const directory = await temporaryDirectory(context), file = join(directory, "excluded.xml");
+  const result = spawnSync(process.execPath, [join(root, "export-meshes.mjs"), file, "7", "2",
+    ...ids.flatMap(id => ["--exclude-piece", id])], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(await readFile(file, "utf8"), filtered);
+  assert.match(result.stdout, /Excluded 2 pieces from clash coverage/);
+  for (const id of ids) assert.ok(result.stdout.includes(id));
+  const invalid = spawnSync(process.execPath, [join(root, "export-meshes.mjs"), join(directory, "invalid.xml"),
+    "--exclude-piece", "unknown-piece"], { encoding: "utf8" });
+  assert.equal(invalid.status, 2);
+  assert.match(invalid.stderr, /Unknown excluded piece/);
+  assert.deepEqual(await readdir(directory), ["excluded.xml"]);
+});
+
 test("export CLI uses default width and rejects invalid configurations without writing a scene", async context => {
   const directory = await temporaryDirectory(context), file = join(directory, "scene.xml");
   await exportStairway(file, 8, 2);
@@ -83,7 +109,11 @@ test("matrix builds once, runs all six configurations and retains only failures 
   assert.deepEqual(await readdir(directory),
     ["7-steps-3-modules.xml", "8-steps-2-modules.xml", "9-steps-2-modules.xml"]);
   for (const file of await readdir(directory)) {
-    assert.match(await readFile(join(directory, file), "utf8"), /stairWidth="24"/);
+    const scene = await readFile(join(directory, file), "utf8");
+    assert.match(scene, /stairWidth="24"/);
+    assert.doesNotMatch(scene, /id="stairway\/module-\d+\/siding"/);
+    assert.match(scene, /id="stairway\/module-1\/step-1-siding"/);
+    assert.match(scene, /id="stairway\/module-1\/step-1-frontSiding"/);
   }
   assert.deepEqual(calls.slice(1).map(call => call.args[0]),
     [7, 8, 9].flatMap(count => [2, 3].map(modules => join(directory, `${count}-steps-${modules}-modules.xml`))));
@@ -93,6 +123,28 @@ test("matrix fails explicitly on an unavailable Rust build", async context => {
   const directory = await temporaryDirectory(context);
   await assert.rejects(checkConfigurations(directory, () => ({ error: new Error("cargo unavailable") })),
     /cargo unavailable/);
+});
+
+test("installed curved and flat siding clears all spindles across supported module layouts", async context => {
+  const directory = await temporaryDirectory(context), file = join(directory, "siding-spindles.xml");
+  const built = spawnSync("cargo", ["build", "--release", "--locked", "--quiet", "--manifest-path", manifest,
+    "--target-dir", target], { encoding: "utf8", timeout: 120000 });
+  assert.equal(built.status, 0, built.error?.message ?? `${built.stdout}\n${built.stderr}`);
+  const executable = join(target, "release", process.platform === "win32" ? "mesh-clash.exe" : "mesh-clash");
+  for (const width of [20, 24, 36]) for (const count of [4, 5, 6, 7, 8, 9]) for (const modules of [2, 3]) {
+    if (count < modules * 2) continue;
+    const model = buildStairway(width, count, modules);
+    const leaves = model.partTree.getLeaves(), selected = leaves.filter(node =>
+      node.category === "siding" || ["frontSpindle", "rearSpindle"].includes(node.key));
+    assert.equal(selected.filter(node => node.component.bend).length, modules);
+    assert.ok(selected.some(node => node.key === "frontSpindle"));
+    assert.ok(selected.some(node => node.key === "rearSpindle"));
+    await writeFile(file, serializeScene(model, {
+      excludePieceIds: leaves.filter(node => !selected.includes(node)).map(node => node.id),
+    }));
+    const result = spawnSync(executable, [file], { encoding: "utf8", timeout: 30000 });
+    assert.equal(result.status, 0, `${width}/${count}/${modules}: ${result.stdout}\n${result.stderr}`);
+  }
 });
 
 test("Rust geometry regressions and CLI exit codes cover clear, touching, interfering and invalid scenes", async context => {

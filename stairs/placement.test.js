@@ -203,18 +203,15 @@ test("actual assembled model retains measured surfaces and parameter-dependent p
       assert.ok(dimension.to.every(Number.isFinite));
       assert.ok(view.neighbors.length > 0);
     }
-    const siding = model.partTree.getLeaves().find(node => node.key === "siding");
+    const siding = model.partTree.getLeaves().find(node => node.component.bend);
     const sidingPlan = planner.plan(siding.id);
     const top = sidingPlan.views.find(view => view.name === "Up");
-    assert.equal(top.planar.complete, true);
-    if (width === 24) {
-      assert.equal(top.planar.implicitRank, 3);
-      assert.equal(top.dimensions.length, 0);
-      assert.ok(sidingPlan.evidence.relationships.some(relation => relation.contact &&
-        relation.neighbor.endsWith("step-1-newel")));
-      assert.ok(sidingPlan.evidence.relationships.some(relation => relation.contact &&
-        relation.neighbor.endsWith("step-2-siding")));
-    } else assert.ok(top.dimensions.length > 0);
+    assert.equal(top.planar.complete, false);
+    assert.equal(sidingPlan.evidence.relationships.length, 0);
+    assert.ok(sidingPlan.views.every(view => view.dimensions.length === 0));
+    assert.ok(sidingPlan.unresolved.some(note => note.includes("curved-surface tessellation")));
+    assert.ok(sidingPlan.previewPickRanges.length > 1);
+    assert.equal(sidingPlan.geometry.positions.length, model.createNodeGeometry(siding.id).positions.length);
   }
 });
 

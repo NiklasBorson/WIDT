@@ -580,7 +580,7 @@ test("dimension lanes and reference-angle notes stay finite and outside the part
       "stairway/module-1/step-2-leftUpright", "stairway/module-2/step-4-leftUpright",
       "stairway/module-2/step-6-rightUpright", "stairway/module-2/step-5-rightUpright",
       "stairway/module-1/step-2-frontSpindle",
-      "stairway/module-1/step-1-newel", "stairway/module-1/step-2-siding",
+      "stairway/module-1/step-1-newel", "stairway/module-1/siding",
       "stairway/module-1/step-3-leftBackSupportBlock",
       "stairway/module-1/step-1-newelInnerBlock"].map(id => {
       const node = model.partTree.getNode(id);
@@ -2244,6 +2244,32 @@ test("part thumbnails mark annotated views and Details captions describe the sel
   open("Castrek");
   assert.equal(controls.node("#part-view-drawing").style.minWidth, "0");
   assert.equal(controls.node("#part-view-drawing").style.minHeight, "0");
+});
+
+test("curved plywood Details keeps all stock views flat and its independent preview bent", () => {
+  const model = buildStairway(), controls = createControls({ buildModel: () => model });
+  const panel = model.partTree.getLeaves().find(node => node.component.bend);
+  controls.node("#stairway-tab").dispatch("click");
+  const item = controls.node("#parts-groups").children.find(item =>
+    item.children[0].textContent.startsWith("Side panel - curved"));
+  assert.ok(item);
+  item.dispatch("click");
+  controls.node("#details-tab").dispatch("click");
+  assert.match(controls.node("#part-description").textContent, /inner radius.*flat cutting pattern/);
+  const drawing = controls.partViewers.find(viewer => viewer.canvas.id === "part-view-selected");
+  const preview = controls.partViewers.find(viewer => viewer.canvas.id === "part-view-preview");
+  const stock = panel.component.createStockGeometry(), installed = panel.component.createGeometry();
+  for (const name of PART_VIEW_NAMES) {
+    controls.node(`#part-view-choice-${name.toLowerCase()}`).dispatch("click");
+    assert.deepEqual(drawing.geometry.positions, stock.positions);
+    assert.deepEqual(drawing.geometry.indices, stock.indices);
+    assert.deepEqual(preview.geometry.positions, installed.positions);
+  }
+  assert.ok(installed.indices.length > stock.indices.length);
+  assert.equal(controls.node("#part-view-sidebar").hidden, false);
+  controls.node("#placement-tab").dispatch("click");
+  assert.ok(drawing.geometry.indices.length >= installed.indices.length);
+  assert.match(controls.node("#placement-view-metadata").textContent, /installed shape|flat cutting pattern/);
 });
 
 test("the reusable part preview rotates independently and survives view, size, and part changes", () => {

@@ -111,25 +111,34 @@ returns Details and Placement to their empty-selection prompt.
 
 ### Siding
 
-Each step has flat `1/8 in` plywood siding covering its right-hand,
-outer side, from `1 in` above the floor to the tread top. Together, a module's
-segments follow its stepped tread/riser outline, with mitered vertical joints
-around the curve. Each segment is a separate physical part named **Side panel - right** in
-Parts, with its own **Siding** visibility category rather than
-the general plywood category. Step 1 has separate front and rear pieces fitted
-against the newel's front and back faces, leaving an opening around the post.
-These are named **Side panel - right front section** and
-**Side panel - right rear section**.
+Each module has one curved `1/8 in` plywood **Side panel - curved** covering its
+right-hand outer side, from `1 in` above the floor to the stepped tread tops.
+Step 1 follows a tangent rather than the arc, so it retains two flat pieces,
+**Side panel - right front section** and **Side panel - right rear section**,
+fitted against the newel's front and back faces. Module 1's curved panel starts
+at the front of step 2. All panels use the **Siding** visibility category.
 
-The model offsets the siding's inner face `1/16 in` outward from the step side
-to clear small framing protrusions. This intentionally leaves it floating in
-the model; the physical framing corners will be sanded flush before fitting
-the siding. Existing framing is not trimmed in the model.
+`BentPlywood` stores the developed flat outline and its installed bend. The
+neutral surface is halfway through the thickness: the inner layers compress
+as much as the outer layers stretch, and developed length is neutral radius
+times sweep angle. The inner surface contacts the rear right upright edges,
+without the old artificial outward offset; the roughly `0.010 in` gaps at front
+uprights and tiny tread/framing overlaps are accepted. The two flat step-1
+pieces retain their existing `1/16 in` offset. Existing framing is not trimmed.
 
-Spindle openings are cut down from the top edge, with their floors following
-the spindles' 45-degree bottom cuts through the sheet thickness.
-The openings are included in stock views, cutting descriptions, inventory
-patterns, and wood-volume estimates.
+Details' stock-aligned views show the flat cutting pattern; the rotatable
+preview, Stairway, and Placement show the installed curve. Curvature is part
+of the manufacturing specification, not its placement. Weight uses exact
+flat-pattern area times thickness, independent of curved-mesh tessellation.
+Curved panels do not supply planar Placement contact/dimension references;
+Placement instead shows installed context and directs cutting to Details.
+No rigid stock-aligned floor template is shown for a developed curved sheet.
+
+Spindle openings are through-cuts down from the stepped top edge. Each has a
+constant-height floor low enough to clear both sheet faces under the spindle's
+sloped bottom, rather than a complex milled curved notch floor. These openings
+are included in the flat outline, cutting drawings, inventory identity, and
+wood-volume estimates. Installed cylinder facets have at most `0.001 in` sag.
 
 ### Banister spindles
 
@@ -583,7 +592,7 @@ of its manufacturing specification or material:
 | Foundation | Caster beams, front/rear support cross-pieces, casters, and the special first-step front cross-piece and flat tread supports. |
 | Step framing | Uprights, upper cross-pieces, tread supports, and associated support and newel blocks. |
 | Treads and risers | The plywood walking surfaces and riser panels. |
-| Cladding | Side siding, including the separate first-step front piece, and particle-board back panels. |
+| Cladding | Curved module siding, both flat first-step pieces, and particle-board back panels. |
 | Banister | Newel post, spindles, spindle shims, newel inner/rear blocks, the step-1 front cross-piece supporting the newel, and front/rear right uprights supporting the spindles. |
 | Without cladding | Everything except siding and back panels; retains treads, risers, banister, and casters. |
 
@@ -2439,7 +2448,7 @@ The castle is not rendered.
 
 ## Command-line interference checks
 
-From `stairs2`, with Node.js and Rust/Cargo installed:
+From `stairs`, with Node.js and Rust/Cargo installed:
 
 ```powershell
 npm run check:intersections
@@ -2451,12 +2460,23 @@ every configuration even if an earlier one fails. Passing XML files are deleted;
 failed/error cases remain in `.clash-results` for investigation. An optional
 results directory can be supplied with `npm run check:intersections -- DIRECTORY`.
 
+The matrix explicitly excludes `stairway/module-N/siding` for each module and
+logs those IDs. Only the enumerated curved panels are excluded because their
+small tread/framing overlaps are accepted; both flat step-1 siding pieces are
+still checked. A clear result applies only to the checked pieces, not the whole
+assembly. The Rust tolerances are unchanged.
+
 To export and check one configuration:
 
 ```powershell
 node export-meshes.mjs .clash-results\scene.xml 9 3
 cargo run --release --locked --manifest-path mesh-clash\Cargo.toml -- .clash-results\scene.xml
 ```
+
+The standalone exporter includes every piece by default, including curved
+panels. Add repeatable `--exclude-piece ID` options to omit specific physical
+pieces, for example `--exclude-piece stairway/module-1/siding`. Unknown IDs
+are errors; exclusions never silently expand to all curved parts.
 
 The exporter calls `buildStairway()` and uses each retained part's existing
 production mesh, including hardware, fully assembled and unexploded. XML contains

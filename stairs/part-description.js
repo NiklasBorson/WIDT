@@ -80,10 +80,18 @@ export function formatPartDescription(description) {
     description.notches.some(notch => Math.abs(notch.bevelDegrees) > 1e-8 ||
       Math.abs(notch.shoulderBevelDegrees ?? 0) > 1e-8) ? " (with bevels)" : "");
   countFeature(description.dados.filter(dado => !dado.endNotch).length, "dados");
-  const summary = getSimpleEdgeBevel(description) ? "One full-length edge bevel; square ends" : features.length > 1
+  let summary = getSimpleEdgeBevel(description) ? "One full-length edge bevel; square ends" : features.length > 1
     ? `${features.slice(0, -1).join(", ")} and ${features.at(-1)}`
     : features[0] ?? "Square cuts only";
   const cuts = [];
+  if (description.bend) {
+    const forming = `After cutting the flat outline, bend to an inner radius of ${inches(description.bend.innerRadius)} ` +
+      `through ${angle(description.bend.sweepRadians * 180 / Math.PI)}. ` +
+      `Developed length uses the mid-thickness radius (${inches(description.bend.neutralRadius)}); ` +
+      "Y=0 is the outer face and Y=thickness is the inner face.";
+    cuts.push(forming);
+    summary = forming + " Details show the flat cutting pattern; the preview and Placement show the installed bend.";
+  }
   if (widthTrim) {
     cuts.push(`Rip width from ${inches(widthTrim.from)} to ${inches(widthTrim.to)} ` +
       `(remove ${inches(widthTrim.removed)}).`);
@@ -135,7 +143,9 @@ export function formatPartDescription(description) {
   }
   return {
     stock: stockText, dimensions, summary, cuts, outlines,
-    note: "Stock coordinates: X along length/grain, Y through thickness, Z across width. " +
+    note: (description.bend ? "Details show the flat cutting pattern; the preview and Placement show the installed bend. " : "") +
+      "Stock coordinates: X along length" + (description.bend ? ", grain along Z" : "/grain") +
+      ", Y through thickness, Z across width. " +
       "Start/end are minimum/maximum X; near/far are minimum/maximum Z. " +
       "Outline coordinates are in inches. Dimensions rounded to the nearest 1/32 in; signed angles to 0.01 deg.",
   };

@@ -115,6 +115,11 @@ export function manufacturingSpecification(description) {
       face: dado.face, start: dado.start, width: dado.width, depth: dado.depth, acrossWidth: dado.acrossWidth,
     }))),
     edgeNotches: unordered(description.edgeNotches ?? []),
+    ...(description.bend ? { bend: {
+      innerRadius: positive(description.bend.innerRadius),
+      neutralRadius: positive(description.bend.neutralRadius),
+      sweepRadians: positive(description.bend.sweepRadians),
+    } } : {}),
   });
 }
 

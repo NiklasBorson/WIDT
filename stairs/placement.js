@@ -353,7 +353,7 @@ function planLocations(selectedMesh, contexts, relationships, view, template, no
   const planarRow = (normal, point) => [normal[0], normal[2],
     cross(sub(point, origin), normal)[1] / radius];
   const implicitRows = [];
-  if (node.kind === "hardware") {
+  if (node.kind === "hardware" || node.component?.bend) {
     view.planar = { rank: 0, implicitRank: 0, required: 3, complete: false };
     return [];
   }
@@ -619,7 +619,8 @@ export class PlacementPlanner {
     const geometry = rotate(selected.geometry, angle);
     const footprint = rotate(this.footprint, angle);
     const templateGeometry = rotate(this.template, angle);
-    const selectedMesh = triangles(geometry), selectedFaces = surfaces(selectedMesh);
+    const curved = Boolean(node.component?.bend);
+    const selectedMesh = triangles(geometry), selectedFaces = curved ? [] : surfaces(selectedMesh);
     const selectedBounds = bounds(geometry);
     const origin = selectedMesh.length ? average(selectedMesh.flatMap(t => t.points)) : [0, 0, 0];
     const radius = Math.max(1, ...selectedBounds.min.map((v, i) => selectedBounds.max[i] - v)
@@ -629,8 +630,9 @@ export class PlacementPlanner {
     const contexts = new Map(), relationships = [];
     for (const candidate of candidates) {
       const contextGeometry = rotate(candidate.geometry, angle), mesh = triangles(contextGeometry);
-      const faces = surfaces(mesh);
       contexts.set(candidate.node.id, { ...candidate, geometry: dimmed(contextGeometry), mesh });
+      if (curved || candidate.node.component?.bend) continue;
+      const faces = surfaces(mesh);
       for (const a of selectedFaces) for (const b of faces) {
         if (length(add(a.normal, b.normal)) > ANGULAR) continue;
         const gap = -b.d - a.d;
@@ -678,6 +680,7 @@ export class PlacementPlanner {
     const contactRows = chosen.filter(r => r.contact).flatMap(r => r.rows);
     const contactRank = rank(contactRows);
     const unresolved = [];
+    if (curved) unresolved.push("Bent plywood is shown in its installed shape. Automatic placement dimensions and contacts are not inferred from curved-surface tessellation; use Details for the flat cutting pattern.");
     if (!selectedFaces.length) unresolved.push("Selected geometry has no usable finite planar surfaces.");
     if (!chosen.length) unresolved.push("No verified opposing finite-face reference within 6 inches.");
     if (contactRank < 6) {
@@ -689,7 +692,8 @@ export class PlacementPlanner {
       standardView: standard.name, direction: standard.direction,
       neighbors: [], occluded: [], dimensions: [], notes: [],
     }));
-    const usefulIds = [...new Set([...chosen, ...relationships.filter(r => r.contact)].map(r => r.neighbor))];
+    const usefulIds = curved ? [...contexts.keys()]
+      : [...new Set([...chosen, ...relationships.filter(r => r.contact)].map(r => r.neighbor))];
     if (node.kind === "hardware" || usefulIds.some(id => contexts.get(id).node.kind === "hardware")) {
       unresolved.push("Hardware geometry is approximate: contacts describe the mesh only; verify the real mounting plate, installed height and fastener pattern. No hardware clearance dimensions are generated.");
     }
