@@ -541,6 +541,8 @@ test("dimension lanes and reference-angle notes stay finite and outside the part
   const description = board.getManufacturingDescription();
   const document = { createElementNS(namespace, name) { return svgElement(this, name); } };
   const model = buildStairway();
+  const spindle = model.partTree.getNode("stairway/module-1/step-2-frontSpindle").component;
+  const spindleBevel = Number((Math.atan(spindle.topRise / spindle.thickness) * 180 / Math.PI).toFixed(2));
   const cases = [{ description, geometry: board.createStockGeometry(), views: [] },
     ...["stairway/module-1/step-3-rightUpright", "stairway/module-1/step-3-spindleShim",
       "stairway/module-1/step-2-leftUpright", "stairway/module-2/step-4-leftUpright",
@@ -766,8 +768,8 @@ test("dimension lanes and reference-angle notes stay finite and outside the part
           assert.ok(label.includes(" from ") && label.endsWith("(dashed)"));
           assert.ok(!label.includes("Reference:"));
           if (node.attributes["data-property"] === "Bevel" &&
-            Math.abs(Number(node.attributes["data-degrees"]) - 35.43) < 0.01) {
-            assert.equal(label, "B1 Bevel 35.43 deg from square Top end (dashed)");
+            Math.abs(Number(node.attributes["data-degrees"]) - spindleBevel) < 0.01) {
+            assert.equal(label, `B1 Bevel ${spindleBevel} deg from square Top end (dashed)`);
             spindleBevels++;
           }
         }

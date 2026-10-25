@@ -1752,6 +1752,13 @@ $$
 The total height from the floor to the castle top is exactly `77`. The castle
 is another stage prop, previously called the upper landing; it is not part
 of the modeled stairway.
+`INNER_RADIUS` is the required distance from the arc center to the nearest
+point of every tread: the midpoint of its straight left edge. Each left edge
+is tangent to the castle's reference cylinder, rather than a chord through it.
+For `n` steps, the builder derives the inner-corner radius
+`cornerRadius = INNER_RADIUS / Math.cos(Math.PI / (4 * n))`.
+The model exposes both `innerRadius` (fixed clearance) and `cornerRadius`
+(step-count-dependent geometry); `outerRadius` is `cornerRadius + stairWidth`.
 
 ## Stairway parameters
 
@@ -2011,6 +2018,12 @@ n = \text{stepCount}, \qquad w = \text{stairWidth}, \qquad
 \Delta\theta = \frac{\pi}{2n}
 $$
 
+The radius used for the vertices is:
+
+$$
+R_c = \frac{R}{\cos(\Delta\theta/2)}
+$$
+
 For boundary index $j = 0,\ldots,n$:
 
 $$
@@ -2021,19 +2034,20 @@ Using horizontal coordinate pairs `(East, North)`, define the inside and
 outside vertices at each boundary:
 
 $$
-I_j = (R\cos\theta_j,\ R\sin\theta_j)
+I_j = (R_c\cos\theta_j,\ R_c\sin\theta_j)
 $$
 
 $$
-O_j = ((R+w)\cos\theta_j,\ (R+w)\sin\theta_j)
+O_j = ((R_c+w)\cos\theta_j,\ (R_c+w)\sin\theta_j)
 $$
 
 Step $i$ has the footprint $I_i,\ O_i,\ O_{i+1},\ I_{i+1}$. This vertex
 construction defines the intended shape as well as the edge lengths below.
 
-The inside vertices lie on the radius-$R$ circle; the outside vertices lie on
-the concentric circle of radius $R+w$. Both boundaries are modeled with straight
-chord segments, not curved board edges. Steps 2 onward have identical horizontal
+The inside vertices lie on the radius-$R_c$ circle; the outside vertices lie on
+the concentric circle of radius $R_c+w$. The straight inside edges are tangent
+to the radius-$R$ castle cylinder at their midpoints. Neither boundary uses
+curved board edges. Steps 2 onward have identical horizontal
 footprints, differing only in elevation and rotation.
 
 Step 1 is an exception: its front-right corner is moved outward along the
@@ -2041,11 +2055,11 @@ unchanged front-edge line until its right edge lies on the line through
 $O_1$ and $O_2$. Its other three corners are unchanged. Thus its front, back,
 and left edge directions stay the same, while its right edge continues
 step 2's right edge. The first tread is wider at the front; with the default
-dimensions its front width is approximately `25.9590 in` instead of `24 in`.
+dimensions its front width is approximately `25.9636 in` instead of `24 in`.
 
-The hard `60.5` requirement applies to the reference circular arc. The inside
-polyline is its chord approximation, so its total length is slightly less than
-`60.5`; it is not rescaled to have that length.
+The hard `60.5` requirement applies to the reference circular arc. The tangent
+inside polyline has total length `2 * n * R * tan(pi / (4 * n))`, slightly
+greater than `60.5`; it is not rescaled to have that length.
 
 ## Step component parameters
 
@@ -2062,11 +2076,11 @@ $$
 $$
 
 $$
-\text{leftDepth} = 2R\sin(\Delta\theta/2)
+\text{leftDepth} = 2R_c\sin(\Delta\theta/2) = 2R\tan(\Delta\theta/2)
 $$
 
 $$
-\text{rightDepth} = 2(R+w)\sin(\Delta\theta/2)
+\text{rightDepth} = 2(R_c+w)\sin(\Delta\theta/2)
 $$
 
 These depths are horizontal straight-line distances, not arc lengths or sloping
@@ -2076,6 +2090,8 @@ The step component reconstructs the radial footprint using
 `sin(angle / 2) = (rightDepth - leftDepth) / (2 * width)`. This replaces the
 variable-width quadratic calculation and does not depend on the stairway's
 global radius constant.
+It also reconstructs `cornerRadius = leftDepth / (2 * sin(angle / 2))`
+for local component and neighboring-step transforms.
 The builder passes `extendRightEdge: true` only for step 1, rotating its
 outer-edge direction one step angle around the unchanged back-right corner
 and intersecting that line with the front edge before constructing any parts.
@@ -2091,7 +2107,7 @@ applied.
 
 To place step $i$:
 
-1. Translate its local geometry East by `INNER_RADIUS`.
+1. Translate its local geometry East by the model's computed `cornerRadius`.
 2. Rotate the translated geometry left about the world origin by
    $i\Delta\theta$.
 

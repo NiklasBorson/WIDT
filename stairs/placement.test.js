@@ -205,7 +205,16 @@ test("actual assembled model retains measured surfaces and parameter-dependent p
     }
     const siding = model.partTree.getLeaves().find(node => node.key === "siding");
     const sidingPlan = planner.plan(siding.id);
-    assert.ok(sidingPlan.views.some(view => view.dimensions.length > 0));
+    const top = sidingPlan.views.find(view => view.name === "Up");
+    assert.equal(top.planar.complete, true);
+    if (width === 24) {
+      assert.equal(top.planar.implicitRank, 3);
+      assert.equal(top.dimensions.length, 0);
+      assert.ok(sidingPlan.evidence.relationships.some(relation => relation.contact &&
+        relation.neighbor.endsWith("step-1-newel")));
+      assert.ok(sidingPlan.evidence.relationships.some(relation => relation.contact &&
+        relation.neighbor.endsWith("step-2-siding")));
+    } else assert.ok(top.dimensions.length > 0);
   }
 });
 

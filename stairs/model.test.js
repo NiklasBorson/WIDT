@@ -10,6 +10,37 @@ function close(actual, expected, tolerance = 1e-5) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} differs from ${expected}`);
 }
 
+test("inner tread edges are tangent to the fixed castle radius across step counts and model instances", () => {
+  for (const count of [9, 7, 8, 4, 9]) for (const width of [20, 24, 36]) {
+    const model = buildStairway(width, count);
+    const angle = Math.PI / (2 * count);
+    close(model.cornerRadius, INNER_RADIUS / Math.cos(angle / 2));
+    assert.equal(model.innerRadius, INNER_RADIUS);
+    close(model.outerRadius, model.cornerRadius + width);
+    for (const [index, step] of model.steps.entries()) {
+      close(step.cornerRadius, model.cornerRadius);
+      close(step.leftDepth, 2 * INNER_RADIUS * Math.tan(angle / 2));
+      const c = Math.cos(index * angle), s = Math.sin(index * angle);
+      const edge = [step.parts.tread.footprint[0], step.parts.tread.footprint[3]]
+        .map(([east, north]) => [c * (east + model.cornerRadius) - s * north,
+          s * (east + model.cornerRadius) + c * north]);
+      const midpoint = edge[0].map((value, axis) => (value + edge[1][axis]) / 2);
+      close(Math.hypot(...midpoint), INNER_RADIUS);
+      for (const point of edge) close(Math.hypot(...point), model.cornerRadius);
+      const direction = edge[1].map((value, axis) => value - edge[0][axis]);
+      close(midpoint.reduce((sum, value, axis) => sum + value * direction[axis], 0), 0);
+      const node = model.partTree.getLeaves().find(node => node.component === step.parts.tread);
+      const geometry = model.createNodeGeometry(node.id);
+      for (const [east, north] of edge) {
+        assert.ok(Array.from({ length: geometry.positions.length / 3 }, (_, vertex) => vertex * 3)
+          .some(vertex => Math.abs(geometry.positions[vertex] - east) < 1e-4 &&
+            Math.abs(geometry.positions[vertex + 2] + north) < 1e-4),
+        "assembled tread vertices must use the model's corner radius");
+      }
+    }
+  }
+});
+
 test("split footprints follow actual module tread positions without changing assembled or part footprints", () => {
   for (const [steps, modules] of [[7, 2], [8, 2], [9, 3]]) {
     const model = buildStairway(24, steps, modules);
@@ -95,8 +126,8 @@ test("front tread continues step 2's right edge and aligns the newel framing wit
     assert.ok(first.footprint[1][0] > second.footprint[1][0]);
     const c = Math.cos(first.angle), s = Math.sin(first.angle);
     const edge = second.footprint.slice(1, 3).map(([east, north]) =>
-      [c * (east + INNER_RADIUS) - s * north - INNER_RADIUS,
-        s * (east + INNER_RADIUS) + c * north]);
+      [c * (east + first.cornerRadius) - s * north - first.cornerRadius,
+        s * (east + first.cornerRadius) + c * north]);
     const length = Math.hypot(...edge[1].map((value, axis) => value - edge[0][axis]));
     const along = edge[1].map((value, axis) => (value - edge[0][axis]) / length);
     const across = [along[1], -along[0]];
@@ -423,7 +454,7 @@ test("sheet edge cutouts preserve closed meshes and beveled floors at internal a
     [(radius + width) * Math.cos(angle) - radius, (radius + width) * Math.sin(angle)],
     [radius * Math.cos(angle) - radius, radius * Math.sin(angle)]];
   for (const end of ["internal", "start", "end"]) {
-    const sheet = new Siding(footprint, 12);
+    const sheet = new Siding(footprint, 12, radius);
     const original = meshVolume(sheet.createGeometry());
     const blank = sheet.getManufacturingDescription().blank;
     const cut = { profiles: ["negativeY", "positiveY"].map((name, face) => {
@@ -577,8 +608,8 @@ test("shim ends stay level at the lower spindle shoulder while both beveled side
         }
         const c = Math.cos(step.angle), s = Math.sin(step.angle);
         const upperEdge = upper.footprint.slice(0, 2).map(([east, north]) => [
-          c * (east + INNER_RADIUS) - s * north - INNER_RADIUS,
-          s * (east + INNER_RADIUS) + c * north,
+          c * (east + model.cornerRadius) - s * north - model.cornerRadius,
+          s * (east + model.cornerRadius) + c * north,
         ]);
         const expected = [lower.footprint[3], lower.footprint[2], upperEdge[1], upperEdge[0]];
         for (const [corner, [east, north]] of expected.entries()) {

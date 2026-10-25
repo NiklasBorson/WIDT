@@ -23,7 +23,9 @@ function does not automatically satisfy the other.
 ## Fit with the current stairs
 
 The stairs turn through 90 degrees, with concentric inner and outer reference
-curves. The outer radius is `INNER_RADIUS + stairWidth`. Modules contain
+curves. The inner tread edges are tangent to the fixed `INNER_RADIUS` cylinder;
+their corners use `cornerRadius = INNER_RADIUS / cos(pi / (4 * stepCount))`.
+The outer corner radius is `cornerRadius + stairWidth`. Modules contain
 consecutive steps, and their boundaries are radial planes. The design should
 follow actual module boundaries, not assume that every module contains three
 steps or that all sections have equal lengths.

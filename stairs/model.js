@@ -771,6 +771,7 @@ class FrameBoard extends Board {
 }
 
 function createSupportBeams(steps, firstModule) {
+  const cornerRadius = steps[0].cornerRadius;
   const angle = steps[0].angle, halfAngle = steps.length * angle / 2;
   const cosine = Math.cos(halfAngle), sine = Math.sin(halfAngle);
   const heading = halfAngle;
@@ -785,7 +786,7 @@ function createSupportBeams(steps, firstModule) {
         ["rightFrontSupport", step.parts.topFrame.boards.frontStepRightSupport]].filter(([, board]) => board)]
       .map(([name, board]) => ({
       name, footprint: board.footprint.map(([east, north]) =>
-        [c * (east + INNER_RADIUS) - s * north, s * (east + INNER_RADIUS) + c * north]),
+        [c * (east + cornerRadius) - s * north, s * (east + cornerRadius) + c * north]),
     }));
   });
   const left = Math.max(...obstacles.filter(board => board.name.startsWith("left"))
@@ -805,7 +806,7 @@ function createSupportBeams(steps, firstModule) {
     const footprint = [
       [across + width, front + frontTrim], [across + width, end - backTrim],
       [across, end - backTrim], [across, front + frontTrim],
-    ].map(([x, y]) => [headingCosine * x - headingSine * y - INNER_RADIUS,
+    ].map(([x, y]) => [headingCosine * x - headingSine * y - cornerRadius,
       headingSine * x + headingCosine * y]);
     const board = new FlatFrameBoard(footprint, {
       thickness: SUPPORT_BEAM_THICKNESS, width, length, material: PINE,
@@ -820,7 +821,7 @@ function createSupportBeams(steps, firstModule) {
   const boards = {
     leftSupportBeam: beam("Beam - caster left", left),
     rightSupportBeam: beam("Beam - caster right", firstModule
-      ? (innerCorner[0] + INNER_RADIUS) * cosine + innerCorner[1] * sine - width
+      ? (innerCorner[0] + cornerRadius) * cosine + innerCorner[1] * sine - width
       : right - width - 3 / 4),
   };
   return boards;
@@ -1077,6 +1078,7 @@ class SupportCrossPiece extends UprightCrossPiece {
 }
 
 function addModuleCasters(steps, beams) {
+  const cornerRadius = steps[0].cornerRadius;
   const rearAngle = (steps.length - 1) * steps[0].angle;
   const cosine = Math.cos(rearAngle), sine = Math.sin(rearAngle);
   const inset = CASTER_DIMENSIONS.plateLength / 2 + 0.125;
@@ -1103,8 +1105,8 @@ function addModuleCasters(steps, beams) {
       front[0] + along[0] * frontInset, front[1] + along[1] * frontInset, heading);
     const rear = back.map((value, axis) => value - along[axis] * inset);
     steps.at(-1).parts.bottomFrame.hardware[`${side}RearCaster`] = new Caster(
-      cosine * (rear[0] + INNER_RADIUS) + sine * rear[1] - INNER_RADIUS,
-      -sine * (rear[0] + INNER_RADIUS) + cosine * rear[1], heading + Math.PI - rearAngle);
+      cosine * (rear[0] + cornerRadius) + sine * rear[1] - cornerRadius,
+      -sine * (rear[0] + cornerRadius) + cosine * rear[1], heading + Math.PI - rearAngle);
   }
 }
 
@@ -1279,10 +1281,11 @@ function addRearStepSupport(first, second) {
 }
 
 function precedingStepFootprint(step, board) {
+  const cornerRadius = step.cornerRadius;
   const c = Math.cos(step.angle), s = Math.sin(step.angle);
   return finishedFootprint(board).map(([east, north]) =>
-    [c * (east + INNER_RADIUS) - s * north - INNER_RADIUS,
-      s * (east + INNER_RADIUS) + c * north]);
+    [c * (east + cornerRadius) - s * north - cornerRadius,
+      s * (east + cornerRadius) + c * north]);
 }
 
 function addFrontStepSideSupports(first, second) {
@@ -1386,7 +1389,7 @@ function addNewelFraming(first, second, beams) {
   }
   beams.rightSupportBeam.casterFrontSetback = 1;
 
-  const frontSiding = new Siding(first.footprint, first.height);
+  const frontSiding = new Siding(first.footprint, first.height, first.cornerRadius);
   const along = newel.footprint[3].map((value, axis) => (value - newel.footprint[0][axis]) / newel.width);
   for (const [sheet, front] of [[frontSiding, true], [first.parts.siding, false]]) {
     const boundary = newel.footprint[front ? 0 : 3];
@@ -1718,14 +1721,15 @@ export class Tread extends Board {
 }
 
 export class Siding extends FrameBoard {
-  constructor(footprint, height) {
+  constructor(footprint, height, cornerRadius) {
+    validateDimensions("Siding", { cornerRadius });
     const [, front, back] = footprint;
     const length = Math.hypot(back[0] - front[0], back[1] - front[1]);
     const outward = [(back[1] - front[1]) / length, (front[0] - back[0]) / length];
-    const radius = (front[0] + INNER_RADIUS) * outward[0] + front[1] * outward[1];
+    const radius = (front[0] + cornerRadius) * outward[0] + front[1] * outward[1];
     const outside = ([east, north], distance) => {
       const scale = 1 + distance / radius;
-      return [(east + INNER_RADIUS) * scale - INNER_RADIUS, north * scale];
+      return [(east + cornerRadius) * scale - cornerRadius, north * scale];
     };
     const innerFront = outside(front, SIDING_CLEARANCE), innerBack = outside(back, SIDING_CLEARANCE);
     const outerFront = outside(front, SIDING_CLEARANCE + SIDING_THICKNESS);
@@ -1835,6 +1839,7 @@ export class BackPanel extends FrameBoard {
 
 export class Newel extends UprightBoard {
   constructor(first, second, shoulderAscent = DEFAULT_SPINDLE_SHOULDER_ASCENT) {
+    const cornerRadius = first.cornerRadius;
     const size = FOUR_BY_FOUR_STOCK.width;
     const edge = first.footprint.slice(1, 3);
     const depth = Math.hypot(...edge[1].map((value, axis) => value - edge[0][axis]));
@@ -1847,8 +1852,8 @@ export class Newel extends UprightBoard {
     const back = front.map((value, axis) => value + alongEdge[axis] * size);
     const next = second.parts.topFrame.boards.southCrossPiece;
     const c = Math.cos(first.angle), s = Math.sin(first.angle), start = support.footprint[1];
-    const end = [c * (next.footprint[1][0] + INNER_RADIUS) - s * next.footprint[1][1] - INNER_RADIUS,
-      s * (next.footprint[1][0] + INNER_RADIUS) + c * next.footprint[1][1]];
+    const end = [c * (next.footprint[1][0] + cornerRadius) - s * next.footprint[1][1] - cornerRadius,
+      s * (next.footprint[1][0] + cornerRadius) + c * next.footprint[1][1]];
     const run = Math.hypot(...end.map((value, axis) => value - start[axis]));
     const along = end.map((value, axis) => (value - start[axis]) / run);
     const rise = next.bottomHeight + next.width - support.bottomHeight - support.width;
@@ -1937,12 +1942,13 @@ export class Newel extends UprightBoard {
 
 export class Spindle extends Board {
   constructor(step, upright, shoulderAscent = DEFAULT_SPINDLE_SHOULDER_ASCENT) {
+    const cornerRadius = step.cornerRadius;
     const size = TWO_BY_TWO_STOCK.width;
     const frontSupport = step.parts.topFrame.boards.southCrossPiece;
     const baselineStart = frontSupport.footprint[1];
     const c = Math.cos(step.angle), s = Math.sin(step.angle);
-    const baselineEnd = [c * (baselineStart[0] + INNER_RADIUS) - s * baselineStart[1] - INNER_RADIUS,
-      s * (baselineStart[0] + INNER_RADIUS) + c * baselineStart[1]];
+    const baselineEnd = [c * (baselineStart[0] + cornerRadius) - s * baselineStart[1] - cornerRadius,
+      s * (baselineStart[0] + cornerRadius) + c * baselineStart[1]];
     const along = upright.footprint[3].map((value, axis) =>
       (value - upright.footprint[0][axis]) / upright.width);
     const outward = [along[1], -along[0]];
@@ -2071,6 +2077,7 @@ export class Step {
       throw new RangeError("Step edge lengths must form a nondegenerate radial footprint.");
     }
     this.angle = 2 * Math.asin(sine);
+    this.cornerRadius = leftDepth / (2 * sine);
     const insideBack = [-leftDepth * sine, leftDepth * Math.sqrt(1 - sine ** 2)];
     this.footprint = [
       [0, 0],
@@ -2099,7 +2106,7 @@ export class Step {
       rightStepSupport, frontStepSupportStock);
     this.parts.riser = new Riser(this.footprint, height, stepRise, riserBottom);
     this.parts.tread = new Tread(this.footprint, height);
-    this.parts.siding = new Siding(this.footprint, height);
+    this.parts.siding = new Siding(this.footprint, height, this.cornerRadius);
   }
 
   get label() { return "Step"; }
@@ -2127,6 +2134,7 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
     throw new RangeError("Spindle shoulder ascent must be an integer between 25 and 37 inches.");
   }
   const angle = Math.PI / (2 * stepCount);
+  const cornerRadius = INNER_RADIUS / Math.cos(angle / 2);
   const stepRise = Math.round(TOTAL_HEIGHT / (stepCount + 1) * 4) / 4;
   const landingRise = TOTAL_HEIGHT - stepCount * stepRise;
   const frontStepSupportStock = stepCount === 9
@@ -2134,8 +2142,8 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
     : stepCount === 8
       ? { kind: "lumber", nominalSize: "2x4", thickness: SUPPORT_BEAM_THICKNESS, width: FRAME_WIDTH }
       : null;
-  const leftDepth = 2 * INNER_RADIUS * Math.sin(angle / 2);
-  const rightDepth = 2 * (INNER_RADIUS + stairWidth) * Math.sin(angle / 2);
+  const leftDepth = 2 * cornerRadius * Math.sin(angle / 2);
+  const rightDepth = 2 * (cornerRadius + stairWidth) * Math.sin(angle / 2);
   const stepsPerModule = Math.floor(stepCount / moduleCount);
   const bottomModuleSize = stepCount - (moduleCount - 1) * stepsPerModule;
   const steps = [];
@@ -2194,8 +2202,8 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
     const front = modules[i + 1].steps[0].parts.frontSpindle;
     const c = Math.cos(angle), s = Math.sin(angle);
     const boundary = front.footprint.slice(0, 2).map(([east, north]) => [
-      c * (east + INNER_RADIUS) - s * north - INNER_RADIUS,
-      s * (east + INNER_RADIUS) + c * north,
+      c * (east + cornerRadius) - s * north - cornerRadius,
+      s * (east + cornerRadius) + c * north,
     ]);
     const step = modules[i].steps.at(-1), rear = step.parts.rearSpindle;
     const rearTop = rear.bottomHeight + rear.frontHeight + rear.topRise - 2;
@@ -2208,8 +2216,8 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
     for (const { spindle, index: sourceIndex } of spindles) {
       const rotation = (sourceIndex - index) * angle, c = Math.cos(rotation), s = Math.sin(rotation);
       const footprint = spindle.footprint.map(([east, north]) => [
-        c * (east + INNER_RADIUS) - s * north - INNER_RADIUS,
-        s * (east + INNER_RADIUS) + c * north,
+        c * (east + cornerRadius) - s * north - cornerRadius,
+        s * (east + cornerRadius) + c * north,
       ]);
       step.parts.siding.notchForSpindle(footprint, spindle.bottomHeight);
     }
@@ -2230,7 +2238,8 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
     largestModuleWeightLb: Math.max(...modules.map(module => module.estimatedWeightLb)),
     totalHeight: TOTAL_HEIGHT,
     innerRadius: INNER_RADIUS,
-    outerRadius: INNER_RADIUS + stairWidth,
+    cornerRadius,
+    outerRadius: cornerRadius + stairWidth,
     innerArcLength: INNER_ARC_LENGTH,
     createFootprintGeometry(nodeId = null, stockAligned = false, inset = true, moduleExplosion = 0, moduleNumber = null) {
       if (!Number.isFinite(moduleExplosion) || moduleExplosion < 0 || moduleExplosion > 1) {
@@ -2274,7 +2283,7 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
             const indices = [...tread.indices.slice(i, i + 3)];
             if (!indices.every(vertex => tread.normals[vertex * 3 + 1] > 1 - 1e-6)) continue;
             faces.push(indices.map(vertex => {
-              let x = tread.positions[vertex * 3] + INNER_RADIUS, z = tread.positions[vertex * 3 + 2];
+              let x = tread.positions[vertex * 3] + cornerRadius, z = tread.positions[vertex * 3 + 2];
               if (inset && index > 0 && Math.abs(z) < 1e-5) z -= seamInset;
               else if (inset && index < steps.length - 1 && Math.abs(x * backNormal[0] + z * backNormal[1]) < 1e-5) {
                 x += backNormal[0] * seamInset;
@@ -2304,7 +2313,7 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
       const positions = geometry.positions.map((value, i) => {
         const axis = i % 3, start = i - axis;
         return axis === 1 ? 0 : axis === 0
-          ? cosine * value - sine * geometry.positions[start + 2] - INNER_RADIUS
+          ? cosine * value - sine * geometry.positions[start + 2] - cornerRadius
           : sine * geometry.positions[start] + cosine * value;
       });
       let result = { ...geometry, positions };
@@ -2347,7 +2356,7 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
         const rotation = i * (1 + explosion) * angle + moduleRotation;
         const cosine = Math.cos(rotation), sine = Math.sin(rotation);
         for (let j = 0; j < geometry.positions.length; j += 3) {
-          const x = geometry.positions[j] + INNER_RADIUS;
+          const x = geometry.positions[j] + cornerRadius;
           const z = geometry.positions[j + 2];
           positions.set([cosine * x + sine * z, geometry.positions[j + 1],
             -sine * x + cosine * z], j);
