@@ -1,4 +1,4 @@
-import { validateOutline, constructionOutline } from "./plywood-outline.js";
+import { validateProfile, constructionOutline } from "./plywood-outline.js";
 
 const compareText = new Intl.Collator("en", { numeric: true }).compare;
 const kindOrder = { lumber: 0, plywood: 1, hardware: 2 };
@@ -17,8 +17,9 @@ export const PART_SUBSETS = Object.freeze([
 
 const foundationRoles = new Set([
   "leftCaster", "rightCaster", "leftRearCaster", "rightRearCaster",
+  "innerBaseRail", "outerBaseRail",
   "leftSupportBeam", "rightSupportBeam", "supportCrossPiece", "rearSupportCrossPiece",
-  "frontStepSupport", "rearStepSupport", "frontStepRightSupport", "frontStepLeftSupport", "rib",
+  "frontStepSupport", "rearStepSupport", "frontStepRightSupport", "frontStepLeftSupport",
 ]);
 const stepFramingRoles = new Set([
   "leftUpright", "rightUpright", "leftRearUpright", "rightRearUpright",
@@ -38,7 +39,8 @@ function partSubsets(node) {
   const stepFraming = stepFramingRoles.has(node.key);
   const cladding = claddingRoles.has(node.key);
   const subsets = [];
-  if ((node.kind === "lumber" || node.key === "rib") && (foundation || stepFraming)) subsets.push("framing");
+  if ((node.kind === "lumber" || node.category === "base-rails") &&
+    (foundation || stepFraming)) subsets.push("framing");
   if (foundation) subsets.push("foundation");
   if (stepFraming) subsets.push("step-framing");
   if (node.key === "tread" || node.key === "riser") subsets.push("treads-risers");
@@ -98,7 +100,7 @@ export function manufacturingSpecification(description) {
   if (stock.kind === "hardware") return normalized({ stock });
   if (description.units?.length !== "inches") throw new TypeError("Part specifications require inch dimensions.");
   const { blank } = description;
-  if (description.outline) validateOutline(description.outline);
+  if (description.outline) validateProfile(description);
   if (description.construction) constructionOutline(description.construction);
   return normalized({
     stock,
@@ -120,8 +122,12 @@ export function manufacturingSpecification(description) {
     }))),
     edgeNotches: unordered(description.edgeNotches ?? []),
     ...(description.outline ? { outline: description.outline } : {}),
+    ...(description.holes?.length ? { holes: unordered(description.holes) } : {}),
     ...(description.construction ? { construction: { ...description.construction,
-      notches: unordered(description.construction.notches) } } : {}),
+      notches: unordered(description.construction.notches.map(({ name, ...cut }) => cut)),
+      ...(description.construction.openings ? {
+        openings: unordered(description.construction.openings.map(({ name, ...cut }) => cut)),
+      } : {}) } } : {}),
     ...(description.bend ? { bend: {
       innerRadius: positive(description.bend.innerRadius),
       neutralRadius: positive(description.bend.neutralRadius),

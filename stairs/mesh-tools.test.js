@@ -125,7 +125,7 @@ test("matrix fails explicitly on an unavailable Rust build", async context => {
     /cargo unavailable/);
 });
 
-test("installed curved and flat siding clears all spindles across supported module layouts", async context => {
+test("installed curved and flat siding clears spindles and base rails across supported module layouts", async context => {
   const directory = await temporaryDirectory(context), file = join(directory, "siding-spindles.xml");
   const built = spawnSync("cargo", ["build", "--release", "--locked", "--quiet", "--manifest-path", manifest,
     "--target-dir", target], { encoding: "utf8", timeout: 120000 });
@@ -135,7 +135,8 @@ test("installed curved and flat siding clears all spindles across supported modu
     if (count < modules * 2) continue;
     const model = buildStairway(width, count, modules);
     const leaves = model.partTree.getLeaves(), selected = leaves.filter(node =>
-      node.category === "siding" || ["frontSpindle", "rearSpindle"].includes(node.key));
+      node.category === "siding" || ["frontSpindle", "rearSpindle"].includes(node.key) ||
+      node.category === "base-rails");
     assert.equal(selected.filter(node => node.component.bend).length, modules);
     assert.ok(selected.some(node => node.key === "frontSpindle"));
     assert.ok(selected.some(node => node.key === "rearSpindle"));
@@ -147,7 +148,7 @@ test("installed curved and flat siding clears all spindles across supported modu
   }
 });
 
-test("ribs and raised blocks clear uprights, beams, risers and rear panels across supported layouts", async context => {
+test("base rails, flat siding and raised blocks clear framing across supported layouts", async context => {
   const directory = await temporaryDirectory(context), file = join(directory, "rib-fit.xml");
   const built = spawnSync("cargo", ["build", "--release", "--locked", "--quiet", "--manifest-path", manifest,
     "--target-dir", target], { encoding: "utf8", timeout: 120000 });
@@ -157,7 +158,7 @@ test("ribs and raised blocks clear uprights, beams, risers and rear panels acros
     if (count < modules * 2) continue;
     const model = buildStairway(width, count, modules), leaves = model.partTree.getLeaves();
     const selected = leaves.filter(node => !node.component.bend);
-    assert.equal(selected.filter(node => node.key === "rib").length, modules);
+    assert.equal(selected.filter(node => node.category === "base-rails").length, modules * 2);
     await writeFile(file, serializeScene(model, {
       excludePieceIds: leaves.filter(node => !selected.includes(node)).map(node => node.id),
     }));
@@ -166,7 +167,8 @@ test("ribs and raised blocks clear uprights, beams, risers and rear panels acros
     assert.ok([0, 1].includes(result.status), report);
     assert.match(result.stdout, /0 errors;/, report);
     const fitFailures = result.stdout.split("\n").filter(line => line.startsWith("INTERFERENCE:") &&
-      /\/(?:rib|step-\d+-rightSupportBlock)\]/.test(line));
+      (/\/(?:innerBaseRail|outerBaseRail|step-\d+-rightSupportBlock)\]/.test(line) ||
+        (count >= 7 && /\/step-1-(?:frontSiding|siding)\]/.test(line))));
     assert.deepEqual(fitFailures, [], report);
   }
 });

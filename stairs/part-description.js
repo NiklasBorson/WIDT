@@ -93,15 +93,22 @@ export function formatPartDescription(description) {
     if (description.construction) {
       const { notches } = description.construction, { sides } = constructionTrapezoid(description.construction);
       cuts.push(`Start with the rectangular blank. Trim ${inches(sides[0].top[0])} from the left top corner and ` +
-        `${inches(blank.length - sides[1].top[0])} from the right top corner, each to the corresponding bottom corner. Cut the arc, then the notches.`);
+        `${inches(blank.length - sides[1].top[0])} from the right top corner, each to the corresponding bottom corner. ` +
+        `Cut the ${description.construction.innerRadius ? "concentric arcs" : "arc"}, then the notches and any through-openings.`);
       for (const side of sides) cuts.push(`${side.side === "left" ? "Left" : "Right"} cut: ` +
         `radial guide from C at ${angle(side.angleRadians * 180 / Math.PI)} from blank X toward +Z; ` +
         (Math.abs(side.inset) < 1e-8 ? "cut on the guide." :
           `cut ${inches(Math.abs(side.inset))} ${side.inset > 0 ? "inside" : "outside"} the guide.`));
-      notches.forEach((notch, i) => cuts.push(`N${i + 1}: left inner vertex at (X, Z) = ` +
+      notches.forEach((notch, i) => cuts.push(`N${i + 1}: ${notch.name ?? "rectangular notch"}; reference corner at (X, Z) = ` +
         `(${notch.reference.map(formatLength).join(", ")}) in from the original blank; width ${inches(notch.width)}, ` +
         `depth ${inches(notch.depth)}, angle ${angle(notch.angleRadians * 180 / Math.PI)} from blank X toward +Z.`));
-      cuts.push("Notch references are the left inner vertices looking inward from each opening: the first inner vertex clockwise around the notch in the cutting-face view. Width runs to the other inner vertex; depth runs perpendicular toward the opening.");
+      for (const [i, opening] of (description.construction.openings ?? []).entries()) {
+        cuts.push(`H${i + 1}: ${opening.name ?? "rectangular through-opening"}; reference corner at (X, Z) = ` +
+          `(${opening.reference.map(formatLength).join(", ")}) in from the original blank; width ${inches(opening.width)}, ` +
+          `height ${inches(opening.depth)}, angle ${angle(opening.angleRadians * 180 / Math.PI)} from blank X toward +Z. ` +
+          "Cut through the sheet; a rectangle crossing the perimeter forms an edge opening.");
+      }
+      cuts.push("Each rectangular cut starts at its marked reference corner in the cutting-face view (X right, Z down). Width follows the labeled angle from +X toward +Z; height runs perpendicular toward the next clockwise corner. Overlapping cuts are removed together.");
     }
   }
   if (description.bend) {

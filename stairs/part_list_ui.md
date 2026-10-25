@@ -244,8 +244,8 @@ Plywood - 1/2 in
 
 Hardware - Casters
 
-  Castrek 4-inch locking swivel caster           x 12
-  Purchased part - plate-mounted, locking
+  CWfutureparts 3-inch swivel caster             x 12
+  Purchased part - plate-mounted, two brakes per four-caster set
   [Show locations] [Show details]
 ```
 

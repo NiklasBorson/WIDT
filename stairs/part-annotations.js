@@ -20,6 +20,43 @@ const cross = (a, b) => [
 ];
 const dot = (a, b) => a.reduce((sum, value, axis) => sum + value * b[axis], 0);
 
+function routeCallout(start, end, labels) {
+  const axes = ["x", "y"].map((axis, i) => [...new Set([start[axis], end[axis],
+    ...labels.flatMap(box => i ? [box.top - 4, box.bottom + 4] : [box.left - 4, box.right + 4])])].sort((a, b) => a - b));
+  const [xs, ys] = axes, columns = xs.length;
+  const index = point => ys.indexOf(point.y) * columns + xs.indexOf(point.x);
+  const point = index => ({ x: xs[index % columns], y: ys[Math.floor(index / columns)] });
+  const clear = (a, b) => labels.every(box =>
+    Math.max(a.x, b.x) <= box.left - 2 || Math.min(a.x, b.x) >= box.right + 2 ||
+    Math.max(a.y, b.y) <= box.top - 2 || Math.min(a.y, b.y) >= box.bottom + 2);
+  const first = index(start), last = index(end), distance = new Map([[first, 0]]), previous = new Map();
+  const open = new Set([first]), closed = new Set();
+  const estimate = node => distance.get(node) + Math.abs(point(node).x - end.x) + Math.abs(point(node).y - end.y);
+  while (open.size) {
+    const current = [...open].reduce((best, node) => estimate(node) < estimate(best) ? node : best);
+    if (current === last) {
+      const path = [];
+      for (let node = last; node !== undefined; node = previous.get(node)) path.unshift(point(node));
+      return path.filter((p, i) => !i || i === path.length - 1 ||
+        (p.x - path[i - 1].x) * (path[i + 1].y - p.y) !== (p.y - path[i - 1].y) * (path[i + 1].x - p.x));
+    }
+    open.delete(current);
+    closed.add(current);
+    const a = point(current), x = current % columns, y = Math.floor(current / columns);
+    const neighbors = [x > 0 ? current - 1 : -1, x + 1 < columns ? current + 1 : -1,
+      y > 0 ? current - columns : -1, y + 1 < ys.length ? current + columns : -1];
+    for (const next of neighbors) {
+      if (next < 0 || closed.has(next)) continue;
+      const b = point(next), cost = distance.get(current) + Math.abs(b.x - a.x) + Math.abs(b.y - a.y);
+      if (!clear(a, b) || cost >= (distance.get(next) ?? Infinity)) continue;
+      distance.set(next, cost);
+      previous.set(next, current);
+      open.add(next);
+    }
+  }
+  return null;
+}
+
 function wrapLines(lines, width) {
   const limit = Math.max(12, Math.floor((width - 16) / CHARACTER_WIDTH));
   return lines.flatMap(line => {
@@ -223,7 +260,7 @@ export function renderPartAnnotations(svg, drawing, viewer, description, views, 
   viewer.setViewportInsets(insets);
   const minimumSize = {
     minHeight: `${insets.top + insets.bottom + 320}px`,
-    minWidth: `${Math.max(360, insets.left + insets.right + 320)}px`,
+    minWidth: `${Math.max(description.construction?.openings?.length ? 720 : 360, insets.left + insets.right + 320)}px`,
   };
   if (layoutOnly) {
     Object.assign(drawing.style, minimumSize);
@@ -396,6 +433,8 @@ export function renderPartAnnotations(svg, drawing, viewer, description, views, 
   const radiusGuides = [];
   const textNodes = node => node.localName === "text" ? [node] : [...node.children].flatMap(textNodes);
   const radiusLabels = textNodes(svg).map(screenBounds);
+  const calloutAnchors = description.construction ?
+    bands.flatMap(band => band.features.map(feature => project(feature.point))) : [];
   for (const feature of features) if (feature.radiusCenter) {
     const center = project(feature.radiusCenter);
     const rays = [{ point: feature.point, primary: true },
@@ -447,6 +486,8 @@ export function renderPartAnnotations(svg, drawing, viewer, description, views, 
             callout.setAttribute("transform", `translate(${end.x + side * 8} ${end.y + 3 + row * LINE_HEIGHT})`);
             const boxes = textNodes(callout).map(screenBounds);
             if (boxes.some(box => box.left < 14 || box.right > width - 14 || box.top < 14 || box.bottom > height - 14 ||
+              calloutAnchors.some(anchor => anchor.x > box.left - 4 && anchor.x < box.right + 4 &&
+                anchor.y > box.top - 4 && anchor.y < box.bottom + 4) ||
               radiusLabels.some(other => box.left < other.right + 2 && box.right > other.left - 2 &&
                 box.top < other.bottom + 2 && box.bottom > other.top - 2))) continue;
             radiusLabels.push(...boxes);
@@ -471,7 +512,9 @@ export function renderPartAnnotations(svg, drawing, viewer, description, views, 
     });
   }
 
-  const occupied = [bounds];
+  const occupied = [bounds, ...calloutAnchors.map(anchor => ({
+    left: anchor.x - 4, right: anchor.x + 4, top: anchor.y - 4, bottom: anchor.y + 4,
+  }))];
   for (const node of svg.children) {
     if (["title", "defs"].includes(node.localName)) continue;
     if (node.getAttribute("class")?.split(" ").includes("part-radius-reference")) continue;
@@ -533,7 +576,7 @@ export function renderPartAnnotations(svg, drawing, viewer, description, views, 
         ...occupied.flatMap(other => [other.left - box.width - CALLOUT_GAP, other.right + CALLOUT_GAP])]
         .map(left => Math.max(14, Math.min(width - box.width - 14, left))))];
       const defaultElbow = band.above ? bounds.top + 4 : bounds.bottom - 4;
-      const detours = [];
+      const detours = [], alternatives = [];
       const clearRoute = points => dimensionLabels.every(label => points.slice(1).every((end, index) => {
         const start = points[index];
         return Math.max(start.x, end.x) <= label.left - 2 || Math.min(start.x, end.x) >= label.right + 2 ||
@@ -550,6 +593,7 @@ export function renderPartAnnotations(svg, drawing, viewer, description, views, 
             Math.max(...collisions.map(other => other.bottom + CALLOUT_GAP));
         }
         const edge = band.above ? top + box.height : top;
+        alternatives.push({ left, top, edge, distance: (left + box.width / 2 - anchor.x) ** 2 + (edge - anchor.y) ** 2 });
         const attachments = [...new Set([Math.max(left, Math.min(left + box.width, anchor.x)), left, left + box.width,
           ...dimensionLabels.flatMap(label => [label.left - CALLOUT_GAP, label.right + CALLOUT_GAP])]
           .filter(x => x >= left && x <= left + box.width))];
@@ -575,6 +619,12 @@ export function renderPartAnnotations(svg, drawing, viewer, description, views, 
             (edgeX - anchor.x) ** 2 })));
       });
       const routes = placements.length ? placements : detours;
+      if (!routes.length && description.construction) {
+        for (const alternative of alternatives.sort((a, b) => a.distance - b.distance)) {
+          const points = routeCallout(anchor, { x: alternative.left + box.width / 2, y: alternative.edge }, dimensionLabels);
+          if (points) { routes.push({ ...alternative, points }); break; }
+        }
+      }
       if (!routes.length) throw new Error(`No clear callout-label route for ${feature.id} in ${stockView.name} view.`);
       const { left, top, points } = routes.reduce((best, next) => next.distance < best.distance ? next : best);
       callout.setAttribute("transform", `translate(${left - box.x} ${top - box.y})`);

@@ -437,13 +437,7 @@ test("rear cross-beam parallel stations do not falsely replace a left-right setb
   for (const side of ["left", "right"]) {
     const id = `stairway/module-1/step-4-${side}RearUpright`;
     assert.ok(top.occluded.includes(id), "The upright genuinely overlaps the beam in the Top projection.");
-    if (side === "left") {
-      assert.ok(bottom.neighbors.includes(id), "Bottom still shows the raised left upright's joint context.");
-    } else {
-      assert.ok(bottom.occluded.includes(id), "The extended right upright also obscures the beam from below.");
-      assert.ok(plan.views.find(view => view.name === "Left").neighbors.includes(id),
-        "The opposite side still shows the extended right upright's joint context.");
-    }
+    assert.ok(bottom.neighbors.includes(id), "Bottom shows both raised uprights' joint context.");
   }
 });
 

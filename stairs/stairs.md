@@ -124,7 +124,8 @@ as much as the outer layers stretch, and developed length is neutral radius
 times sweep angle. The inner surface contacts the rear right upright edges,
 without the old artificial outward offset; the roughly `0.010 in` gaps at front
 uprights and tiny tread/framing overlaps are accepted. The two flat step-1
-pieces retain their existing `1/16 in` offset. Existing framing is not trimmed.
+pieces have no outward clearance: their inner faces lie on the original straight
+step edge. Existing framing is not trimmed.
 
 Details' stock-aligned views show the flat cutting pattern; the rotatable
 preview, Stairway, and Placement show the installed curve. Curvature is part
@@ -140,23 +141,35 @@ sloped bottom, rather than a complex milled curved notch floor. These openings
 are included in the flat outline, cutting drawings, inventory identity, and
 wood-volume estimates. Installed cylinder facets have at most `0.001 in` sag.
 
-### Siding ribs
+### Base rails
 
-Each module has one flat `1/2 in` plywood **Rib - siding**, resting on the
-cross-pieces from `8 in` to `8.5 in` above the floor. Its left edge aligns with
-the left edge of the right caster beam. Its right edge is cut to a circular arc
-flush with the curved siding's inner surface; open notches clear the uprights.
+Each module has two separate flat `3/4 in` plywood parts, **Base rail - inner**
+and **Base rail - outer**, immediately below the caster beams from `4.25 in`
+to `5 in` above the floor. Each rail is exactly `6 in` wide radially:
+the inner rail runs from `INNER_RADIUS` to `INNER_RADIUS + 6`; the outer
+rail runs from `moduleSidingRadius - 6` to the curved siding's inner surface.
+All arcs are centered at C, leaving the middle of the former panel open.
+Caster mounting faces meet the rail undersides directly; no spacers or large
+caster openings are required.
+Newel, adjoining newel blocks, and low spindles have `1/32 in` clearance cuts
+where they intersect each rail; spindles are not shortened.
 The back follows the module's rear radial boundary. The front is set back
 `1/4 in` from its radial boundary to clear the preceding module's rear panel.
-Module 1 instead begins `1/4 in` behind step 2's front radial boundary, clearing
-that step's riser without a separate riser notch.
+Module 1 instead extends to the rear edge of step 1's front tread support
+(the south cross-piece in layouts without the separate flat support).
+Caster beams remain at `5-6.5 in`, cross-pieces at `6.5-8 in`, and both left
+and right uprights start at beam-top height, `6.5 in`. Attachment blocks on
+both sides start at `8 in`. No upright notches are needed in the rails.
+The new role keys are `innerBaseRail` and `outerBaseRail`, in category
+`base-rails`; the former `rib` and caster-spacer parts no longer exist.
 
-Unlike `BentPlywood`, `ProfiledPlywood` stays flat. Ribs are authored as a
+Unlike `BentPlywood`, `ProfiledPlywood` stays flat. Rails are authored as a
 construction recipe: start with a rectangular blank, trim the two upper corners
-to form a trapezoid, cut the arc, then cut rotated rectangular upright notches.
+to form a trapezoid, cut the concentric arcs, then the rectangular clearances.
+Cuts entirely outside the retained rail are omitted.
 Each trapezoid side is authored as a radial guideline through C and a signed
 perpendicular inset toward the retained material. The front inset is `1/4 in`;
-the rear inset is zero. Cut lines and corner coordinates are derived from those
+the rear inset is zero; module 1 uses the front-support datum instead. Cut lines and corner coordinates are derived from those
 inputs, rather than authored independently.
 The original blank and trapezoid can extend beyond the finished outline's
 tight bounds. The recipe generates the analytic line/arc perimeter, cutting
@@ -166,18 +179,18 @@ depend on display tessellation. Arc facets have at most `0.001 in` sag.
 Details shows the entire original blank with a dotted outline and overall
 dimensions above and left. Callouts locate the two upper triangle-cut vertices
 from the corresponding left/right blank edges. Each notch has one
-reference: its left inner vertex looking inward from the opening, or the first
-inner vertex encountered clockwise around the notch in the cutting-face view
-(X right, Z down). Its callout locates that reference using offsets from the
+authored reference corner in the cutting-face view (X right, Z down).
+Clearance cuts are labeled N1, N2, etc.
+Each callout locates that reference using offsets from the
 nearest left/right and top/bottom blank edges; an offset on an exact blank edge
-is omitted. The same callout gives width along the inner edge toward the
-other inner vertex, height (cut depth) perpendicular toward the opening, and signed angle
+is omitted. The same callout gives width along its labeled direction,
+height (cut depth) perpendicular clockwise from that direction, and signed angle
 from +X toward +Z. A partially clipped notch retains its full rectangular cutting
 guide; its reference can lie outside the blank, so coordinates retain their signs.
 There are no piecewise dimensions, locating dimension lines, or per-vertex
 coordinate lists.
 
-A dotted radius line starts at the lowest point of the un-notched arc and
+A dotted radius chain starts on the un-notched outer arc and
 continues through the shape to near the top of the diagram, with an arrow
 toward the circle center **C**. Straight edges that pass through C have matching
 dotted extensions, with arrowheads at the same height as the radius arrow.
@@ -185,7 +198,7 @@ Each shortened guide is labeled "To C"; labels are arranged around the
 arrowheads to avoid overlaps. The recipe supplies both side guidelines directly:
 the rear coincides with its cut; the front is parallel to its clearance-offset
 cut. The front-cut callout adds "Cut 1/4 in inside radial guide."
-The radius sits beside the main arrowhead, not in a separate callout below
+The innermost radius sits beside the main arrowhead, not in a separate callout below
 the part. Concentric arc cuts share a radial dimension chain wherever their
 angular spans overlap: arrows measure the spacing from each outer arc to the
 next inner arc, then the innermost radius toward C. Interrupted segments of the
@@ -278,7 +291,7 @@ The former **Newel beam block** beneath the right beam is omitted.
 
 A separate pine 2x4 **Newel block - rear** runs on edge, parallel to
 the newel's side faces. Its front end butts against the newel's back face,
-and its square rear end stops before step 2's extended right upright.
+and its square rear end stops before step 2's right upright's plan footprint.
 The inner block retains its separate back-end position.
 The rear block's default length is approximately `6.2043 in`.
 Its left face is against the inner block's right face. It shares the inner
@@ -288,7 +301,7 @@ The former right 1x4 side support is omitted. Both module-1 beams have
 front ends mitered to butt against the front cross-piece's back face.
 The right beam shifts inward so its outer front corner meets the
 cross-piece immediately to the left of the inner block, or farther inward
-if required to clear the extended right uprights. It retains the
+if required by the right uprights' projected footprints. It retains the
 module's beam heading and a square rear cut fitted within the module.
 Both front caster plates clear the cross-piece by at least `1/8 in`.
 The right front caster is set back an additional `1 in` along its beam.
@@ -345,13 +358,12 @@ needs a separate support solution.
 
 Casters mount directly beneath both ends of each beam. The beam bottoms remain
 at the modeled caster mounting-face elevation, `5 in`, and their tops are at
-`6.5 in`. Left uprights start at that elevation; right front and rear uprights
-extend down to the siding bottom, `1 in` above the floor.
+`6.5 in`. Left and right front/rear uprights all start at that elevation.
 Right support beams are inset an additional `3/4 in` toward
 the inside of the curve to give their casters more clearance from the siding,
 except in module 1 where the newel inner block determines the right beam position.
-Each right beam moves farther inward only as needed to clear the extended
-right uprights, accounting for their front bevels and the half-inch material
+Each right beam retains its fitted inward placement relative to the
+right uprights' plan footprints, accounting for their front bevels and the half-inch material
 removed from their inward faces by the bottom-open notches.
 Left beam placement is unchanged. Casters follow their supporting beams. End rounding does
 not change either beam's lateral position. Apart from the newel blocking,
@@ -404,10 +416,10 @@ in each module's part list. They have individual stock views, cutting dimensions
 and move rigidly with their module when modules are split.
 
 Pine 2x4 **Attachment block - upright left** and **Attachment block - upright right** parts
-bear against the uprights' inward faces. Left blocks rest directly on the pine
-cross-pieces; right blocks rest on the siding ribs. These attachment blocks
+bear against the uprights' inward faces. Both sides rest directly on the pine
+cross-pieces. These attachment blocks
 stand on their narrow edges: `1.5 in` thick and `3.5 in` high, from `8 in`
-to `11.5 in` on the left and `8.5 in` to `12 in` on the right, before upper
+to `11.5 in` on both sides, before upper
 reliefs. Ordinary blocks match the upright's front-to-back
 width, not its vertical height, with front ends trimmed where needed to clear
 the riser behind the upright's full-height bevel.
@@ -415,10 +427,10 @@ the riser behind the upright's full-height bevel.
 On each module's last step, one continuous block per side joins both the front
 and rear uprights. Its front end aligns with the riser's back plane,
 and its rear end aligns with the rear upright's back. The block
-bears on both pine cross-pieces, through the rib on the right. Ends are beveled where needed to stay inside
+bears on both pine cross-pieces. Ends are beveled where needed to stay inside
 the step footprint and clear the riser; upper-front notches clear low risers
 or front cross-pieces without shortening the block's full bearing span.
-Raised right blocks also receive upper-front relief where needed to clear the
+Right blocks also receive upper-front relief where needed to clear the
 preceding tread's rear frame.
 Step 1, which has no lower support cross-piece, has no such blocks.
 
@@ -652,8 +664,8 @@ of its manufacturing specification or material:
 | Subset | Included parts |
 |---|---|
 | All parts | Everything in the module/type scope. |
-| Framing | Structural wood: foundation beams and cross-pieces, plywood siding ribs, uprights, step supports, and blocking. No other sheet goods, newel post, spindles, shims, or casters. |
-| Foundation | Caster beams, front/rear support cross-pieces, siding ribs, casters, and the special first-step front cross-piece and flat tread supports. |
+| Framing | Structural wood: foundation beams and cross-pieces, plywood base rails, uprights, step supports, and blocking. No other sheet goods, newel post, spindles, shims, or casters. |
+| Foundation | Caster beams, front/rear support cross-pieces, base rails, casters, and the special first-step front cross-piece and flat tread supports. |
 | Step framing | Uprights, upper cross-pieces, tread supports, and associated support and newel blocks. |
 | Treads and risers | The plywood walking surfaces and riser panels. |
 | Cladding | Curved module siding, both flat first-step pieces, and particle-board back panels. |
@@ -1737,10 +1749,11 @@ A description contains:
   radians. This analytic perimeter replaces planar `edgeCuts`; the blank
   remains rectangular. Bounds include arc extrema and volume integrates
   circular segments exactly.
-- `construction`: optional recipe for a flat arc-cut rib, containing
+- `construction`: optional recipe for a flat arc-cut base rail, containing
   `blank: { length, width }`,
   `trapezoid: { left: { angleRadians, inset }, right: { angleRadians, inset } }`,
-  `arc: { center, radius }`, and `notches`. Each trapezoid side has a radial
+  `arc: { center, radius }`, optional `innerRadius`, `notches`, and optional
+  `openings`. The inner arc shares the outer arc's center. Each trapezoid side has a radial
   guideline from the arc center C, with its direction measured from +X toward
   +Z in the cutting-face view. `inset` is a signed perpendicular distance:
   positive moves the actual cut toward retained material; zero cuts on the
@@ -1748,12 +1761,16 @@ A description contains:
   The generated cut lines must meet the corresponding bottom corners of the
   original blank and trim nonoverlapping top corners. Top-corner coordinates
   are calculated, not additional recipe inputs. Each
-  notch is `{ reference: [X, Z], width, depth, angleRadians }`, using the
-  outside-looking-in left inner vertex convention above. Width follows
+  rectangular cut is `{ reference: [X, Z], width, depth, angleRadians, name? }`,
+  using its marked reference corner. Width follows
   `[cos(angle), sin(angle)]`; depth follows `[-sin(angle), cos(angle)]`.
-  These rectangular cuts must open through the arc. `ProfiledPlywood` accepts
-  either this recipe or a direct `outline`, not both; the manufacturing
-  description includes the recipe and its generated outline. Blank dimensions
+  Rectangular cuts may form enclosed holes, cross the perimeter, or overlap;
+  overlapping cuts are subtracted as a union. `ProfiledPlywood` accepts
+  either this recipe or a direct `outline` with optional clockwise `holes`,
+  not both. Holes must be disjoint and strictly inside the perimeter.
+  The manufacturing description includes the recipe, generated outline, and
+  hole contours. Exact volume subtracts the holes, and meshes include their
+  inner walls without adding walls across triangulation bridges. Blank dimensions
   describe the original rectangle, not a refitted finished bounding box.
 
 The blank's minimum coordinate on each stock axis is zero. A plane uses
@@ -1848,7 +1865,8 @@ const FRAME_WIDTH = 3.5;
 const RISER_THICKNESS = 1 / 4;
 const TREAD_THICKNESS = 1 / 2;
 const FLOOR_CLEARANCE = 1;
-const CASTER_HEIGHT = 5;
+const CASTER_HEIGHT = 4.25;
+const SUPPORT_BEAM_BOTTOM_HEIGHT = 5;
 const SUPPORT_NOTCH_DEPTH = 1 / 2;
 const UPRIGHT_THICKNESS = 1.5;
 const SUPPORT_BEAM_THICKNESS = 1.5;
@@ -1899,7 +1917,12 @@ minimum-size restriction.
 ## Casters and mounting woodwork
 
 The stairway is a movable stage prop. Each module has four casters mounted
-directly beneath the ends of two flat pine 2x4 support beams. Flat pine 2x4
+directly beneath two curved `6 in`-radial-width, `3/4 in` plywood base rails.
+These replace the thin full-width panel and individual caster spacers.
+Two casters support each rail, with centers on its radial centerline.
+The full plate, including its edges, remains within the wood and clear of
+newel/block/spindle relief cuts in all supported `7-9`-step layouts.
+Flat pine 2x4
 support cross-pieces transfer front-upright loads onto those beams, except at
 the unresolved lowest step. The pine rear uprights follow the side boundaries,
 with their back corners meeting the rear radius. The outside faces of the right-hand uprights provide the modeled banister
@@ -1907,29 +1930,31 @@ spindle mounting surfaces. Their bolts and the handrails are not yet modeled.
 
 ### Selected reference hardware
 
-[Castrek 4-inch locking swivel casters, Amazon ASIN B0C2Q7NY31](https://www.amazon.com/dp/B0C2Q7NY31).
+[CWfutureparts 3-inch swivel casters, Amazon ASIN B0GM477Q4M](https://www.amazon.com/dp/B0GM477Q4M).
 The following specifications were supplied by the user from the listing's
 size guide and screenshot; they have not been independently verified.
-The nominal 4-inch size refers to wheel diameter, not installed height.
+The nominal 3-inch size refers to wheel diameter, not installed height.
+The four-caster set includes two braked casters.
 
 | Specification | Value |
 |---|---|
-| Overall installed height, floor to top mounting face | `5.11 in` (`13 cm`) |
-| Wheel diameter | `3.93 in` (`10 cm`), nominally 4 inches |
-| Wheel tread width | `1.25 in` (`3.2 cm`) |
-| Top mounting plate | `3.74 x 2.48 in` (`9.5 x 6.3 cm`) |
-| Bolt-hole center spacing | `2.95 x 1.77 in` (`7.5 x 4.5 cm`) |
-| Advertised load capacity | `2,200 lb`, interpreted as the four-caster set rating |
+| Overall installed height, floor to top mounting face | `4.3 in`, modeled as `4.25 in` |
+| Wheel diameter | `3 in` |
+| Wheel tread width | `1.25 in` |
+| Top mounting plate | `3.62 x 2.5 in` |
+| Bolt-hole center spacing | `2.75 x 1.75 in` |
+| Mounting slots | `0.44 x 0.33 in` |
+| Advertised load capacity | `1,400 lb` for the four-caster set |
 
-On that set-rating interpretation, nominal capacity is `550 lb` per caster,
-or `1,650 lb` counting only three supporting casters. The latter allows for one
+Nominal capacity is `350 lb` per caster,
+or `1,050 lb` counting only three supporting casters. The latter allows for one
 caster being unloaded on an uneven floor; it is not a separate manufacturer
 rating or a complete dynamic-load/stability assessment.
 
-For context, the current default wooden stairway is approximately `248 lb`,
-with the heaviest module approximately `100 lb`. These estimates include the
+For context, the current default wooden stairway is approximately `263 lb`,
+with the heaviest module approximately `106 lb`. These estimates include the
 support cross-pieces, attachment blocks, flat beams, siding, back panels,
-newel blocking, and oak spindles, shims, and newel but exclude all caster hardware weight. The working planning allowance
+newel blocking, plywood base rails, and oak spindles, shims, and newel but exclude all caster hardware weight. The working planning allowance
 is up to `200 lb` for a finished module including cladding and banister, and
 approximately `800 lb` with two people. Those are estimates, not measured
 finished weights. Do not credit adjacent modules with carrying part of that
@@ -1937,36 +1962,41 @@ load when choosing caster capacity.
 
 ### Mounting elevations and estimated clearances
 
-For planning, `CASTER_HEIGHT` is deliberately rounded to **5 inches**, rather
-than the reference hardware's 5.11 inches. Tread heights and wood dimensions
-use this modeled floor datum. Installing 5.11-inch casters instead raises the
-entire assembly by 0.11 inch, including the uprights and beam tops;
-no compensating cuts are needed or modeled.
+For planning, `CASTER_HEIGHT` is deliberately rounded to **4.25 inches**, rather
+than the reference hardware's 4.3 inches. Beam bottoms remain independently fixed
+at `SUPPORT_BEAM_BOTTOM_HEIGHT = 5`, preserving all tread and framing elevations.
+The three-quarter-inch base rails account for the remaining height.
+Installing 4.3-inch casters with the same rails raises the
+entire assembly by 0.05 inch, making the bottom rise slightly greater and
+the final rise to the castle slightly smaller.
 
 All elevations below are measured from the modeled flat floor, using this
-5-inch caster height. `FLOOR_CLEARANCE = 1` applies to the first riser,
-siding bottoms, and extended right uprights.
+4.25-inch caster height. `FLOOR_CLEARANCE = 1` applies to the first riser
+and siding bottoms.
 
 | Feature or clearance | Nominal value |
 |---|---|
-| Caster mounting face / underside of flat support beam above floor | `5 in` |
+| Caster mounting face above floor | `4.25 in` |
+| Plywood base rail radial width x thickness | `6 x 0.75 in` |
+| Underside of flat support beam above floor | `5 in` |
 | Top of flat support beam above floor | `6.5 in` |
 | Top of support cross-piece / bottom-notch shoulder above floor | `8 in` |
 | Bottom of left uprights above floor | `6.5 in` |
-| Bottom of right front/rear uprights above floor | `1 in` |
-| Bottom of left uprights above caster mounting face | `1.5 in` |
-| Wheel axle above floor, estimated as half the wheel diameter | `1.97 in` |
-| Top of wheel above floor | `3.93 in` |
-| Mounting face above top of wheel | `1.07 in` |
+| Bottom of right front/rear uprights above floor | `6.5 in` |
+| Base rail underside / top above floor | `4.25 in` / `5 in` |
+| Bottom of left uprights above caster mounting face | `2.25 in` |
+| Wheel axle above floor, estimated as half the wheel diameter | `1.5 in` |
+| Top of wheel above floor | `3 in` |
+| Mounting face above top of wheel | `1.25 in` |
 
-The flat support beam sits above the modeled `5 in` mounting face, so its
-thickness and fastening access require additional space. The modeled `1.07 in` above
+The flat support beam sits above the modeled `4.25 in` mounting face, with
+the base rail occupying the intervening height. The modeled `1.25 in` above
 the wheel is occupied in part by the fork and swivel head; it is not free
 clearance for framing. The wheel also overlaps the base framing's vertical
 height range, so horizontal clearance from the framing must be provided.
 
 The caster's swivel-axis-to-axle offset, full swivel/brake sweep, plate
-thickness, hole diameters, and brake operating clearance are not specified.
+thickness and brake operating clearance are not specified.
 Wheel dimensions alone therefore do not establish a safe corner setback or
 clearance from neighboring modules. Any initial visualizer representation of
 the fork, swivel, brake, and their clearance envelopes will be approximate;
@@ -1977,10 +2007,10 @@ block dimensions and fastener edge distances determined separately.
 ### Rough caster geometry
 
 `Caster(east = 0, north = 0, heading = 0)` creates an illustrative hardware mesh with its
-wheel touching the floor and its plate's top at `CASTER_HEIGHT = 5`.
+wheel touching the floor and its plate's top at `CASTER_HEIGHT = 4.25`.
 `CASTER_DIMENSIONS` holds the documented installed height, wheel diameter and
-tread width, and plate length/width. A faceted orange torus represents the tire;
-a silver disc represents the hub. Two triangular metal fork sides, an axle,
+tread width, and plate length/width. A faceted red annular cylinder represents the flat-tread tire;
+a silver disc represents the hub. Two broad metal fork sides with rounded lower ends, an axle,
 a short swivel cylinder, and a rectangular mounting plate complete the model.
 Zeroed grain attributes give the hardware solid colors without wood texture.
 Bolt holes, brake details, and swivel motion are omitted.
@@ -1990,12 +2020,18 @@ The unknown plate thickness (`0.12 in`), swivel height (`0.30 in`), fork thickne
 not fabrication or swept-clearance dimensions. Cached local meshes are copied,
 rotated by the heading in radians, and translated for each caster.
 
-Each module has four casters, one beneath each end of each flat pine beam.
-The plate length follows the beam; its width is centered across the
-3.5-inch beam width, leaving `0.51 in` at each side. The nearest plate edge
-is inset `1/8 in` from its beam end. Front and rear headings point the estimated
-wheel offsets inward along the beam. The wheels touch elevation zero, while
-the plate tops meet the beam undersides at the modeled `5 in`. These positions are
+Each module has four casters, two beneath each curved base rail.
+The original beam-end positions supply preferred angles, but the rails, not
+the beam footprints, now determine mounting support. Each center sits halfway
+between its rail's inner and outer radii. The plate's long axis follows the
+local arc tangent, except the two front casters assigned to step 1 retain
+their original headings. Rear casters face backward along that tangent.
+A circumscribed disk around each plate keeps its entire rectangle clear of
+the rail ends and angular shadows of intersecting relief cuts. Positions move
+along the arc as needed; front plates remain at least `1/8 in` behind the
+front cut and the front cross-piece boundary. The two plates on each rail
+remain separated. The wheels touch elevation zero, while
+the plate tops meet the rail undersides at `4.25 in`. These positions are
 illustrative, not approved fastening locations or edge distances. Regrouping
 modules relocates all four module-end casters; there is no extra step-2 pair.
 
@@ -2229,8 +2265,8 @@ To place step $i$:
 
 The rotation changes both position and orientation. It is not a rotation about
 the step's translated local origin. The local vertical origin remains floor
-level; the lower support cross-pieces and left uprights start at the `6.5 in`
-beam tops. Right uprights start at the siding bottom, `1 in` above the floor.
+level; the lower support cross-pieces and all left/right uprights start at the `6.5 in`
+beam tops.
 
 The implementation maps East to `+X`, Up to `+Y`, and North to `-Z`. The camera
 orbits the assembled model's bounding-box center; the geometry retains its
@@ -2291,7 +2327,7 @@ slightly forward so its beveled uprights still fit 2x4 stock; adjoining
 side supports are refitted to their new rear planes. The uncut stock
 outline remains rectangular.
 
-Left uprights start at the beam tops, `CASTER_HEIGHT + SUPPORT_BEAM_THICKNESS`,
+Left uprights start at the beam tops, `SUPPORT_BEAM_BOTTOM_HEIGHT + SUPPORT_BEAM_THICKNESS`,
 or `6.5` inches above the floor. Right front and rear uprights start at
 `FLOOR_CLEARANCE`, or `1` inch, flush with the siding bottom. Their
 tops are at `height - TREAD_THICKNESS`, level with the tread's underside.
@@ -2319,8 +2355,8 @@ below the flat front step support. The beams start behind its back face.
 
 Every remaining front upright and each separate rear upright has an inward-facing
 bottom-open face notch for its support cross-piece. Combined left uprights share one notch between
-the front and rear cross-pieces. The left openings span floor elevations
-`6.5` to `8` inches; the right openings span `1` to `8` inches,
+the front and rear cross-pieces. Both left and right openings span floor elevations
+`6.5` to `8` inches,
 are `SUPPORT_NOTCH_DEPTH = 1/2` inch deep, and leave `1` inch of stock thickness.
 The left upright uses its positive-Y stock face; the right uses its negative-Y
 face. There are no remaining caster-platform dados.
@@ -2552,7 +2588,7 @@ results directory can be supplied with `npm run check:intersections -- DIRECTORY
 The matrix explicitly excludes `stairway/module-N/siding` for each module and
 logs those IDs. Only the enumerated curved panels are excluded because their
 small tread/framing overlaps are accepted; both flat step-1 siding pieces are
-still checked, as are all flat arc-cut ribs and raised attachment blocks.
+still checked, as are all flat arc-cut base rails and attachment blocks.
 A clear result applies only to the checked pieces, not the whole
 assembly. The Rust tolerances are unchanged.
 

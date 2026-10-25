@@ -344,23 +344,26 @@ export function getPartFeatures(description, view, suppliedViews = []) {
         }
         features.push(entry);
       }
-      for (const [i, notch] of construction.notches.entries()) {
-        const entry = feature(`N${i + 1}`, "rectangular-notch", "Rectangular notch", point3(notch.reference));
-        const offsets = notch.reference.flatMap((coordinate, axis) => {
-          const size = axis === 0 ? blank.length : blank.width;
-          if (Math.abs(coordinate) < EPSILON || Math.abs(size - coordinate) < EPSILON) return [];
-          const fromEnd = Math.abs(size - coordinate) < Math.abs(coordinate);
-          const edge = axis === 0 ? fromEnd ? "right" : "left" : fromEnd ? "bottom" : "top";
-          return [`${formatLength(fromEnd ? size - coordinate : coordinate)} in from ${edge}`];
-        });
-        entry.lines = [`${entry.id}: ${offsets[0] ?? "Rectangular notch"}`, ...offsets.slice(1),
-          `Width ${formatLength(notch.width)} in; height ${formatLength(notch.depth)} in`,
-          `Angle ${angleText(notch.angleRadians * 180 / Math.PI)} from blank X`];
-        entry.outline = notchRectangle(notch).map(point3);
-        entry.closed = entry.outlineHidden = true;
-        features.push(entry);
+      for (const [prefix, cuts] of [["N", construction.notches], ["H", construction.openings ?? []]]) {
+        for (const [i, notch] of cuts.entries()) {
+          const entry = feature(`${prefix}${i + 1}`, "rectangular-notch",
+            notch.name ?? (prefix === "H" ? "Rectangular through-opening" : "Rectangular notch"), point3(notch.reference));
+          const offsets = notch.reference.flatMap((coordinate, axis) => {
+            const size = axis === 0 ? blank.length : blank.width;
+            if (Math.abs(coordinate) < EPSILON || Math.abs(size - coordinate) < EPSILON) return [];
+            const fromEnd = Math.abs(size - coordinate) < Math.abs(coordinate);
+            const edge = axis === 0 ? fromEnd ? "right" : "left" : fromEnd ? "bottom" : "top";
+            return [`${formatLength(fromEnd ? size - coordinate : coordinate)} in from ${edge}`];
+          });
+          entry.lines = [`${entry.id}: ${offsets[0] ?? (prefix === "H" ? "Rectangular opening" : "Rectangular notch")}`, ...offsets.slice(1),
+            `Width ${formatLength(notch.width)} in; height ${formatLength(notch.depth)} in`,
+            `Angle ${angleText(notch.angleRadians * 180 / Math.PI)} from blank X`];
+          entry.outline = notchRectangle(notch).map(point3);
+          entry.closed = entry.outlineHidden = true;
+          features.push(entry);
+        }
       }
-      unnotched = constructionOutline({ ...construction, notches: [] });
+      unnotched = constructionOutline({ ...construction, notches: [], openings: [] });
     }
     const arcs = [];
     for (const edge of description.outline.filter(edge => edge.type === "arc")) {

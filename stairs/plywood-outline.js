@@ -45,7 +45,7 @@ export function constructionTrapezoid({ blank, trapezoid, arc }) {
   return { sides, vertices: [sides[0].top, sides[1].top, sides[1].bottom, sides[0].bottom] };
 }
 
-export function constructionOutline(construction) {
+function outerConstructionOutline(construction) {
   const { arc, notches } = construction;
   const { sides } = constructionTrapezoid(construction);
   const planes = [...sides, { normal: [0, 1], offset: 0 }];
@@ -91,6 +91,183 @@ export function constructionOutline(construction) {
   for (const { normal, offset } of planes) outline = clipOutline(outline, normal, offset);
   validateOutline(outline);
   return outline;
+}
+
+export const reverseOutline = outline => outline.toReversed().map(edge => edge.type === "line"
+  ? { type: "line", from: [...edge.to], to: [...edge.from] }
+  : { ...edge, startAngle: edge.startAngle + edge.sweepRadians, sweepRadians: -edge.sweepRadians });
+
+function edgeSlice(edge, start, end) {
+  return edge.type === "line" ? { type: "line", from: outlinePoint(edge, start), to: outlinePoint(edge, end) }
+    : { ...edge, startAngle: edge.startAngle + start * edge.sweepRadians,
+      sweepRadians: (end - start) * edge.sweepRadians };
+}
+
+function intersections(a, b) {
+  const cross = (u, v) => u[0] * v[1] - u[1] * v[0];
+  const sub = (u, v) => u.map((value, i) => value - v[i]);
+  const parameter = (edge, point) => edge.type === "arc" ?
+    angleParameter(edge, Math.atan2(point[1] - edge.center[1], point[0] - edge.center[0])) :
+    dot(sub(point, edge.from), sub(edge.to, edge.from)) / distance(edge.to, edge.from) ** 2;
+  let points;
+  if (a.type === "line" && b.type === "line") {
+    const u = sub(a.to, a.from), v = sub(b.to, b.from), denominator = cross(u, v);
+    if (Math.abs(denominator) < EPSILON) {
+      if (Math.abs(cross(sub(b.from, a.from), u)) > EPSILON * Math.hypot(...u)) return [];
+      points = [a.from, a.to, b.from, b.to];
+    } else points = [outlinePoint(a, cross(sub(b.from, a.from), v) / denominator)];
+  } else if (a.type === "arc" && b.type === "arc") {
+    const delta = sub(b.center, a.center), d = Math.hypot(...delta);
+    if (d < EPSILON) return [];
+    const along = (a.radius ** 2 - b.radius ** 2 + d ** 2) / (2 * d);
+    const h2 = a.radius ** 2 - along ** 2;
+    if (h2 < -EPSILON) return [];
+    const h = Math.sqrt(Math.max(0, h2));
+    points = [-1, 1].map(sign => a.center.map((value, i) =>
+      value + along * delta[i] / d + sign * h * (i === 0 ? -delta[1] : delta[0]) / d));
+  } else {
+    const [line, arc] = a.type === "line" ? [a, b] : [b, a];
+    const u = sub(line.to, line.from), relative = sub(line.from, arc.center);
+    const aa = dot(u, u), bb = 2 * dot(relative, u), cc = dot(relative, relative) - arc.radius ** 2;
+    const discriminant = bb ** 2 - 4 * aa * cc;
+    if (discriminant < -EPSILON) return [];
+    points = [-1, 1].map(sign => outlinePoint(line, (-bb + sign * Math.sqrt(Math.max(0, discriminant))) / (2 * aa)));
+  }
+  return points.map(point => [parameter(a, point), parameter(b, point)])
+    .filter(pair => pair.every(value => value >= -EPSILON && value <= 1 + EPSILON))
+    .map(pair => pair.map(value => Math.max(0, Math.min(1, value))));
+}
+
+export function profileContains(profile, point) {
+  let winding = 0;
+  for (const edge of [profile.outline, ...profile.holes].flat()) {
+    if (edge.type === "line") {
+      const [a, b] = [edge.from, edge.to];
+      if ((a[1] > point[1]) === (b[1] > point[1])) continue;
+      const x = a[0] + (point[1] - a[1]) * (b[0] - a[0]) / (b[1] - a[1]);
+      if (x > point[0]) winding += b[1] > a[1] ? 1 : -1;
+    } else {
+      const sine = (point[1] - edge.center[1]) / edge.radius;
+      if (Math.abs(sine) >= 1) continue;
+      for (const angle of [Math.asin(sine), Math.PI - Math.asin(sine)]) {
+        const t = angleParameter(edge, angle), dy = Math.cos(angle) * edge.sweepRadians;
+        if (dy > 0 ? t < 0 || t >= 1 : t <= 0 || t > 1) continue;
+        if (edge.center[0] + edge.radius * Math.cos(angle) > point[0]) winding += dy > 0 ? 1 : -1;
+      }
+    }
+  }
+  return winding !== 0;
+}
+
+function subtractProfile(profile, cutter) {
+  const boundaries = [profile.outline, ...profile.holes].flat();
+  const pieces = [];
+  const retained = point => profileContains(profile, point) &&
+    !profileContains({ outline: cutter, holes: [] }, point);
+  for (const [edges, others] of [[boundaries, cutter], [cutter, boundaries]]) {
+    for (const edge of edges) {
+      const stops = [0, 1, ...others.flatMap(other => intersections(edge, other).map(pair => pair[0]))]
+        .sort((a, b) => a - b).filter((value, i, all) => i === 0 || value - all[i - 1] > EPSILON);
+      for (let i = 1; i < stops.length; i++) {
+        let piece = edgeSlice(edge, stops[i - 1], stops[i]);
+        const midpoint = outlinePoint(piece, 0.5), from = outlinePoint(piece, 0), to = outlinePoint(piece, 1);
+        const dx = to[0] - from[0], dz = to[1] - from[1], length = Math.hypot(dx, dz);
+        if (length < EPSILON) continue;
+        const probe = Math.min(1e-5, length / 100);
+        const left = retained([midpoint[0] - dz / length * probe, midpoint[1] + dx / length * probe]);
+        const right = retained([midpoint[0] + dz / length * probe, midpoint[1] - dx / length * probe]);
+        if (left === right) continue;
+        if (right) piece = reverseOutline([piece])[0];
+        if (!pieces.some(existing => distance(outlinePoint(existing, 0), outlinePoint(piece, 0)) < EPSILON &&
+          distance(outlinePoint(existing, 1), outlinePoint(piece, 1)) < EPSILON &&
+          distance(outlinePoint(existing, 0.5), outlinePoint(piece, 0.5)) < EPSILON)) pieces.push(piece);
+      }
+    }
+  }
+  const loops = [];
+  while (pieces.length) {
+    const loop = [pieces.shift()], start = outlinePoint(loop[0], 0);
+    while (distance(outlinePoint(loop.at(-1), 1), start) > EPSILON * 10) {
+      const end = outlinePoint(loop.at(-1), 1);
+      const next = pieces.findIndex(edge => distance(outlinePoint(edge, 0), end) < EPSILON * 10);
+      if (next < 0) throw new RangeError("Plywood cut boundaries do not form closed contours.");
+      loop.push(pieces.splice(next, 1)[0]);
+    }
+    loops.push(loop);
+  }
+  const outline = loops.filter(loop => outlineArea(loop) > EPSILON).sort((a, b) => outlineArea(b) - outlineArea(a))[0];
+  if (!outline) throw new RangeError("Plywood cuts remove the entire part.");
+  return { outline, holes: loops.filter(loop => outlineArea(loop) < -EPSILON &&
+    profileContains({ outline, holes: [] }, outlinePoint(loop[0], 0.5))) };
+}
+
+export function constructionProfile(construction) {
+  const { innerRadius, openings = [], notches = [] } = construction;
+  if (innerRadius === undefined && !openings.length) {
+    return { outline: outerConstructionOutline(construction), holes: [] };
+  }
+  let profile = { outline: outerConstructionOutline({ ...construction, notches: [] }), holes: [] };
+  if (innerRadius !== undefined) {
+    if (!Number.isFinite(innerRadius) || innerRadius <= 0 || innerRadius >= construction.arc.radius) {
+      throw new RangeError("An inner arc radius must be positive and smaller than the outer radius.");
+    }
+    profile = subtractProfile(profile, [0, Math.PI].map(startAngle => ({
+      type: "arc", center: [...construction.arc.center], radius: innerRadius, startAngle, sweepRadians: Math.PI,
+    })));
+  }
+  for (const cut of [...notches, ...openings]) {
+    const points = notchRectangle(cut);
+    profile = subtractProfile(profile, points.map((from, i) => ({
+      type: "line", from, to: points[(i + 1) % points.length],
+    })));
+  }
+  validateOutline(profile.outline);
+  for (const hole of profile.holes) validateOutline(reverseOutline(hole));
+  return profile;
+}
+
+export function constructionOutline(construction) {
+  return constructionProfile(construction).outline;
+}
+
+export function validateProfile({ outline, holes = [] }) {
+  validateOutline(outline);
+  for (const [i, hole] of holes.entries()) {
+    validateOutline(reverseOutline(hole));
+    if (!profileContains({ outline, holes: [] }, outlinePoint(hole[0], 0)) ||
+      hole.some(edge => outline.some(boundary => intersections(edge, boundary).length))) {
+      throw new RangeError("Plywood holes must lie strictly inside the outer outline.");
+    }
+    for (const other of holes.slice(0, i)) {
+      if (hole.some(edge => other.some(boundary => intersections(edge, boundary).length)) ||
+        profileContains({ outline: reverseOutline(other), holes: [] }, outlinePoint(hole[0], 0)) ||
+        profileContains({ outline: reverseOutline(hole), holes: [] }, outlinePoint(other[0], 0))) {
+        throw new RangeError("Plywood holes must not overlap or contain each other.");
+      }
+    }
+  }
+}
+
+export function bridgeProfile(profile, sag) {
+  let points = tessellateOutline(profile.outline, sag);
+  const holes = profile.holes.map(hole => tessellateOutline(hole, sag));
+  for (const hole of holes) {
+    const h = hole.reduce((best, point, i) => point[0] < hole[best][0] ? i : best, 0);
+    const from = hole[h];
+    const edges = [points, ...holes].flatMap(loop => loop.map((point, i) => ({
+      type: "line", from: point, to: loop[(i + 1) % loop.length],
+    })));
+    const candidates = points.map((point, i) => ({ point, i })).sort((a, b) => distance(from, a.point) - distance(from, b.point));
+    const target = candidates.find(({ point }) => {
+      const segment = { type: "line", from, to: point };
+      return profileContains(profile, outlinePoint(segment, 0.5)) &&
+        !edges.some(edge => intersections(segment, edge).some(([t]) => t > EPSILON && t < 1 - EPSILON));
+    });
+    if (!target) throw new RangeError("A plywood opening cannot be connected for triangulation.");
+    points = [...points.slice(0, target.i + 1), ...hole.slice(h), ...hole.slice(0, h + 1),
+      target.point, ...points.slice(target.i + 1)];
+  }
+  return points;
 }
 
 export function outlinePoint(edge, t) {
@@ -195,7 +372,7 @@ export function clipOutline(outline, normal, offset) {
         : { ...edge, startAngle: edge.startAngle + edge.sweepRadians * from, sweepRadians: edge.sweepRadians * (to - from) });
     }
   }
-  if (!retained.length) throw new RangeError("A rib boundary removes its entire outline.");
+  if (!retained.length) throw new RangeError("A construction boundary removes the entire outline.");
   const gap = retained.findIndex((edge, i) =>
     distance(outlinePoint(edge, 1), outlinePoint(retained[(i + 1) % retained.length], 0)) > EPSILON);
   if (gap < 0) return retained;

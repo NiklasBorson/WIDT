@@ -601,7 +601,7 @@ export class PlacementPlanner {
       const geometry = model.createNodeGeometry(node.id, 0, 0);
       let planarTriangles = null;
       if (node.component?.outline) {
-        const lines = node.component.outline.filter(edge => edge.type === "line");
+        const lines = [node.component.outline, ...(node.component.holes ?? [])].flat().filter(edge => edge.type === "line");
         planarTriangles = new Set(triangles(node.component.createStockGeometry()).filter(triangle =>
           Math.abs(triangle.normal[1]) > 1 - ANGULAR || lines.some(edge => {
             const direction = sub([edge.to[0], 0, edge.to[1]], [edge.from[0], 0, edge.from[1]]);
