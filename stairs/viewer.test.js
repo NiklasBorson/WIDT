@@ -17,6 +17,26 @@ function close(actual, expected, tolerance = 1e-4) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} differs from ${expected}`);
 }
 
+function transformedGeometry(geometry, matrix) {
+  if (matrix.every((value, index) => value === (index % 5 === 0 ? 1 : 0))) return geometry;
+  const positions = new Float32Array(geometry.positions.length), normals = new Float32Array(geometry.normals.length);
+  for (let i = 0; i < positions.length; i += 3) for (let axis = 0; axis < 3; axis++) {
+    positions[i + axis] = [0, 1, 2].reduce((sum, column) =>
+      sum + matrix[column * 4 + axis] * geometry.positions[i + column], matrix[12 + axis]);
+    normals[i + axis] = [0, 1, 2].reduce((sum, column) =>
+      sum + matrix[column * 4 + axis] * geometry.normals[i + column], 0);
+  }
+  return { ...geometry, positions, normals };
+}
+
+function closeGeometry(actual, expected) {
+  for (const key of ["positions", "normals", "colors", "grain"]) {
+    assert.equal(actual[key].length, expected[key].length, key);
+    actual[key].forEach((value, index) => close(value, expected[key][index]));
+  }
+  assert.deepEqual(actual.indices, expected.indices);
+}
+
 function screenPoint(viewer, point) {
   const { view, projection } = viewer.getCameraMatrices();
   const camera = [0, 1, 2, 3].map(axis =>
@@ -32,6 +52,7 @@ function screenPoint(viewer, point) {
 function createViewer() {
   const viewer = Object.create(WebGLViewer.prototype);
   const matrices = {};
+  const uploads = [], draws = [], deleted = [], allocated = [], bindings = {}, attributes = [];
   Object.assign(viewer, {
     canvas: { clientWidth: 800, clientHeight: 600 },
     center: [10, 20, 30],
@@ -39,23 +60,34 @@ function createViewer() {
     projection: "projection",
     view: "view",
     lightDirection: "light",
-    vertexBuffers: [],
+    modelTransform: "model",
+    vertexBuffers: [["positions", 3], ["normals", 3], ["colors", 3], ["grain", 4]]
+      .map(([key, size], location) => ({ key, size, location, buffer: {} })),
+    indexBuffer: {},
     indexCount: 0,
     requestRender() {},
     gl: {
+      ARRAY_BUFFER: 34962, ELEMENT_ARRAY_BUFFER: 34963, FLOAT: 5126,
+      STATIC_DRAW: 35044, UNSIGNED_SHORT: 5123, UNSIGNED_INT: 5125, TRIANGLES: 4,
       isContextLost: () => false,
       viewport() {},
       clear() {},
-      bindBuffer() {},
-      bufferData() {},
+      bindBuffer(target, buffer) { bindings[target] = buffer; },
+      bufferData(...args) { uploads.push(args); },
+      createBuffer() { const buffer = {}; allocated.push(buffer); return buffer; },
+      deleteBuffer(buffer) { deleted.push(buffer); },
+      vertexAttribPointer(location) { attributes[location] = bindings[this.ARRAY_BUFFER]; },
       getExtension: () => ({}),
-      drawElements() {},
+      drawElements(...args) {
+        draws.push({ args, model: Array.from(matrices.model),
+          indexBuffer: bindings[this.ELEMENT_ARRAY_BUFFER], vertexBuffers: [...attributes] });
+      },
       uniformMatrix4fv(name, transpose, matrix) { matrices[name] = matrix; },
       uniform3f(name, ...values) { matrices[name] = values; },
     },
   });
   viewer.reset();
-  return { viewer, matrices };
+  return { viewer, matrices, uploads, draws, deleted, allocated };
 }
 
 test("panning follows screen axes at different rotations, zooms, sizes and pixel densities", () => {
@@ -981,6 +1013,91 @@ test("hit testing uses the nearest visible indexed triangle with camera transfor
   }
 });
 
+test("module batches retain indexed buffers across transforms, bind each draw, and release surplus buffers", () => {
+  const originalWindow = globalThis.window;
+  globalThis.window = { devicePixelRatio: 1 };
+  try {
+    const { viewer, uploads, draws, deleted, allocated } = createViewer();
+    const geometry = new Board({ length: 12, width: 4, thickness: 1 }).createGeometry();
+    const model = buildStairway(), transforms = model.getModuleTransforms(1);
+    const batches = transforms.map((transform, index) => ({
+      geometry, transform,
+      renderGeometry: index === 2 ? { ...geometry, indices: new Uint32Array(geometry.indices) } : geometry,
+    }));
+    viewer.setGeometry(combineGeometries(batches.map(batch => batch.geometry)), geometry, { batches });
+    assert.equal(uploads.length, 15);
+    assert.equal(allocated.length, 10);
+    const resources = viewer.batches.map(batch => batch.indexBuffer);
+    viewer.setBatchTransforms(model.getModuleTransforms(0.5));
+    viewer.draw();
+    assert.equal(uploads.length, 15, "Transform updates must not upload geometry.");
+    assert.equal(allocated.length, 10, "Transform updates must not allocate GPU buffers.");
+    assert.equal(draws.length, 3);
+    viewer.batches.forEach((batch, index) => {
+      assert.equal(draws[index].indexBuffer, resources[index]);
+      assert.deepEqual(draws[index].vertexBuffers, batch.vertexBuffers.map(attribute => attribute.buffer));
+      assert.deepEqual(draws[index].model, Array.from(batch.transform));
+      assert.equal(draws[index].args[2], index === 2 ? viewer.gl.UNSIGNED_INT : viewer.gl.UNSIGNED_SHORT);
+    });
+    viewer.setGeometry(geometry, geometry, { batches });
+    assert.deepEqual(viewer.batches.map(batch => batch.indexBuffer), resources);
+    assert.equal(allocated.length, 10);
+    viewer.setGeometry(geometry, geometry, { batches: batches.slice(0, 2) });
+    assert.equal(deleted.length, 5);
+    assert.ok(deleted.includes(resources[2]));
+    viewer.setGeometry(geometry);
+    assert.equal(deleted.length, 10);
+    assert.equal(new Set(deleted).size, 10);
+    viewer.draw();
+    assert.equal(draws.at(-1).indexBuffer, viewer.indexBuffer);
+    draws.at(-1).model.forEach((value, index) => close(value, index % 5 === 0 ? 1 : 0));
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test("transformed batch picking matches world geometry, excluding footprints and empty batches", () => {
+  const model = buildStairway(24, 7, 2);
+  const { viewer } = createViewer(), { viewer: reference } = createViewer();
+  const bounds = model.createGeometry(), empty = combineGeometries([]);
+  const batches = model.partTree.root.children.map((module, index) => ({
+    geometry: model.createNodeGeometry(module.id),
+    boundsGeometry: model.createNodeGeometry(module.id),
+    transform: model.getModuleTransforms(1)[index],
+    renderGeometry: combineGeometries([model.createNodeGeometry(module.id), model.createFootprintGeometry()]),
+  }));
+  batches.splice(1, 0, { geometry: empty, boundsGeometry: bounds, transform: model.getModuleTransforms(0)[0] });
+  viewer.setGeometry(bounds, bounds, { batches, orbitBatch: 2 });
+  const world = combineGeometries(batches.map(batch => transformedGeometry(batch.geometry, batch.transform)));
+  const worldBounds = combineGeometries(batches.map(batch => transformedGeometry(batch.boundsGeometry, batch.transform)));
+  reference.setGeometry(world, worldBounds, {
+    orbitGeometry: transformedGeometry(batches[2].boundsGeometry, batches[2].transform),
+    renderGeometry: combineGeometries(batches.map(batch => transformedGeometry(batch.renderGeometry ?? batch.geometry, batch.transform))),
+  });
+  for (const standard of [false, true]) {
+    if (standard) {
+      viewer.setStandardView("Top");
+      reference.setStandardView("Top");
+    }
+    let hits = 0;
+    for (let y = 50; y < 600; y += 37) for (let x = 50; x < 800; x += 37) {
+      const expected = reference.hitTest(x, y);
+      assert.equal(viewer.hitTest(x, y), expected);
+      if (expected !== null) hits++;
+    }
+    assert.ok(hits > 10, "Compare actual piece hits, not just background.");
+  }
+  viewer.orbitCenter.forEach((value, axis) => close(value, reference.orbitCenter[axis]));
+  close(viewer.radius, reference.radius);
+  close(viewer.clipRadius, reference.clipRadius);
+  assert.throws(() => viewer.setBatchTransforms([]), /Every module/);
+  const invalid = model.getModuleTransforms(0);
+  invalid.splice(1, 0, invalid[0]);
+  invalid[0][0] = 2;
+  assert.throws(() => viewer.setBatchTransforms(invalid), /rigid/);
+});
+
 function createControls({
   reducedMotion = false, buildModel = buildStairway, failOnError = true,
   page = "home", search = "",
@@ -1063,6 +1180,7 @@ function createControls({
         this.geometry = updatedGeometry;
       }
     }
+    setBatchTransforms(transforms) { this.stockViewer.setBatchTransforms(transforms); }
     get standardView() { return this.stockViewer?.standardView; }
     get orientation() { return this.stockViewer.orientation; }
     set orientation(value) { this.stockViewer.orientation = value; }
@@ -1130,9 +1248,19 @@ function createControls({
       url.search = search;
       windowEvents.get("popstate")?.();
     },
-    get geometry() { return geometry; },
-    get bounds() { return bounds; },
-    get renderGeometry() { return renderGeometry; },
+    get geometry() {
+      return mainViewer.batches
+        ? combineGeometries(mainViewer.batches.map(batch => transformedGeometry(batch.geometry, batch.transform))) : geometry;
+    },
+    get bounds() {
+      return mainViewer.batches
+        ? combineGeometries(mainViewer.batches.map(batch => transformedGeometry(batch.boundsGeometry, batch.transform))) : bounds;
+    },
+    get renderGeometry() {
+      return mainViewer.batches ? combineGeometries([
+        this.geometry, ...mainViewer.batches.map(batch => transformedGeometry(batch.footprint, batch.transform)),
+      ]) : renderGeometry;
+    },
     get mainViewer() { return mainViewer; },
     get activeElement() { return activeElement; },
     resize() { resizeCallbacks.forEach(callback => callback()); },
@@ -1696,12 +1824,12 @@ test("Module filters limit footprints and orbit around the module while retainin
         const values = geometry.positions.filter((_, i) => i % 3 === axis);
         return (Math.min(...values) + Math.max(...values)) / 2;
       });
-      assert.deepEqual(viewer.orbitCenter, expectedCenter);
+      viewer.orbitCenter.forEach((value, axis) => close(value, expectedCenter[axis]));
       assert.deepEqual(viewer.panOffset, [0, 0]);
       assert.deepEqual(viewer.orientation, orientation);
       assert.equal(viewer.zoomFactor, 0.8);
-      assert.deepEqual(controls.renderGeometry.positions.slice(controls.geometry.positions.length),
-        model.createFootprintGeometry(null, false, true, amount, index + 1).positions);
+      const footprint = model.createFootprintGeometry(null, false, true, amount, index + 1).positions;
+      controls.renderGeometry.positions.slice(controls.geometry.positions.length).forEach((value, i) => close(value, footprint[i]));
       const projected = screenPoint(viewer, expectedCenter);
       viewer.orbit(20, -15);
       const rotated = screenPoint(viewer, expectedCenter);
@@ -1711,12 +1839,12 @@ test("Module filters limit footprints and orbit around the module while retainin
     }
     filter.value = "";
     filter.dispatch("change");
-    assert.deepEqual(controls.bounds, model.createGeometry({}, 0, amount));
+    closeGeometry(controls.bounds, model.createGeometry({}, 0, amount));
   }
   controls.node("#view-modules").dispatch("click");
   controls.advance(600);
   assert.deepEqual(viewer.orbitCenter, center);
-  assert.equal(viewer.radius, radius);
+  close(viewer.radius, radius);
 });
 
 test("each Parts subset updates actual geometry, counts, weight, and Find without changing the camera", () => {
@@ -2528,9 +2656,9 @@ test("Split and Join modules buttons preserve smooth reversible animation and ca
   const model = buildStairway(), controls = createControls({ buildModel: () => model });
   const button = controls.node("#view-modules");
   const checkGeometry = amount => {
-    assert.deepEqual(controls.bounds, model.createGeometry({}, 0, amount));
-    assert.deepEqual(controls.renderGeometry.positions.slice(controls.geometry.positions.length),
-      model.createFootprintGeometry(null, false, true, amount).positions);
+    closeGeometry(controls.bounds, model.createGeometry({}, 0, amount));
+    const footprint = model.createFootprintGeometry(null, false, true, amount).positions;
+    controls.renderGeometry.positions.slice(controls.geometry.positions.length).forEach((value, i) => close(value, footprint[i]));
   };
   assert.equal(button.textContent, "Split modules");
   assert.equal(button.getAttribute("aria-pressed"), "false");
@@ -2559,6 +2687,23 @@ test("Split and Join modules buttons preserve smooth reversible animation and ca
   checkGeometry(0);
 });
 
+test("Split and Join animation ticks neither rebuild meshes nor upload or allocate buffers", () => {
+  const model = buildStairway(), controls = createControls({ buildModel: () => model });
+  for (const name of ["createGeometry", "createNodeGeometry", "createFootprintGeometry"]) {
+    model[name] = () => assert.fail(`${name} must not run during Split/Join animation.`);
+  }
+  for (const name of ["bufferData", "createBuffer"]) {
+    controls.mainViewer.gl[name] = () => assert.fail(`${name} must not run during Split/Join animation.`);
+  }
+  const meshes = controls.mainViewer.batches.map(batch => batch.geometry);
+  for (let cycle = 0; cycle < 2; cycle++) {
+    controls.node("#view-modules").dispatch("click");
+    for (let frame = 0; frame < 40; frame++) controls.advance(15);
+  }
+  assert.deepEqual(controls.mainViewer.batches.map(batch => batch.geometry), meshes);
+  assert.deepEqual(controls.mainViewer.batches.map(batch => batch.transform), model.getModuleTransforms(0));
+});
+
 test("Split and Join modules buttons update geometry immediately with reduced motion", () => {
   const model = buildStairway(), controls = createControls({ reducedMotion: true, buildModel: () => model });
   const button = controls.node("#view-modules");
@@ -2566,9 +2711,9 @@ test("Split and Join modules buttons update geometry immediately with reduced mo
     button.dispatch("click");
     assert.equal(button.textContent, split ? "Join modules" : "Split modules");
     assert.equal(button.getAttribute("aria-pressed"), String(split));
-    assert.deepEqual(controls.bounds, model.createGeometry({}, 0, Number(split)));
-    assert.deepEqual(controls.renderGeometry.positions.slice(controls.geometry.positions.length),
-      model.createFootprintGeometry(null, false, true, Number(split)).positions);
+    closeGeometry(controls.bounds, model.createGeometry({}, 0, Number(split)));
+    const footprint = model.createFootprintGeometry(null, false, true, Number(split)).positions;
+    controls.renderGeometry.positions.slice(controls.geometry.positions.length).forEach((value, i) => close(value, footprint[i]));
   }
 });
 

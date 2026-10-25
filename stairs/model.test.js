@@ -41,6 +41,29 @@ test("inner tread edges are tangent to the fixed castle radius across step count
   }
 });
 
+test("module matrices reproduce split piece positions and normals for even and unequal module layouts", () => {
+  for (const [steps, count] of [[7, 2], [8, 2], [8, 3], [9, 3]]) {
+    const model = buildStairway(24, steps, count);
+    for (const amount of [0, 0.5, 1]) {
+      const matrices = model.getModuleTransforms(amount);
+      assert.equal(matrices.length, count);
+      model.partTree.root.children.forEach((module, index) => {
+        const base = model.createNodeGeometry(module.id), split = model.createNodeGeometry(module.id, 0, amount);
+        const matrix = matrices[index];
+        for (const key of ["positions", "normals"]) for (let i = 0; i < base[key].length; i += 3) {
+          for (let axis = 0; axis < 3; axis++) {
+            const expected = [0, 1, 2].reduce((sum, column) =>
+              sum + matrix[column * 4 + axis] * base[key][i + column], key === "positions" ? matrix[12 + axis] : 0);
+            close(split[key][i + axis], expected, 1e-4);
+          }
+        }
+        assert.deepEqual(split.indices, base.indices);
+      });
+    }
+    for (const amount of [-1, 2, NaN, Infinity]) assert.throws(() => model.getModuleTransforms(amount), /moduleExplosion/);
+  }
+});
+
 test("split footprints follow actual module tread positions without changing assembled or part footprints", () => {
   for (const [steps, modules] of [[7, 2], [8, 2], [9, 3]]) {
     const model = buildStairway(24, steps, modules);

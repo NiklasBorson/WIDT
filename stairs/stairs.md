@@ -526,10 +526,20 @@ within each module do not change.
 
 `createGeometry(visibility, explosion, moduleExplosion)` accepts independent
 step and module explosion progress from `0` to `1`, both defaulting to `0`.
-The model retains step-explosion support, but the viewer always passes zero
-for that argument. It interpolates module-separation progress over 600 ms
+The model retains step-explosion support, but the viewer leaves step assemblies
+joined. It interpolates module-separation progress over 600 ms
 with smooth easing. Switching again during a transition starts from the current
 position rather than jumping. Reduced-motion preferences make the change immediate.
+
+The Stairway renderer retains separate indexed vertex/index buffers for each
+module and draws each visible module with its own model-matrix uniform.
+`getModuleTransforms(moduleExplosion)` supplies these rigid transforms.
+Animation updates only transforms and camera framing from cached positions:
+it does not rebuild meshes or upload geometry each frame. Normals rotate with
+the module; picking inverse-transforms the ray into each module's cached mesh.
+Each module's render-only footprint follows the same transform. Filters and
+selection update the retained batches, while parameter changes invalidate the
+cached assembled meshes. Details and Placement keep their single-mesh draw path.
 
 Width, step-count, module-count, shoulder-ascent, and part-visibility controls remain live during transitions.
 The camera retains its orientation and relative zoom while fitting the moving

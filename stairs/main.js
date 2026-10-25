@@ -52,6 +52,7 @@ try {
   const partOptions = new Map();
   let filteredParts = [];
   let pickRanges = [];
+  let meshCache = null;
   let findMatches = [];
   let locatedOccurrenceId = null;
   let renderedDetailsId = null;
@@ -155,23 +156,30 @@ try {
     return warnings;
   }
   function modelGeometry(model, locatedId = locatedOccurrenceId) {
+    if (meshCache?.model !== model) {
+      const modules = model.partTree.root.children.map((node, index) => ({
+        bounds: model.createNodeGeometry(node.id),
+        pieces: isParameters ? [] : model.partTree.getLeaves(node.id).map(piece => ({
+          node: piece, geometry: model.createNodeGeometry(piece.id),
+        })),
+        footprint: model.createFootprintGeometry(null, false, true, 0, index + 1),
+      }));
+      meshCache = { model, modules, bounds: combineGeometries(modules.map(module => module.bounds)) };
+    }
     pickRanges = [];
-    const bounds = model.createGeometry({}, 0, moduleExplosion);
+    const bounds = meshCache.bounds;
     const moduleNumber = !isParameters && moduleFilter.value ? Number(moduleFilter.value) : null;
     const orbitKey = moduleNumber === null ? model.partTree.root.id : model.partTree.root.children[moduleNumber - 1].id;
-    const camera = {
-      orbitKey,
-      orbitGeometry: orbitKey === model.partTree.root.id ? bounds : model.createNodeGeometry(orbitKey, 0, moduleExplosion),
-    };
-    if (!isParameters) {
-      const visibleIds = new Set(filteredParts.flatMap(({ locations }) => locations.map(location => location.id)));
-      const selectedKey = inventory.findOccurrence(locatedId)?.key;
-      const selectedIds = new Set(filteredParts.find(({ entry }) => entry.key === selectedKey)
-        ?.locations.map(location => location.id));
-      let triangleCount = 0;
-      const visible = combineGeometries(model.partTree.getLeaves()
-        .filter(node => visibleIds.has(node.id)).map(node => {
-          const geometry = model.createNodeGeometry(node.id, 0, moduleExplosion);
+    const visibleIds = isParameters ? null :
+      new Set(filteredParts.flatMap(({ locations }) => locations.map(location => location.id)));
+    const selectedKey = inventory?.findOccurrence(locatedId)?.key;
+    const selectedIds = new Set(filteredParts.find(({ entry }) => entry.key === selectedKey)
+      ?.locations.map(location => location.id));
+    const transforms = model.getModuleTransforms(moduleExplosion);
+    let triangleCount = 0;
+    const batches = meshCache.modules.map((module, index) => {
+      const geometry = isParameters ? module.bounds : combineGeometries(module.pieces
+        .filter(({ node }) => visibleIds.has(node.id)).map(({ node, geometry }) => {
           const start = triangleCount;
           triangleCount += geometry.indices.length / 3;
           pickRanges.push({ id: node.id, start, end: triangleCount });
@@ -180,12 +188,15 @@ try {
             ? value * 0.25 + [0.18, 0.8, 1][index % 3] * 0.75 : value * 0.6);
           return { ...geometry, colors };
         }));
-      camera.renderGeometry = combineGeometries([visible,
-        model.createFootprintGeometry(null, false, true, moduleExplosion, moduleNumber)]);
-      return { visible, bounds, camera };
-    }
-    camera.renderGeometry = combineGeometries([bounds, model.createFootprintGeometry(null, false, true, moduleExplosion)]);
-    return { visible: bounds, bounds, camera };
+      const footprint = moduleNumber === null || moduleNumber === index + 1
+        ? module.footprint : combineGeometries([]);
+      return { geometry, boundsGeometry: module.bounds, footprint,
+        renderGeometry: combineGeometries([geometry, footprint]), transform: transforms[index] };
+    });
+    const visible = isParameters ? bounds : combineGeometries(batches.map(batch => batch.geometry));
+    const camera = { orbitKey, orbitBatch: moduleNumber === null ? null : moduleNumber - 1, batches,
+      renderGeometry: combineGeometries([visible, ...batches.map(batch => batch.footprint)]) };
+    return { visible, bounds, camera };
   }
   function setMeasurementText(element, text) {
     const children = [];
@@ -907,7 +918,7 @@ try {
     try {
       if (reducedMotion.matches || startValue === target) {
         moduleExplosion = target;
-        updateGeometry();
+        viewer.setBatchTransforms(model.getModuleTransforms(moduleExplosion));
         return;
       }
       function animate(time) {
@@ -916,7 +927,7 @@ try {
           const progress = Math.max(0, Math.min(1, (time - startTime) / 600));
           const eased = progress * progress * (3 - 2 * progress);
           moduleExplosion = startValue + (target - startValue) * eased;
-          updateGeometry();
+          viewer.setBatchTransforms(model.getModuleTransforms(moduleExplosion));
           if (progress < 1) animationFrame = requestAnimationFrame(animate);
         } catch (cause) {
           reportUpdateError(cause);

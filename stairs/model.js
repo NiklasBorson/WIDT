@@ -2259,6 +2259,16 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
     cornerRadius,
     outerRadius: cornerRadius + stairWidth,
     innerArcLength: INNER_ARC_LENGTH,
+    getModuleTransforms(moduleExplosion = 0) {
+      if (!Number.isFinite(moduleExplosion) || moduleExplosion < 0 || moduleExplosion > 1) {
+        throw new RangeError("Stairway moduleExplosion must be a finite number between 0 and 1.");
+      }
+      return modules.map(module => {
+        const rotation = moduleSeparationRotation(module, moduleExplosion);
+        const c = Math.cos(rotation), s = Math.sin(rotation);
+        return new Float32Array([c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1]);
+      });
+    },
     createFootprintGeometry(nodeId = null, stockAligned = false, inset = true, moduleExplosion = 0, moduleNumber = null) {
       if (!Number.isFinite(moduleExplosion) || moduleExplosion < 0 || moduleExplosion > 1) {
         throw new RangeError("Stairway moduleExplosion must be a finite number between 0 and 1.");
