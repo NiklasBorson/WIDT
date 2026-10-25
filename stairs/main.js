@@ -551,7 +551,7 @@ try {
       resetPartDrawing();
     }
   }
-  function updatePartAnnotations() {
+  function updatePartAnnotations(layoutOnly = false) {
     const node = detailsNode();
     if (!node) return;
     if (placementActive()) {
@@ -561,7 +561,7 @@ try {
     } else if (node.kind !== "hardware") {
       const views = model.partTree.getStockViews(node.id);
       renderPartAnnotations(partAnnotations, partDrawing, selectedPartViewer, node.getDescription(),
-        views);
+        views, { layoutOnly });
       renderPartCompass(partCompass, selectedPartViewer, views);
     }
     const showTemplate = activeDrawingName === "Up" && (placementActive() || node.kind !== "hardware");
@@ -583,16 +583,25 @@ try {
     partDrawing.style.width = `${width}px`;
     partDrawing.style.height = `${height}px`;
     if (placementActive() || detailsNode().kind !== "hardware") {
-      updatePartAnnotations();
+      updatePartAnnotations(true);
       partDrawing.style.width = `${Math.max(width, parseFloat(partDrawing.style.minWidth))}px`;
-      updatePartAnnotations();
+      updatePartAnnotations(true);
       partDrawing.style.height = `${Math.max(height, parseFloat(partDrawing.style.minHeight))}px`;
       updatePartAnnotations();
     }
     const drawingWidth = partDrawing.clientWidth, drawingHeight = partDrawing.clientHeight;
-    defaultDrawingScale = drawingScale = Math.min(1, width / drawingWidth, height / drawingHeight);
-    drawingX = (width - drawingWidth * drawingScale) / 2;
-    drawingY = (height - drawingHeight * drawingScale) / 2;
+    const part = detailsNode().component;
+    const preserveAnnotationScale = !placementActive() && part?.outline;
+    defaultDrawingScale = drawingScale = preserveAnnotationScale ? 1 :
+      Math.min(1, width / drawingWidth, height / drawingHeight);
+    const partCenter = preserveAnnotationScale ?
+      selectedPartViewer.projectPoint([part.length / 2, part.thickness / 2, part.width / 2]) : null;
+    const center = {
+      x: partCenter && drawingWidth > width ? partCenter.x : drawingWidth / 2,
+      y: partCenter && drawingHeight > height ? partCenter.y : drawingHeight / 2,
+    };
+    drawingX = width / 2 - center.x * drawingScale;
+    drawingY = height / 2 - center.y * drawingScale;
     transformPartDrawing();
     selectedPartViewer.requestRender();
   }

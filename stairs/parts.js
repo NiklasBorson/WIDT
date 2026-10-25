@@ -163,7 +163,7 @@ export function describeBoard(board) {
 
 const PART_NAMES = { riser: "Riser", tread: "Tread", siding: "Side panel - right",
   frontSiding: "Side panel - right front section",
-  newel: "Newel post", backPanel: "Rear panel",
+  newel: "Newel post", backPanel: "Rear panel", rib: "Rib - siding",
   frontSpindle: "Spindle - front", rearSpindle: "Spindle - rear", spindleShim: "Spindle shim" };
 const BOARD_NAMES = {
   bottomFrame: {
@@ -185,7 +185,7 @@ const BOARD_NAMES = {
 };
 const PART_CATEGORIES = {
   frontSpindle: "spindles", rearSpindle: "spindles", spindleShim: "spindles",
-  siding: "siding", frontSiding: "siding", newel: "newel",
+  siding: "siding", frontSiding: "siding", newel: "newel", rib: "ribs",
   leftUpright: "uprights", rightUpright: "uprights",
   leftRearUpright: "uprights", rightRearUpright: "uprights",
 };

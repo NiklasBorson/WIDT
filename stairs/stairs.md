@@ -140,6 +140,66 @@ sloped bottom, rather than a complex milled curved notch floor. These openings
 are included in the flat outline, cutting drawings, inventory identity, and
 wood-volume estimates. Installed cylinder facets have at most `0.001 in` sag.
 
+### Siding ribs
+
+Each module has one flat `1/2 in` plywood **Rib - siding**, resting on the
+cross-pieces from `8 in` to `8.5 in` above the floor. Its left edge aligns with
+the left edge of the right caster beam. Its right edge is cut to a circular arc
+flush with the curved siding's inner surface; open notches clear the uprights.
+The back follows the module's rear radial boundary. The front is set back
+`1/4 in` from its radial boundary to clear the preceding module's rear panel.
+Module 1 instead begins `1/4 in` behind step 2's front radial boundary, clearing
+that step's riser without a separate riser notch.
+
+Unlike `BentPlywood`, `ProfiledPlywood` stays flat. Ribs are authored as a
+construction recipe: start with a rectangular blank, trim the two upper corners
+to form a trapezoid, cut the arc, then cut rotated rectangular upright notches.
+Each trapezoid side is authored as a radial guideline through C and a signed
+perpendicular inset toward the retained material. The front inset is `1/4 in`;
+the rear inset is zero. Cut lines and corner coordinates are derived from those
+inputs, rather than authored independently.
+The original blank and trapezoid can extend beyond the finished outline's
+tight bounds. The recipe generates the analytic line/arc perimeter, cutting
+annotations, manufacturing identity, and exact material volume; these do not
+depend on display tessellation. Arc facets have at most `0.001 in` sag.
+
+Details shows the entire original blank with a dotted outline and overall
+dimensions above and left. Callouts locate the two upper triangle-cut vertices
+from the corresponding left/right blank edges. Each notch has one
+reference: its left inner vertex looking inward from the opening, or the first
+inner vertex encountered clockwise around the notch in the cutting-face view
+(X right, Z down). Its callout locates that reference using offsets from the
+nearest left/right and top/bottom blank edges; an offset on an exact blank edge
+is omitted. The same callout gives width along the inner edge toward the
+other inner vertex, height (cut depth) perpendicular toward the opening, and signed angle
+from +X toward +Z. A partially clipped notch retains its full rectangular cutting
+guide; its reference can lie outside the blank, so coordinates retain their signs.
+There are no piecewise dimensions, locating dimension lines, or per-vertex
+coordinate lists.
+
+A dotted radius line starts at the lowest point of the un-notched arc and
+continues through the shape to near the top of the diagram, with an arrow
+toward the circle center **C**. Straight edges that pass through C have matching
+dotted extensions, with arrowheads at the same height as the radius arrow.
+Each shortened guide is labeled "To C"; labels are arranged around the
+arrowheads to avoid overlaps. The recipe supplies both side guidelines directly:
+the rear coincides with its cut; the front is parallel to its clearance-offset
+cut. The front-cut callout adds "Cut 1/4 in inside radial guide."
+The radius sits beside the main arrowhead, not in a separate callout below
+the part. Concentric arc cuts share a radial dimension chain wherever their
+angular spans overlap: arrows measure the spacing from each outer arc to the
+next inner arc, then the innermost radius toward C. Interrupted segments of the
+same circle still receive only one radius annotation.
+These guides stop short of the off-sheet
+center, which does not expand the drawing. Guides break behind annotation
+text to keep labels legible.
+Small drawing stages retain readable annotation
+scale; pan or zoom to inspect the full drawing. Placement uses the broad faces
+and authored straight edges as planar references, never artificial arc facets.
+
+Ribs have their own **Ribs** category and belong to Foundation, Framing, and
+Without cladding, not Cladding. They remain included in clash checks.
+
 ### Banister spindles
 
 Each front right upright on steps 2 onward carries an oak 2x2 spindle
@@ -343,19 +403,23 @@ These parts replace the load-transfer blocks. **Beam - cross** and
 in each module's part list. They have individual stock views, cutting dimensions, and wood weights,
 and move rigidly with their module when modules are split.
 
-Pine 2x4 **Attachment block - upright left** and **Attachment block - upright right** parts rest on the
-pine cross-pieces against the uprights' inward faces. These attachment blocks
+Pine 2x4 **Attachment block - upright left** and **Attachment block - upright right** parts
+bear against the uprights' inward faces. Left blocks rest directly on the pine
+cross-pieces; right blocks rest on the siding ribs. These attachment blocks
 stand on their narrow edges: `1.5 in` thick and `3.5 in` high, from `8 in`
-to `11.5 in` above the floor. Ordinary blocks match the upright's front-to-back
+to `11.5 in` on the left and `8.5 in` to `12 in` on the right, before upper
+reliefs. Ordinary blocks match the upright's front-to-back
 width, not its vertical height, with front ends trimmed where needed to clear
 the riser behind the upright's full-height bevel.
 
 On each module's last step, one continuous block per side joins both the front
 and rear uprights. Its front end aligns with the riser's back plane,
 and its rear end aligns with the rear upright's back. The block
-bears on both pine cross-pieces. Ends are beveled where needed to stay inside
+bears on both pine cross-pieces, through the rib on the right. Ends are beveled where needed to stay inside
 the step footprint and clear the riser; upper-front notches clear low risers
 or front cross-pieces without shortening the block's full bearing span.
+Raised right blocks also receive upper-front relief where needed to clear the
+preceding tread's rear frame.
 Step 1, which has no lower support cross-piece, has no such blocks.
 
 ### Open-sided framing
@@ -588,8 +652,8 @@ of its manufacturing specification or material:
 | Subset | Included parts |
 |---|---|
 | All parts | Everything in the module/type scope. |
-| Framing | Structural wood: foundation beams and cross-pieces, uprights, step supports, and blocking. No sheet goods, newel post, spindles, shims, or casters. |
-| Foundation | Caster beams, front/rear support cross-pieces, casters, and the special first-step front cross-piece and flat tread supports. |
+| Framing | Structural wood: foundation beams and cross-pieces, plywood siding ribs, uprights, step supports, and blocking. No other sheet goods, newel post, spindles, shims, or casters. |
+| Foundation | Caster beams, front/rear support cross-pieces, siding ribs, casters, and the special first-step front cross-piece and flat tread supports. |
 | Step framing | Uprights, upper cross-pieces, tread supports, and associated support and newel blocks. |
 | Treads and risers | The plywood walking surfaces and riser panels. |
 | Cladding | Curved module siding, both flat first-step pieces, and particle-board back panels. |
@@ -1651,7 +1715,7 @@ A description contains:
   Profiles contain `[X, Z]` points and describe the blank before joinery cuts.
 - `boundingRectangle`: `{ length, width }` for plywood, otherwise `null`.
 - `edgeCuts`: end cuts for lumber, any additional angled width-edge cuts, and
-  all four perimeter cuts for current plywood pieces. Each records a name,
+  planar perimeter cuts for polygonal plywood pieces. Each records a name,
   reference axis, exact points, outward plane, `angleFromSquare`,
   `miterDegrees`, and `bevelDegrees`. Parallel width ripping is recorded by
   `widthTrim`, not repeated as an angled cut. Additional finished face
@@ -1666,6 +1730,31 @@ A description contains:
 - `edgeNotches`: top-opening sheet cutouts, with corresponding two-point
   floor profiles on the negative/positive Y broad faces. Profiles use `[X, Z]`
   stock coordinates and capture bevels through the sheet thickness.
+- `outline`: for flat arc-cut plywood, an ordered, closed, counterclockwise
+  perimeter in stock `[X, Z]` coordinates. Lines are
+  `{ type: "line", from, to }`; arcs are
+  `{ type: "arc", center, radius, startAngle, sweepRadians }`, with angles in
+  radians. This analytic perimeter replaces planar `edgeCuts`; the blank
+  remains rectangular. Bounds include arc extrema and volume integrates
+  circular segments exactly.
+- `construction`: optional recipe for a flat arc-cut rib, containing
+  `blank: { length, width }`,
+  `trapezoid: { left: { angleRadians, inset }, right: { angleRadians, inset } }`,
+  `arc: { center, radius }`, and `notches`. Each trapezoid side has a radial
+  guideline from the arc center C, with its direction measured from +X toward
+  +Z in the cutting-face view. `inset` is a signed perpendicular distance:
+  positive moves the actual cut toward retained material; zero cuts on the
+  guideline; negative moves it outward. Both directions point toward +Z.
+  The generated cut lines must meet the corresponding bottom corners of the
+  original blank and trim nonoverlapping top corners. Top-corner coordinates
+  are calculated, not additional recipe inputs. Each
+  notch is `{ reference: [X, Z], width, depth, angleRadians }`, using the
+  outside-looking-in left inner vertex convention above. Width follows
+  `[cos(angle), sin(angle)]`; depth follows `[-sin(angle), cos(angle)]`.
+  These rectangular cuts must open through the arc. `ProfiledPlywood` accepts
+  either this recipe or a direct `outline`, not both; the manufacturing
+  description includes the recipe and its generated outline. Blank dimensions
+  describe the original rectangle, not a refitted finished bounding box.
 
 The blank's minimum coordinate on each stock axis is zero. A plane uses
 `normal dot point = offset`; the remaining blank lies on its lesser-or-equal
@@ -2463,7 +2552,8 @@ results directory can be supplied with `npm run check:intersections -- DIRECTORY
 The matrix explicitly excludes `stairway/module-N/siding` for each module and
 logs those IDs. Only the enumerated curved panels are excluded because their
 small tread/framing overlaps are accepted; both flat step-1 siding pieces are
-still checked. A clear result applies only to the checked pieces, not the whole
+still checked, as are all flat arc-cut ribs and raised attachment blocks.
+A clear result applies only to the checked pieces, not the whole
 assembly. The Rust tolerances are unchanged.
 
 To export and check one configuration:

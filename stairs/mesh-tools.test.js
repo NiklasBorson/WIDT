@@ -147,6 +147,30 @@ test("installed curved and flat siding clears all spindles across supported modu
   }
 });
 
+test("ribs and raised blocks clear uprights, beams, risers and rear panels across supported layouts", async context => {
+  const directory = await temporaryDirectory(context), file = join(directory, "rib-fit.xml");
+  const built = spawnSync("cargo", ["build", "--release", "--locked", "--quiet", "--manifest-path", manifest,
+    "--target-dir", target], { encoding: "utf8", timeout: 120000 });
+  assert.equal(built.status, 0, built.error?.message ?? `${built.stdout}\n${built.stderr}`);
+  const executable = join(target, "release", process.platform === "win32" ? "mesh-clash.exe" : "mesh-clash");
+  for (const width of [20, 24, 36]) for (const count of [4, 5, 6, 7, 8, 9]) for (const modules of [2, 3]) {
+    if (count < modules * 2) continue;
+    const model = buildStairway(width, count, modules), leaves = model.partTree.getLeaves();
+    const selected = leaves.filter(node => !node.component.bend);
+    assert.equal(selected.filter(node => node.key === "rib").length, modules);
+    await writeFile(file, serializeScene(model, {
+      excludePieceIds: leaves.filter(node => !selected.includes(node)).map(node => node.id),
+    }));
+    const result = spawnSync(executable, [file], { encoding: "utf8", timeout: 30000 });
+    const report = `${width}/${count}/${modules}: ${result.stdout}\n${result.stderr}`;
+    assert.ok([0, 1].includes(result.status), report);
+    assert.match(result.stdout, /0 errors;/, report);
+    const fitFailures = result.stdout.split("\n").filter(line => line.startsWith("INTERFERENCE:") &&
+      /\/(?:rib|step-\d+-rightSupportBlock)\]/.test(line));
+    assert.deepEqual(fitFailures, [], report);
+  }
+});
+
 test("Rust geometry regressions and CLI exit codes cover clear, touching, interfering and invalid scenes", async context => {
   const directory = await temporaryDirectory(context);
   for (const args of [

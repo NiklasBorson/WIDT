@@ -125,13 +125,13 @@ export function renderPartCompass(svg, viewer, views = STANDARD_VIEWS) {
   svg.setAttribute("aria-label", `Orientation compass: ${labels.join(", ")}`);
 }
 
-export function renderPartAnnotations(svg, drawing, viewer, description, views) {
+export function renderPartAnnotations(svg, drawing, viewer, description, views, { layoutOnly = false } = {}) {
   const width = Math.max(1, viewer.canvas.clientWidth);
   const stockView = STANDARD_VIEWS.find(view => view.name === viewer.standardView.name);
   const project = point => viewer.projectPoint(point);
   const compact = getSimpleEdgeBevel(description) !== null;
   const dimensions = [description.blank.length, description.blank.thickness, description.blank.width];
-  const profileChains = getProfileChains(viewer.geometry, stockView);
+  const profileChains = description.outline ? [] : getProfileChains(viewer.geometry, stockView);
   const profileTolerance = Math.max(1, ...dimensions) * 1e-7;
   const blankLabel = axis => `${compact ? ["Length", "Thickness", "Width"][axis] :
     `Blank ${["length", "thickness", "width"][axis]}`}${
@@ -155,6 +155,8 @@ export function renderPartAnnotations(svg, drawing, viewer, description, views) 
   const bands = [true, false].map(above => {
     const entries = features.filter(feature => !feature.compact && (feature.lines.length || feature.angles.length) &&
       (project(feature.point).y < center.y - EPSILON) === above);
+    if (description.construction) entries.sort((a, b) =>
+      Number(b.kind === "corner-cut") - Number(a.kind === "corner-cut"));
     const columns = Math.min(Math.max(1, entries.length), 3, Math.max(1, Math.floor((width - 28) / 180)));
     const slotWidth = (width - 28) / columns;
     const wrapped = entries.map(feature => {
@@ -219,6 +221,14 @@ export function renderPartAnnotations(svg, drawing, viewer, description, views) 
   const insets = { ...baseInsets, top: baseInsets.top + chainSpace.top,
     bottom: baseInsets.bottom + chainSpace.bottom, right: baseInsets.right + chainSpace.right };
   viewer.setViewportInsets(insets);
+  const minimumSize = {
+    minHeight: `${insets.top + insets.bottom + 320}px`,
+    minWidth: `${Math.max(360, insets.left + insets.right + 320)}px`,
+  };
+  if (layoutOnly) {
+    Object.assign(drawing.style, minimumSize);
+    return;
+  }
   const corners = [0, dimensions[0]].flatMap(x =>
     [0, dimensions[1]].flatMap(y => [0, dimensions[2]].map(z => project([x, y, z]))));
   const bounds = {
@@ -249,15 +259,15 @@ export function renderPartAnnotations(svg, drawing, viewer, description, views) 
     ...chainLayouts.filter(layout => layout.side === side).flatMap(layout =>
       layout.stops.map(stop => stop.local.y)),
   ]]));
-  drawing.style.minHeight = `${insets.top + insets.bottom + 320}px`;
-  drawing.style.minWidth = `${Math.max(360, insets.left + insets.right + 320)}px`;
   svg.replaceChildren();
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.setAttribute("font-size", FONT_SIZE);
   svg.setAttribute("stroke-width", 1);
   svgNode(svg, "title", {}, compact ?
     "Dimensioned part views. Square ends and one full-length edge bevel. Dashed angle rays continue the original square edge; arcs show true geometric angles, not saw settings. Do not scale from screen." :
-    "Dimensioned stock views. Feature IDs link views. Blank extents are not finished-edge lengths. Angular diagrams show cut planes, not saw settings. Dashed outlines are hidden; dashed angle rays are references. Do not scale from screen.");
+    description.construction ?
+    "Construction cutting drawing. The dotted rectangle is the original blank; dashed guides show cuts. Dotted radial guidelines point toward circle center C. Side-cut insets are perpendicular distances from their authored radial guidelines toward retained material. Notch callouts locate the left inner vertex looking inward from the opening, give width along the inner edge and height toward the opening, and measure angles from blank X toward Z. Edge offsets on the blank boundary are omitted. Do not scale from screen." :
+    "Dimensioned stock views. Feature IDs link views. Blank extents are not finished-edge lengths. Concentric arcs show arc-to-arc spacing and the innermost radius toward C. Angular diagrams show cut planes, not saw settings. Dashed outlines are hidden; dashed angle rays are references. Do not scale from screen.");
   const defs = svgNode(svg, "defs");
   addDimensionArrow(defs, "part-dimension-arrow", 6);
   const line = (parent, x1, y1, x2, y2, attributes = {}) =>
@@ -276,6 +286,16 @@ export function renderPartAnnotations(svg, drawing, viewer, description, views) 
   };
   text(svg, width - 12, 20, ["inches / degrees", "Do not scale from screen",
     ...(compact && features.length ? ["Dashed: square edge"] : [])], { "text-anchor": "end" });
+  const svgBounds = svg.getBoundingClientRect();
+  const screenBounds = node => {
+    const box = node.getBoundingClientRect();
+    return {
+      left: (box.left - svgBounds.left) * width / svgBounds.width,
+      right: (box.right - svgBounds.left) * width / svgBounds.width,
+      top: (box.top - svgBounds.top) * height / svgBounds.height,
+      bottom: (box.bottom - svgBounds.top) * height / svgBounds.height,
+    };
+  };
   const dimension = (entry, side, index) => {
     const group = svgNode(svg, "g", {
       class: "part-feature-dimension",
@@ -373,10 +393,77 @@ export function renderPartAnnotations(svg, drawing, viewer, description, views) 
     text(group, labelX, labelY, [angle.label], { "text-anchor": right ? "end" : "start" });
   }
 
+  const radiusGuides = [];
+  const textNodes = node => node.localName === "text" ? [node] : [...node.children].flatMap(textNodes);
+  const radiusLabels = textNodes(svg).map(screenBounds);
+  for (const feature of features) if (feature.radiusCenter) {
+    const center = project(feature.radiusCenter);
+    const rays = [{ point: feature.point, primary: true },
+      ...(feature.radialGuides ?? []).map(guide => ({ point: guide.from, primary: false, guide }))].map(ray => {
+      const anchor = project(ray.point), dx = center.x - anchor.x, dy = center.y - anchor.y;
+      const exits = [[dx, anchor.x, 14, width - 14], [dy, anchor.y, 48, height - 14]]
+        .filter(([delta]) => Math.abs(delta) > EPSILON)
+        .map(([delta, coordinate, low, high]) => ((delta < 0 ? low : high) - coordinate) / delta)
+        .filter(value => value > 0);
+      const ratio = feature.radiusThroughBlank ? Math.min(1, ...exits) : Math.min(1, 80 / Math.hypot(dx, dy));
+      return { ...ray, anchor, dx, dy, ratio, end: { x: anchor.x + dx * ratio, y: anchor.y + dy * ratio } };
+    });
+    const arrowY = center.y < rays[0].anchor.y ? Math.max(...rays.map(ray => ray.end.y)) :
+      Math.min(...rays.map(ray => ray.end.y));
+    for (const ray of rays) {
+      const { anchor, dx, dy } = ray;
+      const ratio = feature.radiusThroughBlank && Math.abs(dy) > EPSILON ?
+        (arrowY - anchor.y) / dy : ray.ratio;
+      const end = feature.radiusTo ? project(feature.radiusTo) :
+        { x: anchor.x + dx * ratio, y: anchor.y + dy * ratio };
+      const radius = line(svg, anchor.x, anchor.y, end.x, end.y, {
+        class: `part-radius-reference${ray.primary ? "" : " part-radius-edge-reference"}`,
+        "data-feature-id": feature.id,
+        ...(ray.guide?.side ? { "data-cut-side": ray.guide.side, "data-cut-inset": ray.guide.inset } : {}),
+        ...(feature.radiusTo ? { "data-radius-span": feature.radiusSpan } : {}),
+        ...(feature.radiusCenterLabel ? { "data-center": feature.radiusCenterLabel } : {}),
+        "stroke-dasharray": "1 4", "stroke-linecap": "round",
+        ...(feature.radiusThroughBlank ? { "marker-end": "url(#part-dimension-arrow)" } : {}),
+      });
+      if (feature.radiusThroughBlank) radiusGuides.push(radius);
+      svgNode(radius, "title", {}, feature.radiusTo ?
+        `Concentric arc spacing: ${formatLength(feature.radiusSpan)} in toward center C.` : feature.radiusCenterLabel ?
+        ratio < 1 - EPSILON ? `Toward center ${feature.radiusCenterLabel}; the arrow stops short of the off-sheet center.` :
+          `Circle center ${feature.radiusCenterLabel}.` :
+        "Radius direction toward the circle center; the line may be shortened.");
+      if (feature.radiusThroughBlank) {
+        const group = svgNode(svg, "g", { class: `part-feature-note part-feature-${ray.primary ? "arc" : "radius-edge"}`,
+          "data-feature-id": feature.id });
+        const callout = svgNode(group, "g", { class: "part-feature-callout" });
+        text(callout, 0, 0, [feature.radiusTo ? `Arc spacing ${formatLength(feature.radiusSpan)} in` :
+          ratio < 1 - EPSILON ? `To ${feature.radiusCenterLabel}` : feature.radiusCenterLabel]);
+        if (ray.primary && !feature.radiusTo) text(callout, 0, LINE_HEIGHT, [`Radius ${formatLength(feature.radius)} in`]);
+        const rows = ray.primary ? [0, -1, 1, -2, 2, -3, 3] : [-1, 0, -2, 1, -3, 2, 3];
+        const sides = end.x > width / 2 ? [-1, 1] : [1, -1];
+        let placed = false;
+        for (const row of rows) {
+          for (const side of sides) {
+            for (const label of textNodes(callout)) label.setAttribute("text-anchor", side < 0 ? "end" : "start");
+            callout.setAttribute("transform", `translate(${end.x + side * 8} ${end.y + 3 + row * LINE_HEIGHT})`);
+            const boxes = textNodes(callout).map(screenBounds);
+            if (boxes.some(box => box.left < 14 || box.right > width - 14 || box.top < 14 || box.bottom > height - 14 ||
+              radiusLabels.some(other => box.left < other.right + 2 && box.right > other.left - 2 &&
+                box.top < other.bottom + 2 && box.bottom > other.top - 2))) continue;
+            radiusLabels.push(...boxes);
+            placed = true;
+            break;
+          }
+          if (placed) break;
+        }
+        if (!placed) throw new Error(`No clear radius label position for ${feature.id} in ${stockView.name} view.`);
+      }
+    }
+  }
+
   for (const feature of features) if (feature.outline) {
     svgNode(svg, feature.closed ? "polygon" : "polyline", {
       class: "part-feature-outline", "data-feature-id": feature.id,
-      "stroke-dasharray": feature.hidden || feature.outlineHidden ? "5 4" : "none",
+      "stroke-dasharray": feature.outlineDotted ? "1 4" : feature.hidden || feature.outlineHidden ? "5 4" : "none",
       points: feature.outline.map(point => {
         const screen = project(point);
         return `${screen.x},${screen.y}`;
@@ -384,25 +471,20 @@ export function renderPartAnnotations(svg, drawing, viewer, description, views) 
     });
   }
 
-  const svgBounds = svg.getBoundingClientRect();
-  const screenBounds = node => {
-    const box = node.getBoundingClientRect();
-    return {
-      left: (box.left - svgBounds.left) * width / svgBounds.width,
-      right: (box.right - svgBounds.left) * width / svgBounds.width,
-      top: (box.top - svgBounds.top) * height / svgBounds.height,
-      bottom: (box.bottom - svgBounds.top) * height / svgBounds.height,
-    };
-  };
   const occupied = [bounds];
   for (const node of svg.children) {
     if (["title", "defs"].includes(node.localName)) continue;
+    if (node.getAttribute("class")?.split(" ").includes("part-radius-reference")) continue;
     const entries = node.getAttribute("class") === "part-profile-chain" ?
       [...node.children].filter(child => child.getAttribute("class") === "part-profile-dimension") : [node];
     for (const entry of entries) occupied.push(screenBounds(entry));
   }
-  const dimensionLabels = [...svg.children].filter(node => node.getAttribute("class") === "part-feature-dimension")
+  const dimensionLabels = [...svg.children].filter(node => node.getAttribute("class") === "part-feature-dimension" ||
+    description.construction && node.getAttribute("class") === "part-blank-dimension")
     .map(node => screenBounds([...node.children].find(child => child.localName === "text")));
+  dimensionLabels.push(...[...svg.children]
+    .filter(node => ["part-feature-note part-feature-arc", "part-feature-note part-feature-radius-edge"]
+      .includes(node.getAttribute("class"))).map(screenBounds));
   for (const band of bands) {
     for (const feature of band.features) {
       const group = svgNode(svg, "g", { class: `part-feature-note part-feature-${feature.kind}`,
@@ -450,7 +532,13 @@ export function renderPartAnnotations(svg, drawing, viewer, description, views) 
       const candidates = [...new Set([anchor.x - box.width / 2,
         ...occupied.flatMap(other => [other.left - box.width - CALLOUT_GAP, other.right + CALLOUT_GAP])]
         .map(left => Math.max(14, Math.min(width - box.width - 14, left))))];
-      const elbow = band.above ? bounds.top + 4 : bounds.bottom - 4;
+      const defaultElbow = band.above ? bounds.top + 4 : bounds.bottom - 4;
+      const detours = [];
+      const clearRoute = points => dimensionLabels.every(label => points.slice(1).every((end, index) => {
+        const start = points[index];
+        return Math.max(start.x, end.x) <= label.left - 2 || Math.min(start.x, end.x) >= label.right + 2 ||
+          Math.max(start.y, end.y) <= label.top - 2 || Math.min(start.y, end.y) >= label.bottom + 2;
+      }));
       const placements = candidates.flatMap(left => {
         let top = band.above ? bounds.top - box.height - CALLOUT_GAP : bounds.bottom + CALLOUT_GAP;
         for (;;) {
@@ -465,26 +553,56 @@ export function renderPartAnnotations(svg, drawing, viewer, description, views) 
         const attachments = [...new Set([Math.max(left, Math.min(left + box.width, anchor.x)), left, left + box.width,
           ...dimensionLabels.flatMap(label => [label.left - CALLOUT_GAP, label.right + CALLOUT_GAP])]
           .filter(x => x >= left && x <= left + box.width))];
-        return attachments.filter(x => feature.hidden || dimensionLabels.every(label => {
+        if (description.construction) for (const right of [false, true]) {
+          const routeX = right ? width - 4 : 4, edgeX = right ? left + box.width : left;
+          const edgeY = top + box.height / 2;
+          const points = [anchor, { x: routeX, y: anchor.y }, { x: routeX, y: edgeY }, { x: edgeX, y: edgeY }];
+          if (clearRoute(points)) detours.push({ left, top, points,
+            distance: (left + box.width / 2 - anchor.x) ** 2 + (edgeY - anchor.y) ** 2 + (routeX - anchor.x) ** 2 });
+        }
+        const elbows = description.construction ? [defaultElbow, anchor.y] : [defaultElbow];
+        return elbows.flatMap(elbow => attachments.filter(x => feature.hidden || dimensionLabels.every(label => {
           const horizontal = elbow > label.top - 2 && elbow < label.bottom + 2 &&
             Math.min(anchor.x, x) < label.right + 2 && Math.max(anchor.x, x) > label.left - 2;
           const vertical = x > label.left - 2 && x < label.right + 2 &&
             Math.min(elbow, edge) < label.bottom + 2 && Math.max(elbow, edge) > label.top - 2;
-          return !horizontal && !vertical;
-        })).map(edgeX => ({ left, top, edgeX,
+          const initial = description.construction && anchor.x > label.left - 2 && anchor.x < label.right + 2 &&
+            Math.min(anchor.y, elbow) < label.bottom + 2 && Math.max(anchor.y, elbow) > label.top - 2;
+          return !horizontal && !vertical && !initial;
+        })).map(edgeX => ({ left, top,
+          points: [anchor, { x: anchor.x, y: elbow }, { x: edgeX, y: elbow }, { x: edgeX, y: edge }],
           distance: (left + box.width / 2 - anchor.x) ** 2 + (edge - anchor.y) ** 2 +
-            (edgeX - anchor.x) ** 2 }));
+            (edgeX - anchor.x) ** 2 })));
       });
-      if (!placements.length) throw new Error(`No clear dimension-label route for ${feature.id} in ${stockView.name} view.`);
-      const { left, top, edgeX } = placements.reduce((best, next) => next.distance < best.distance ? next : best);
+      const routes = placements.length ? placements : detours;
+      if (!routes.length) throw new Error(`No clear callout-label route for ${feature.id} in ${stockView.name} view.`);
+      const { left, top, points } = routes.reduce((best, next) => next.distance < best.distance ? next : best);
       callout.setAttribute("transform", `translate(${left - box.x} ${top - box.y})`);
       occupied.push({ left, right: left + box.width, top, bottom: top + box.height });
+      if (description.construction) dimensionLabels.push({ left, right: left + box.width, top, bottom: top + box.height });
       if (!feature.hidden) {
-        const edge = band.above ? top + box.height : top;
         svgNode(group, "polyline", { fill: "none",
-          points: `${anchor.x},${anchor.y} ${anchor.x},${elbow} ${edgeX},${elbow} ${edgeX},${edge}` });
+          points: points.map(point => `${point.x},${point.y}`).join(" ") });
         svgNode(group, "circle", { cx: anchor.x, cy: anchor.y, r: 2.5 });
+        if (description.construction) points.slice(1).forEach((end, index) => {
+          const start = points[index];
+          occupied.push({ left: Math.min(start.x, end.x), right: Math.max(start.x, end.x),
+            top: Math.min(start.y, end.y), bottom: Math.max(start.y, end.y) });
+        });
       }
     }
   }
+  if (radiusGuides.length) {
+    const mask = svgNode(defs, "mask", { id: "part-radius-text-mask", maskUnits: "userSpaceOnUse",
+      x: 0, y: 0, width, height, stroke: "none" });
+    svgNode(mask, "rect", { x: 0, y: 0, width, height, fill: "white" });
+    for (const label of textNodes(svg)) {
+      const box = screenBounds(label);
+      svgNode(mask, "rect", { x: box.left - 2, y: box.top - 2,
+        width: box.right - box.left + 4, height: box.bottom - box.top + 4, fill: "black" });
+    }
+    for (const guide of radiusGuides) guide.setAttribute("mask", "url(#part-radius-text-mask)");
+  }
+  // Resizing during layout would change the SVG's screen bounds before measurement finishes.
+  Object.assign(drawing.style, minimumSize);
 }

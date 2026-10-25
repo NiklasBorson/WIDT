@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { combineGeometries, buildStairway } from "./model.js";
+import { combineGeometries, buildStairway, ProfiledPlywood } from "./model.js";
 import { PlacementPlanner } from "./placement.js";
 
 function mesh(faces) {
@@ -60,6 +60,33 @@ function templateStrips(stations, width = 10) {
 
 const block = () => box(0, 1, 0, 2, 3, 2);
 const seat = () => box(-2, 0, -2, 4, 1, 4);
+
+test("arc-cut plywood retains its flat seat datum without treating arc facets as planar contacts", () => {
+  const rib = new ProfiledPlywood({ thickness: 0.5, outline: [
+    { type: "line", from: [0, 0], to: [10, 0] },
+    { type: "arc", center: [0, 0], radius: 10, startAngle: 0, sweepRadians: Math.PI / 2 },
+    { type: "line", from: [0, 10], to: [0, 0] },
+  ] });
+  const geometry = rib.createGeometry();
+  let facet;
+  for (let i = 0; i < geometry.indices.length; i += 3) {
+    const index = geometry.indices[i] * 3;
+    if (Math.abs(geometry.normals[index]) > 0.2 && Math.abs(geometry.normals[index + 2]) > 0.2 &&
+      Math.abs(geometry.normals[index + 1]) < 1e-5) {
+      facet = Array.from(geometry.indices.slice(i, i + 3), vertex =>
+        Array.from(geometry.positions.slice(vertex * 3, vertex * 3 + 3))).reverse();
+      break;
+    }
+  }
+  assert.ok(facet);
+  const model = fixture({ rib: geometry, facet: mesh([facet]), support: box(-1, -1, -1, 11, 0, 11) });
+  const node = model.partTree.getLeaves()[0];
+  node.component = rib;
+  node.kind = "plywood";
+  const plan = new PlacementPlanner(model).plan("rib");
+  assert.ok(plan.evidence.relationships.some(relationship => relationship.neighbor === "support" && relationship.contact));
+  assert.ok(plan.evidence.relationships.every(relationship => relationship.neighbor !== "facet"));
+});
 
 test("finite seat contact leaves two sliding directions and yaw unresolved without zero labels", () => {
   const plan = new PlacementPlanner(fixture({ block: block(), seat: seat() })).plan("block");

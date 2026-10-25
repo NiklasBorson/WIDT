@@ -1,14 +1,143 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  Board, OneByFour, NotchedBoard, Siding, BentPlywood, SpindleShim, CASTER_DIMENSIONS, INNER_RADIUS,
+  Board, OneByFour, NotchedBoard, Siding, BentPlywood, ProfiledPlywood, RIB_THICKNESS, SpindleShim, CASTER_DIMENSIONS, INNER_RADIUS,
   buildStairway, combineGeometries, OAK, PLYWOOD, PARTICLE_BOARD,
 } from "./model.js";
 import { PartNode } from "./parts.js";
+import { outlinePoint, outlineArea, outlineBounds, tessellateOutline, clipOutline, constructionTrapezoid, notchRectangle } from "./plywood-outline.js";
 
 function close(actual, expected, tolerance = 1e-5) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} differs from ${expected}`);
 }
+
+test("flat arc-cut plywood retains analytic bounds and volume with bounded-error closed meshes", () => {
+  const outline = [
+    { type: "line", from: [0, 0], to: [10, 0] },
+    { type: "arc", center: [0, 0], radius: 10, startAngle: 0, sweepRadians: Math.PI / 2 },
+    { type: "line", from: [0, 10], to: [0, 0] },
+  ];
+  const board = new ProfiledPlywood({ outline, thickness: 0.5, heading: 0.4, origin: [3, 7], bottomHeight: 8 });
+  assert.deepEqual(outlineBounds(outline), { min: [0, 0], max: [10, 10] });
+  close(board.getMaterialVolume(), 12.5 * Math.PI);
+  assertBoardsGeometry(board.createStockGeometry());
+  assertBoardsGeometry(board.createGeometry());
+  close(meshVolume(board.createStockGeometry()), board.getMaterialVolume(), 0.01);
+  close(meshVolume(board.createGeometry()), meshVolume(board.createStockGeometry()), 1e-4);
+  const points = tessellateOutline(outline);
+  for (let i = 1; i < points.length - 1; i++) {
+    const midpoint = points[i].map((value, axis) => (value + points[i + 1][axis]) / 2);
+    assert.ok(10 - Math.hypot(...midpoint) <= 0.001 + 1e-10);
+  }
+  const clipped = clipOutline(outline, [1, 0], 3);
+  assert.ok(clipped.some(edge => edge.type === "arc"));
+  close(outlineArea(clipped), (100 * Math.acos(0.3) - 3 * Math.sqrt(91)) / 2);
+  assert.throws(() => new ProfiledPlywood({ outline: outline.slice(1), thickness: 0.5 }), /closed path/);
+  assert.throws(() => tessellateOutline(outline, 0), /sag/);
+});
+
+test("radial side cuts derive trapezoid vertices and preserve signed perpendicular insets", () => {
+  const centerZ = -(5 + 0.25 * Math.hypot(1, 0.2)) / 0.5;
+  const construction = {
+    blank: { length: 10, width: 10 },
+    arc: { center: [7 + 0.3 * centerZ, centerZ], radius: 20 },
+    trapezoid: {
+      left: { angleRadians: Math.atan2(10, -2), inset: 0.25 },
+      right: { angleRadians: Math.atan2(10, 3), inset: 0 },
+    },
+  };
+  const { sides, vertices } = constructionTrapezoid(construction);
+  vertices.flat().forEach((value, index) => close(value, [2, 0, 7, 0, 10, 10, 0, 10][index]));
+  for (const side of sides) {
+    for (const point of [side.top, side.bottom]) close(
+      side.normal.reduce((sum, value, axis) => sum + value * (point[axis] - construction.arc.center[axis]), 0),
+      side.inset);
+    assert.deepEqual(side.guide.to, construction.arc.center);
+    close(Math.hypot(...side.guide.from.map((value, axis) => value - side.guide.to[axis])), 20);
+    close(side.normal.reduce((sum, value, axis) => sum + value * (side.guide.from[axis] - side.guide.to[axis]), 0), 0);
+  }
+  for (const change of [
+    recipe => { recipe.trapezoid.top = [2, 7]; },
+    recipe => { recipe.trapezoid.left.angleRadians = NaN; },
+    recipe => { recipe.trapezoid.left.inset = Infinity; },
+    recipe => { recipe.trapezoid.left.inset += 1; },
+  ]) {
+    const recipe = structuredClone(construction);
+    change(recipe);
+    assert.throws(() => constructionTrapezoid(recipe), RangeError);
+  }
+});
+
+test("siding ribs rest on cross beams, fit module boundaries and share the siding radius across layouts", () => {
+  for (const width of [20, 24, 36]) for (const count of [4, 5, 6, 7, 8, 9]) for (const modules of [2, 3]) {
+    if (count < modules * 2) continue;
+    const model = buildStairway(width, count, modules);
+    for (const module of model.modules) {
+      const rib = module.boards.rib, siding = module.boards.siding;
+      const bounds = outlineBounds(rib.outline);
+      assert.ok(bounds.min.every(value => value >= -1e-8));
+      assert.ok(bounds.max[0] <= rib.length + 1e-8 && bounds.max[1] <= rib.width + 1e-8);
+      assert.deepEqual(rib.construction.blank, { length: rib.length, width: rib.width });
+      assert.equal(rib.construction.trapezoid.left.inset, 0.25);
+      assert.equal(rib.construction.trapezoid.right.inset, 0);
+      assert.equal(rib.construction.trapezoid.top, undefined, "Corner coordinates are derived, not independently authored.");
+      const angle = module.steps[0].angle, half = module.steps.length * angle / 2;
+      assert.equal(rib.thickness, RIB_THICKNESS);
+      assert.equal(rib.bottomHeight, 8);
+      const stock = rib.createStockGeometry(), installed = rib.createGeometry();
+      assertBoardsGeometry(stock);
+      assertBoardsGeometry(installed);
+      close(meshVolume(stock), meshVolume(installed), 0.001);
+      close(meshVolume(stock), rib.getMaterialVolume(), 0.02);
+      const plan = ([x, z]) => [
+        rib.origin[0] + Math.cos(rib.heading) * x + Math.sin(rib.heading) * z + model.cornerRadius,
+        rib.origin[1] + Math.sin(rib.heading) * x - Math.cos(rib.heading) * z,
+      ];
+      const left = Math.min(...module.boards.rightSupportBeam.footprint.map(([e, n]) =>
+        (e + model.cornerRadius) * Math.cos(half) + n * Math.sin(half)));
+      const front = module.startIndex === 0 ? angle : 0, back = module.steps.length * angle;
+      for (const edge of rib.outline) for (const t of [0, 0.5, 1]) {
+        const [east, north] = plan(outlinePoint(edge, t));
+        if (edge.type === "arc") close(Math.hypot(east, north), siding.bend.innerRadius);
+        assert.ok(-Math.sin(front) * east + Math.cos(front) * north >= 0.25 - 1e-8);
+        assert.ok(Math.sin(back) * east - Math.cos(back) * north >= -1e-8);
+        assert.ok(Math.cos(half) * east + Math.sin(half) * north >= left - 1e-8);
+      }
+      close((rib.origin[0] + model.cornerRadius) * Math.cos(half) + rib.origin[1] * Math.sin(half), left);
+      for (const step of module.steps) {
+        const frame = step.parts.bottomFrame.boards;
+        if (!frame.supportCrossPiece) continue;
+        close(rib.bottomHeight, frame.supportCrossPiece.bottomHeight + frame.supportCrossPiece.thickness);
+        assert.equal(frame.rightSupportBlock.bottomHeight, rib.bottomHeight + rib.thickness);
+        assert.equal(frame.leftSupportBlock.bottomHeight, rib.bottomHeight);
+      }
+    }
+  }
+  const block = buildStairway(24, 9, 2).steps[2].parts.bottomFrame.boards.rightSupportBlock;
+  assert.ok(block.notches.startFar, "Raised block must clear the preceding tread frame.");
+});
+
+test("rectangular notch references retain outside-looking-in handedness when rotated", () => {
+  for (const angleRadians of [-1.2, 0, 0.7, 2.2]) {
+    const notch = { reference: [4, 5], width: 3.5, depth: 2, angleRadians };
+    const [leftInner, rightInner, rightOuter, leftOuter] = notchRectangle(notch);
+    assert.deepEqual(leftInner, notch.reference);
+    const u = rightInner.map((value, axis) => value - leftInner[axis]);
+    const v = leftOuter.map((value, axis) => value - leftInner[axis]);
+    close(Math.hypot(...u), notch.width);
+    close(Math.hypot(...v), notch.depth);
+    close(u[0] * v[0] + u[1] * v[1], 0);
+    close(u[0] * v[1] - u[1] * v[0], notch.width * notch.depth);
+    rightOuter.forEach((value, axis) => close(value, leftInner[axis] + u[axis] + v[axis]));
+  }
+  const rib = buildStairway().modules[0].boards.rib, construction = structuredClone(rib.construction);
+  construction.notches[1].width += 0.125;
+  construction.notches[1].depth += 0.5;
+  const changed = new ProfiledPlywood({ construction, thickness: rib.thickness });
+  assert.notDeepEqual(changed.outline, rib.outline);
+  assert.ok(changed.getMaterialVolume() < rib.getMaterialVolume());
+  assert.throws(() => new ProfiledPlywood({ construction, outline: rib.outline, thickness: rib.thickness }), /not both/);
+});
 
 test("inner tread edges are tangent to the fixed castle radius across step counts and model instances", () => {
   for (const count of [9, 7, 8, 4, 9]) for (const width of [20, 24, 36]) {
@@ -259,7 +388,7 @@ test("extended right uprights clear the newel blocks and caster beams across mod
         if (!upright) continue;
         const section = rotate(horizontalSection(upright, 5.75), index * step.angle);
         for (const [beamKey, beam] of Object.entries(module.boards)) {
-          if (beamKey === "siding") continue;
+          if (!["leftSupportBeam", "rightSupportBeam"].includes(beamKey)) continue;
           assertOutsideFootprint(section, beam.footprint,
             `${width}/${count}/${modules}, module ${moduleIndex + 1}, step ${index + 1}: ${key} intersects ${beamKey}`);
         }

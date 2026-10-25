@@ -1,3 +1,5 @@
+import { validateOutline, constructionOutline } from "./plywood-outline.js";
+
 const compareText = new Intl.Collator("en", { numeric: true }).compare;
 const kindOrder = { lumber: 0, plywood: 1, hardware: 2 };
 const materialOrder = { pine: 0, oak: 1 };
@@ -16,7 +18,7 @@ export const PART_SUBSETS = Object.freeze([
 const foundationRoles = new Set([
   "leftCaster", "rightCaster", "leftRearCaster", "rightRearCaster",
   "leftSupportBeam", "rightSupportBeam", "supportCrossPiece", "rearSupportCrossPiece",
-  "frontStepSupport", "rearStepSupport", "frontStepRightSupport", "frontStepLeftSupport",
+  "frontStepSupport", "rearStepSupport", "frontStepRightSupport", "frontStepLeftSupport", "rib",
 ]);
 const stepFramingRoles = new Set([
   "leftUpright", "rightUpright", "leftRearUpright", "rightRearUpright",
@@ -36,7 +38,7 @@ function partSubsets(node) {
   const stepFraming = stepFramingRoles.has(node.key);
   const cladding = claddingRoles.has(node.key);
   const subsets = [];
-  if (node.kind === "lumber" && (foundation || stepFraming)) subsets.push("framing");
+  if ((node.kind === "lumber" || node.key === "rib") && (foundation || stepFraming)) subsets.push("framing");
   if (foundation) subsets.push("foundation");
   if (stepFraming) subsets.push("step-framing");
   if (node.key === "tread" || node.key === "riser") subsets.push("treads-risers");
@@ -96,6 +98,8 @@ export function manufacturingSpecification(description) {
   if (stock.kind === "hardware") return normalized({ stock });
   if (description.units?.length !== "inches") throw new TypeError("Part specifications require inch dimensions.");
   const { blank } = description;
+  if (description.outline) validateOutline(description.outline);
+  if (description.construction) constructionOutline(description.construction);
   return normalized({
     stock,
     blank: {
@@ -115,6 +119,9 @@ export function manufacturingSpecification(description) {
       face: dado.face, start: dado.start, width: dado.width, depth: dado.depth, acrossWidth: dado.acrossWidth,
     }))),
     edgeNotches: unordered(description.edgeNotches ?? []),
+    ...(description.outline ? { outline: description.outline } : {}),
+    ...(description.construction ? { construction: { ...description.construction,
+      notches: unordered(description.construction.notches) } } : {}),
     ...(description.bend ? { bend: {
       innerRadius: positive(description.bend.innerRadius),
       neutralRadius: positive(description.bend.neutralRadius),
