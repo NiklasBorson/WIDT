@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  Board, OneByFour, NotchedBoard, Siding, BentPlywood, ProfiledPlywood, BASE_RAIL_THICKNESS, SpindleShim, Caster, CASTER_DIMENSIONS, INNER_RADIUS,
+  Board, OneByFour, NotchedBoard, Siding, Tread, BentPlywood, ProfiledPlywood, BASE_RAIL_THICKNESS, SpindleShim, Caster, CASTER_DIMENSIONS, INNER_RADIUS,
   buildStairway, combineGeometries, OAK, PLYWOOD, PARTICLE_BOARD,
 } from "./model.js";
 import { PartNode } from "./parts.js";
@@ -164,7 +164,7 @@ test("two six-inch-wide three-quarter-inch base rails replace the panel and spac
         close(meshVolume(stock), meshVolume(installed), 0.001);
         close(meshVolume(stock), rib.getMaterialVolume(), 0.02);
         const plan = ([x, z]) => [
-          rib.origin[0] + Math.cos(rib.heading) * x + Math.sin(rib.heading) * z + model.cornerRadius,
+          rib.origin[0] + Math.cos(rib.heading) * x + Math.sin(rib.heading) * z + INNER_RADIUS,
           rib.origin[1] + Math.sin(rib.heading) * x - Math.cos(rib.heading) * z,
         ];
         const left = innerRadius * Math.cos(half), back = module.steps.length * angle;
@@ -175,7 +175,7 @@ test("two six-inch-wide three-quarter-inch base rails replace the panel and spac
           assert.ok(Math.sin(back) * east - Math.cos(back) * north >= -1e-8);
           assert.ok(Math.hypot(east, north) >= innerRadius - 1e-8);
         }
-        close((rib.origin[0] + model.cornerRadius) * Math.cos(half) + rib.origin[1] * Math.sin(half), left);
+        close((rib.origin[0] + INNER_RADIUS) * Math.cos(half) + rib.origin[1] * Math.sin(half), left);
       }
       for (const key of ["leftSupportBeam", "rightSupportBeam"]) {
         const heights = Array.from(module.boards[key].createGeometry().positions).filter((_, i) => i % 3 === 1);
@@ -222,32 +222,77 @@ test("rectangular notch references retain outside-looking-in handedness when rot
   assert.throws(() => new ProfiledPlywood({ construction, outline: rib.outline, thickness: rib.thickness }), /not both/);
 });
 
-test("inner tread edges are tangent to the fixed castle radius across step counts and model instances", () => {
-  for (const count of [9, 7, 8, 4, 9]) for (const width of [20, 24, 36]) {
-    const model = buildStairway(width, count);
-    const angle = Math.PI / (2 * count);
-    close(model.cornerRadius, INNER_RADIUS / Math.cos(angle / 2));
+test("curved treads follow the castle and siding while straight framing clears the entire castle cylinder", () => {
+  for (const count of [4, 7, 8, 9]) for (const width of [20, 24, 36]) for (const modules of [2, 3]) {
+    if (count < modules * 2) continue;
+    const model = buildStairway(width, count, modules);
     assert.equal(model.innerRadius, INNER_RADIUS);
-    close(model.outerRadius, model.cornerRadius + width);
+    close(model.outerRadius, INNER_RADIUS + width);
     for (const [index, step] of model.steps.entries()) {
-      close(step.cornerRadius, model.cornerRadius);
-      close(step.leftDepth, 2 * INNER_RADIUS * Math.tan(angle / 2));
-      const c = Math.cos(index * angle), s = Math.sin(index * angle);
-      const edge = [step.parts.tread.footprint[0], step.parts.tread.footprint[3]]
-        .map(([east, north]) => [c * (east + model.cornerRadius) - s * north,
-          s * (east + model.cornerRadius) + c * north]);
-      const midpoint = edge[0].map((value, axis) => (value + edge[1][axis]) / 2);
-      close(Math.hypot(...midpoint), INNER_RADIUS);
-      for (const point of edge) close(Math.hypot(...point), model.cornerRadius);
-      const direction = edge[1].map((value, axis) => value - edge[0][axis]);
-      close(midpoint.reduce((sum, value, axis) => sum + value * direction[axis], 0), 0);
-      const node = model.partTree.getLeaves().find(node => node.component === step.parts.tread);
-      const geometry = model.createNodeGeometry(node.id);
-      for (const [east, north] of edge) {
-        assert.ok(Array.from({ length: geometry.positions.length / 3 }, (_, vertex) => vertex * 3)
-          .some(vertex => Math.abs(geometry.positions[vertex] - east) < 1e-4 &&
-            Math.abs(geometry.positions[vertex + 2] + north) < 1e-4),
-        "assembled tread vertices must use the model's corner radius");
+      const tread = step.parts.tread, arcs = tread.outline.filter(edge => edge.type === "arc");
+      close(arcs.find(edge => edge.sweepRadians < 0).radius, INNER_RADIUS);
+      assert.equal(arcs.filter(edge => edge.sweepRadians < 0).length, 1);
+      assert.equal(arcs.some(edge => edge.sweepRadians > 0), index > 0);
+      if (index) {
+        const siding = model.modules.find(module => module.steps.includes(step)).boards.siding;
+        close(arcs.find(edge => edge.sweepRadians > 0).radius, siding.bend.innerRadius);
+      }
+      for (const arc of arcs) for (const t of [0, 0.5, 1]) {
+        const angle = arc.startAngle + arc.sweepRadians * t;
+        const x = arc.center[0] + arc.radius * Math.cos(angle);
+        const z = arc.center[1] + arc.radius * Math.sin(angle);
+        close(Math.hypot(tread.origin[0] + INNER_RADIUS + Math.cos(tread.heading) * x +
+          Math.sin(tread.heading) * z, tread.origin[1] + Math.sin(tread.heading) * x -
+          Math.cos(tread.heading) * z), arc.radius);
+      }
+      const left = step.parts.topFrame.boards.leftStepSupport;
+      if (left) {
+        const upright = step.parts.uprights.boards.leftUpright;
+        const inward = upright.footprint[1].map((value, axis) =>
+          (value - upright.footprint[0][axis]) / upright.thickness);
+        for (const point of left.footprint.slice(1, 3)) {
+          close(point.reduce((sum, value, axis) =>
+            sum + (value - upright.footprint[1][axis]) * inward[axis], 0), 0);
+        }
+      }
+    }
+    for (const node of model.partTree.getLeaves()) {
+      const board = node.component;
+      if (!board.footprint) continue;
+      const footprint = board.footprint.map(([east, north]) => [east + INNER_RADIUS, north]);
+      for (const [i, a] of footprint.entries()) {
+        const b = footprint[(i + 1) % footprint.length], v = b.map((value, axis) => value - a[axis]);
+        const t = Math.max(0, Math.min(1, -a.reduce((sum, value, axis) => sum + value * v[axis], 0) /
+          v.reduce((sum, value) => sum + value * value, 0)));
+        assert.ok(Math.hypot(...a.map((value, axis) => value + t * v[axis])) >= INNER_RADIUS - 1e-8,
+          `${count}/${width}/${modules}: ${node.id} enters the castle`);
+      }
+    }
+  }
+});
+
+test("analytic tread cutting outlines retain newel and spindle reliefs in closed installed and stock meshes", () => {
+  for (const [count, modules] of [[7, 2], [8, 3], [9, 3]]) for (const width of [20, 24, 36]) {
+    const model = buildStairway(width, count, modules);
+    for (const [index, step] of model.steps.entries()) {
+      const tread = step.parts.tread;
+      const uncut = new Tread({ width, angle: step.angle, height: step.height, extendRightEdge: index === 0 });
+      assert.ok(tread.getMaterialVolume() < uncut.getMaterialVolume());
+      close(tread.length, uncut.length);
+      close(tread.width, uncut.width);
+      const description = tread.getManufacturingDescription();
+      assert.deepEqual(description.outline, tread.outline);
+      assertBoardsGeometry(tread.createGeometry());
+      assertBoardsGeometry(tread.createStockGeometry());
+      close(meshVolume(tread.createStockGeometry()), tread.getMaterialVolume(), 0.06);
+      for (const post of [step.parts.newel, step.parts.frontSpindle, step.parts.rearSpindle].filter(Boolean)) {
+        const axes = tread.getStockAxes(), [a, b, , d] = post.footprint;
+        for (const u of [0.01, 0.5, 0.99]) for (const v of [0.01, 0.5, 0.99]) {
+          const point = a.map((value, axis) => value + (b[axis] - value) * u + (d[axis] - value) * v);
+          const stock = [axes[0], axes[2]].map(axis =>
+            (point[0] - tread.origin[0]) * axis[0] - (point[1] - tread.origin[1]) * axis[2]);
+          assert.equal(profileContains(tread, stock), false);
+        }
       }
     }
   }
@@ -302,7 +347,8 @@ test("split footprints follow actual module tread positions without changing ass
             close(footprint.positions[floorVertex + axis], tread.positions[vertex * 3 + axis], 1e-4);
           }
           assert.equal(footprint.positions[floorVertex + 1], 0);
-          assert.deepEqual([...footprint.normals.slice(floorVertex, floorVertex + 3)], [0, 1, 0]);
+          [...footprint.normals.slice(floorVertex, floorVertex + 3)].forEach((value, axis) =>
+            close(value, axis === 1 ? 1 : 0));
         }
       }
       model.createFootprintGeometry(null, false, true, amount);
@@ -353,16 +399,15 @@ test("module footprints omit other modules in assembled and split layouts withou
   }
 });
 
-test("front tread continues step 2's right edge and aligns the newel framing with it", () => {
+test("front tread is tangent to step 2's outer arc and aligns the newel framing with it", () => {
   for (const stepCount of [7, 8, 9]) {
     const [first, second] = buildStairway(24, stepCount, 3).steps;
     for (const corner of [0, 2, 3]) assert.deepEqual(first.footprint[corner], second.footprint[corner]);
     close(first.footprint[1][1], 0);
     assert.ok(first.footprint[1][0] > second.footprint[1][0]);
     const c = Math.cos(first.angle), s = Math.sin(first.angle);
-    const edge = second.footprint.slice(1, 3).map(([east, north]) =>
-      [c * (east + first.cornerRadius) - s * north - first.cornerRadius,
-        s * (east + first.cornerRadius) + c * north]);
+    const joint = [(INNER_RADIUS + 24) * c - INNER_RADIUS, (INNER_RADIUS + 24) * s];
+    const edge = [joint, [joint[0] - s, joint[1] + c]];
     const length = Math.hypot(...edge[1].map((value, axis) => value - edge[0][axis]));
     const along = edge[1].map((value, axis) => (value - edge[0][axis]) / length);
     const across = [along[1], -along[0]];
@@ -426,12 +471,12 @@ test("left and right uprights meet caster beam tops without moving their tops or
   }
 });
 
-test("rib relief clears the unchanged step-2 spindle, newel, and adjoining blocks", () => {
-  for (const [count, lowestTip] of [[7, 3.9441], [8, 2.6918], [9, 1.9598]]) for (const modules of [2, 3]) {
+test("rib relief clears the step-2 spindle, newel, and adjoining blocks", () => {
+  for (const count of [7, 8, 9]) for (const modules of [2, 3]) {
     const model = buildStairway(24, count, modules), rib = model.modules[0].boards.outerBaseRail;
     const spindle = model.steps[1].parts.frontSpindle;
     const heights = Array.from(spindle.createGeometry().positions).filter((_, i) => i % 3 === 1);
-    close(Math.min(...heights), lowestTip, 0.0001);
+    close(Math.min(...heights), spindle.bottomHeight, 1e-5);
     assert.ok(rib.construction.notches.some(cut => /spindle/i.test(cut.name)));
     const first = model.steps[0].parts;
     for (const [board, rotation] of [[spindle, model.steps[1].angle],
@@ -441,8 +486,8 @@ test("rib relief clears the unchanged step-2 spindle, newel, and adjoining block
       const samples = [...footprint, ...footprint.map((point, i) => point.map((value, axis) =>
         (value + footprint[(i + 1) % footprint.length][axis]) / 2))];
       for (const [east, north] of samples) {
-        const delta = [c * (east + model.cornerRadius) - s * north - model.cornerRadius - rib.origin[0],
-          s * (east + model.cornerRadius) + c * north - rib.origin[1]];
+        const delta = [c * (east + INNER_RADIUS) - s * north - INNER_RADIUS - rib.origin[0],
+          s * (east + INNER_RADIUS) + c * north - rib.origin[1]];
         const point = [Math.cos(rib.heading) * delta[0] + Math.sin(rib.heading) * delta[1],
           Math.sin(rib.heading) * delta[0] - Math.cos(rib.heading) * delta[1]];
         assert.equal(profileContains(rib, point), false, "The sheet, not the post or spindle, must be relieved.");
@@ -522,8 +567,10 @@ test("curved module siding has a flat cutting pattern, midpoint bend, closed mes
     for (const node of panels) {
       const board = node.component, module = model.modules.find(module => module.boards.siding === board);
       const rear = module.steps.at(-1).parts.uprights.boards.rightRearUpright.createGeometry();
-      const radius = Math.max(...Array.from({ length: rear.positions.length / 3 }, (_, i) =>
-        Math.hypot(rear.positions[i * 3] + model.cornerRadius, rear.positions[i * 3 + 2])));
+      const radius = model.outerRadius;
+      for (let i = 0; i < rear.positions.length; i += 3) {
+        assert.ok(Math.hypot(rear.positions[i] + INNER_RADIUS, rear.positions[i + 2]) <= radius + 1e-5);
+      }
       close(board.bend.innerRadius, radius);
       close(board.bend.neutralRadius, radius + board.thickness / 2);
       close(board.length, board.bend.neutralRadius * board.bend.sweepRadians);
@@ -533,7 +580,7 @@ test("curved module siding has a flat cutting pattern, midpoint bend, closed mes
       close(meshVolume(stock), board.getMaterialVolume(), 1e-3);
       assert.ok(Math.abs(meshVolume(installed) / board.getMaterialVolume() - 1) < 0.0001);
       for (let i = 0; i < installed.positions.length; i += 3) {
-        const r = Math.hypot(installed.positions[i] + model.cornerRadius, installed.positions[i + 2]);
+        const r = Math.hypot(installed.positions[i] + INNER_RADIUS, installed.positions[i + 2]);
         assert.ok(Math.min(Math.abs(r - radius), Math.abs(r - radius - board.thickness)) < 1e-4);
       }
       const expectedWeight = board.getMaterialVolume() / 1728 * PLYWOOD.density;
@@ -841,7 +888,7 @@ test("stopped newel corner bevels preserve square stock and closed meshes", () =
     close(description.cutLength, newel.length);
     close(description.finishedWidth, newel.width);
     const cuts = description.edgeCuts.filter(cut => cut.surfaceCut);
-    close(cuts[0].angleFromSquare, first.angle * 1.5 * 180 / Math.PI);
+    close(cuts[0].angleFromSquare, first.angle * 180 / Math.PI);
     assert.equal(cuts.length, bottomHeight > newel.bottomHeight ? 3 : 2);
     for (const cut of cuts) {
       for (const point of cut.points) {
@@ -855,7 +902,7 @@ test("stopped newel corner bevels preserve square stock and closed meshes", () =
 
 test("plan cutouts preserve closed concave meshes and describe cuts inside the original stock blank", () => {
   const first = buildStairway().steps[0];
-  for (const board of [first.parts.tread, first.parts.topFrame.boards.frontStepSupport]) {
+  for (const board of [first.parts.topFrame.boards.frontStepSupport]) {
     const area = polygon => polygon.reduce((sum, point, i) => {
       const next = polygon[(i + 1) % polygon.length];
       return sum + point[0] * next[1] - point[1] * next[0];
@@ -895,9 +942,9 @@ test("whole caster plates fit their rails and relief cuts, with tangent headings
         const back = beam.footprint[1].map((value, i) => (value + beam.footprint[2][i]) / 2);
         close(caster.heading, Math.atan2(front[0] - back[0], back[1] - front[1]));
       } else {
-        close(Math.sin(caster.heading - Math.atan2(caster.north, caster.east + model.cornerRadius)), 0);
+        close(Math.sin(caster.heading - Math.atan2(caster.north, caster.east + INNER_RADIUS)), 0);
       }
-      const centerOffset = [-model.cornerRadius - caster.east, -caster.north];
+      const centerOffset = [-INNER_RADIUS - caster.east, -caster.north];
       const nearest = Math.hypot(...[across, along].map((axis, i) =>
         Math.max(Math.abs(axis.reduce((sum, v, j) => sum + v * centerOffset[j], 0)) -
           [CASTER_DIMENSIONS.plateWidth, CASTER_DIMENSIONS.plateLength][i] / 2, 0)));
@@ -908,8 +955,8 @@ test("whole caster plates fit their rails and relief cuts, with tangent headings
         const [east, north] = [caster.east, caster.north].map((value, axis) =>
           value + along[axis] * lengthSign * CASTER_DIMENSIONS.plateLength / 2 +
           across[axis] * widthSign * CASTER_DIMENSIONS.plateWidth / 2);
-        const corner = [Math.cos(angle) * (east + model.cornerRadius) - Math.sin(angle) * north - model.cornerRadius,
-          Math.sin(angle) * (east + model.cornerRadius) + Math.cos(angle) * north];
+        const corner = [Math.cos(angle) * (east + INNER_RADIUS) - Math.sin(angle) * north - INNER_RADIUS,
+          Math.sin(angle) * (east + INNER_RADIUS) + Math.cos(angle) * north];
         if (!rear) {
           assert.ok(corner[1] >= rail.construction.trapezoid.left.inset + 0.125 - 1e-8,
             `${width}/${count}/${modules}: the entire front mounting plate must be behind the rail's front edge.`);
@@ -917,7 +964,7 @@ test("whole caster plates fit their rails and relief cuts, with tangent headings
         if (!rear && beam.casterFrontBoundary !== undefined) {
           assert.ok(corner[1] >= beam.casterFrontBoundary + 0.125 - 1e-8);
         }
-        assert.ok(Math.hypot(corner[0] + model.cornerRadius, corner[1]) <= rail.construction.arc.radius + 1e-8);
+        assert.ok(Math.hypot(corner[0] + INNER_RADIUS, corner[1]) <= rail.construction.arc.radius + 1e-8);
         const delta = corner.map((v, i) => v - rail.origin[i]);
         const stock = [Math.cos(rail.heading) * delta[0] + Math.sin(rail.heading) * delta[1],
           Math.sin(rail.heading) * delta[0] - Math.cos(rail.heading) * delta[1]];
@@ -997,8 +1044,8 @@ test("shim ends stay level at the lower spindle shoulder while both beveled side
         }
         const c = Math.cos(step.angle), s = Math.sin(step.angle);
         const upperEdge = upper.footprint.slice(0, 2).map(([east, north]) => [
-          c * (east + model.cornerRadius) - s * north - model.cornerRadius,
-          s * (east + model.cornerRadius) + c * north,
+          c * (east + INNER_RADIUS) - s * north - INNER_RADIUS,
+          s * (east + INNER_RADIUS) + c * north,
         ]);
         const expected = [lower.footprint[3], lower.footprint[2], upperEdge[1], upperEdge[0]];
         for (const [corner, [east, north]] of expected.entries()) {

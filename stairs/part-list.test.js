@@ -251,14 +251,14 @@ test("base rails retain their analytic six-inch bands and three-quarter-inch ply
 
 test("scoped Parts titles describe visible steps without changing global identity or quantity", () => {
   const inventory = new PartInventory(buildStairway().partTree);
-  const tread = inventory.entries.find(entry => entry.title === "Tread (steps 2-9)");
+  const tread = inventory.entries.find(entry => entry.title === "Tread (steps 3, 6, 9)");
   assert.ok(tread);
-  assert.equal(tread.quantity, 8);
+  assert.equal(tread.quantity, 3);
   const scoped = inventory.filter({ moduleNumber: 1 }).groups.find(group => group.entry.key === tread.key);
   assert.equal(scoped.entry, tread);
-  assert.equal(scoped.title, "Tread (steps 2-3)");
-  assert.equal(scoped.locations.length, 2);
-  assert.equal(tread.title, "Tread (steps 2-9)");
+  assert.equal(scoped.title, "Tread (step 3)");
+  assert.equal(scoped.locations.length, 1);
+  assert.equal(tread.title, "Tread (steps 3, 6, 9)");
   const tree = inventoryTree([boardDescription(), boardDescription(12)]);
   tree.getLeaves().forEach(node => { node.name = "Shared"; });
   const variants = new PartInventory(tree);
@@ -520,7 +520,7 @@ test("inner newel block bevel appears only in the two views exposing its angle",
     assert.equal(features.length, 1);
     assert.equal(features[0].id, "B1");
     assert.equal(features[0].angles.length, 1);
-    assert.ok(Math.abs(features[0].angles[0].valueDegrees - 15) < 1e-8);
+    assert.ok(Math.abs(features[0].angles[0].valueDegrees - 10) < 1e-8);
     assert.ok(features[0].dimensions.some(dimension => dimension.property === "length"));
   }
 });
@@ -596,7 +596,7 @@ test("newel bevel uses an exposed end angle and finite, separately located face 
     assert.equal(face.outline, null);
     const feature = getPartFeatures(description, { direction: [-1, 0, 0] }, [])
       .find(feature => feature.id === face.id);
-    const degrees = stepCount === 9 ? 15 : 135 / stepCount;
+    const degrees = 90 / stepCount;
     if (start < 1e-8) assert.ok(Math.abs(feature.angles[0].valueDegrees - degrees) < 1e-8);
     else {
       assert.equal(feature, undefined, "An internal patch is not an exposed end feature");
@@ -714,7 +714,7 @@ test("upright bevel callouts give full-face width difference, not bevel length o
 
 test("single-view plywood retains both notch profiles and labels separate true-angle plane constructions", () => {
   const model = buildStairway();
-  const step = model.steps[1], sheet = new Siding(step.footprint, step.height, step.cornerRadius);
+  const step = model.steps[1], sheet = new Siding(step.footprint, step.height);
   sheet.edgeNotches.push({ profiles: [0, 1].map(face =>
     [[2, sheet.width - 2 + face / 8], [3.5, sheet.width - 2 + face / 8]]) });
   step.parts.siding = sheet;

@@ -304,11 +304,6 @@ test("caster beam locates its support joint and both extreme tread-template cros
     const node = model.partTree.getLeaves().find(n => n.key === "rightSupportBeam");
     const top = planner.plan(node.id).views[0], locations = top.dimensions.filter(d => d.source);
     assert.equal(top.planar.complete, true);
-    if (width === 24 && steps === 9 && modules === 3) {
-      assert.equal(top.planar.implicitRank, 3, "The seam-corner and physical stop already locate this layout.");
-      assert.equal(locations.length, 0);
-      continue;
-    }
     assert.ok(locations.some(d => d.source === "contact-position"), `Missing joint for ${width}/${steps}/${modules}`);
     const crossings = locations.filter(d => d.source === "template-intersection");
     assert.equal(crossings.length, 2);
@@ -394,18 +389,20 @@ test("unreachable template references report an underconstrained plan instead of
   assert.ok(top.notes.some(note => /0\/3 planar freedoms; placement needs an additional reference/.test(note)));
 });
 
-test("cross beams use the nearby perpendicular end setback instead of the adjacent step's oblique reference", () => {
+test("cross beams use real straight or curved tread references for perpendicular end setbacks", () => {
   const model = buildStairway(24, 8, 2), planner = new PlacementPlanner(model);
   for (const step of [3, 4]) {
     const top = planner.plan(`stairway/module-1/step-${step}-supportCrossPiece`).views[0];
-    const setback = top.dimensions.find(d => d.purpose === "longitudinal");
+    const setback = top.dimensions.find(d => d.purpose === "longitudinal" &&
+      d.reference === `Tread template arc: Step ${step}`);
     assert.equal(top.planar.complete, true);
     assert.equal(top.dimensions.length, 3);
     assert.equal(setback.source, "template-setback");
     assert.equal(setback.perpendicular, true);
-    assert.ok(Math.abs(setback.value - 1) < 1e-4);
+    assert.ok(setback.value > 1 && setback.value < 1.1);
     assert.match(setback.reference, new RegExp(`Step ${step}$`));
-    assert.ok(setback.to[0] > setback.from[0], "Use the nearby right-hand edge, not a neighboring step.");
+    const radius = Math.hypot(setback.to[0], setback.to[2]);
+    assert.ok(Math.abs(radius - model.innerRadius) < 1e-8, "The reference is the actual inner arc, not a mesh chord.");
     assert.ok(Math.abs(setback.to[2] - setback.from[2]) < 1e-4);
     for (const axis of [0, 2]) {
       assert.ok(Math.abs(setback.from[axis] -
@@ -414,7 +411,7 @@ test("cross beams use the nearby perpendicular end setback instead of the adjace
   }
 });
 
-test("rear cross-beam parallel stations do not falsely replace a left-right setback", () => {
+test("rear cross-beam parallel stations retain an independent along-beam joint location", () => {
   const model = buildStairway(24, 8, 2);
   const plan = new PlacementPlanner(model).plan("stairway/module-1/step-4-rearSupportCrossPiece");
   const top = plan.views[0], bottom = plan.views[1];
@@ -423,15 +420,14 @@ test("rear cross-beam parallel stations do not falsely replace a left-right setb
   const edge = stations[0].selectedEdge;
   const slide = edge[1].map((value, i) => value - edge[0][i]);
   const span = Math.hypot(...slide);
-  const setback = top.dimensions.find(d => d.source === "template-setback");
+  const setback = top.dimensions.find(d => d.source === "contact-position");
   assert.ok(setback, "Parallel line stations cannot prevent sliding along the beam.");
   const measurement = setback.to.map((value, i) => value - setback.from[i]);
   assert.ok(Math.abs(measurement.reduce((sum, value, i) => sum + value * slide[i], 0)) /
     (Math.hypot(...measurement) * span) > 0.99,
   "Require an actual along-beam measurement, not just the planner's complete flag.");
-  assert.equal(setback.purpose, "longitudinal");
-  assert.equal(setback.perpendicular, true);
-  assert.ok(Math.abs(setback.value - 1) < 1e-4);
+  assert.match(setback.reference, /Rear panel/);
+  assert.ok(Math.abs(setback.value - Math.hypot(1, Math.tan(Math.PI / 32))) < 1e-4);
   assert.equal(top.planar.implicitRank, 2);
   assert.equal(top.planar.complete, true);
   for (const side of ["left", "right"]) {

@@ -2139,7 +2139,7 @@ test("Parts row titles show scoped steps and visible quantities out of the whole
   const module = controls.node("#parts-module"), list = controls.node("#parts-groups");
   module.value = "1";
   module.dispatch("change");
-  assert.ok(list.children.some(row => row.children[0].textContent === "Tread (steps 2-3) x 2 (of 8)"));
+  assert.ok(list.children.some(row => row.children[0].textContent === "Tread (step 3) x 1 (of 3)"));
   let single;
   for (const moduleNumber of [1, 2, 3]) {
     single = inventory.filter({ moduleNumber }).groups

@@ -111,7 +111,7 @@ test("matrix builds once, runs all six configurations and retains only failures 
   for (const file of await readdir(directory)) {
     const scene = await readFile(join(directory, file), "utf8");
     assert.match(scene, /stairWidth="24"/);
-    assert.doesNotMatch(scene, /id="stairway\/module-\d+\/siding"/);
+    assert.match(scene, /id="stairway\/module-\d+\/siding"/);
     assert.match(scene, /id="stairway\/module-1\/step-1-siding"/);
     assert.match(scene, /id="stairway\/module-1\/step-1-frontSiding"/);
   }
@@ -125,7 +125,7 @@ test("matrix fails explicitly on an unavailable Rust build", async context => {
     /cargo unavailable/);
 });
 
-test("installed curved and flat siding clears spindles and base rails across supported module layouts", async context => {
+test("installed curved treads and siding clear spindles and base rails across supported module layouts", async context => {
   const directory = await temporaryDirectory(context), file = join(directory, "siding-spindles.xml");
   const built = spawnSync("cargo", ["build", "--release", "--locked", "--quiet", "--manifest-path", manifest,
     "--target-dir", target], { encoding: "utf8", timeout: 120000 });
@@ -136,7 +136,7 @@ test("installed curved and flat siding clears spindles and base rails across sup
     const model = buildStairway(width, count, modules);
     const leaves = model.partTree.getLeaves(), selected = leaves.filter(node =>
       node.category === "siding" || ["frontSpindle", "rearSpindle"].includes(node.key) ||
-      node.category === "base-rails");
+      node.category === "base-rails" || node.key === "tread");
     assert.equal(selected.filter(node => node.component.bend).length, modules);
     assert.ok(selected.some(node => node.key === "frontSpindle"));
     assert.ok(selected.some(node => node.key === "rearSpindle"));
@@ -157,13 +157,14 @@ test("base rails, flat siding and raised blocks clear framing across supported l
   for (const width of [20, 24, 36]) for (const count of [4, 5, 6, 7, 8, 9]) for (const modules of [2, 3]) {
     if (count < modules * 2) continue;
     const model = buildStairway(width, count, modules), leaves = model.partTree.getLeaves();
-    const selected = leaves.filter(node => !node.component.bend);
+    const selected = count >= 7 ? leaves : leaves.filter(node => !node.component.bend);
     assert.equal(selected.filter(node => node.category === "base-rails").length, modules * 2);
     await writeFile(file, serializeScene(model, {
       excludePieceIds: leaves.filter(node => !selected.includes(node)).map(node => node.id),
     }));
     const result = spawnSync(executable, [file], { encoding: "utf8", timeout: 30000 });
     const report = `${width}/${count}/${modules}: ${result.stdout}\n${result.stderr}`;
+    if (count >= 7) assert.equal(result.status, 0, report);
     assert.ok([0, 1].includes(result.status), report);
     assert.match(result.stdout, /0 errors;/, report);
     const fitFailures = result.stdout.split("\n").filter(line => line.startsWith("INTERFERENCE:") &&

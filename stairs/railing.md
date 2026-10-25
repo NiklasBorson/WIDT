@@ -23,9 +23,11 @@ function does not automatically satisfy the other.
 ## Fit with the current stairs
 
 The stairs turn through 90 degrees, with concentric inner and outer reference
-curves. The inner tread edges are tangent to the fixed `INNER_RADIUS` cylinder;
-their corners use `cornerRadius = INNER_RADIUS / cos(pi / (4 * stepCount))`.
-The outer corner radius is `cornerRadius + stairWidth`. Modules contain
+curves. The inner tread edges follow the fixed `INNER_RADIUS` cylinder.
+The outer tread arcs and siding inner face use `INNER_RADIUS + stairWidth`;
+step 1 instead has a straight outer edge tangent at step 2's front.
+The treads are notched around the spindles, which retain their upright attachments.
+Modules contain
 consecutive steps, and their boundaries are radial planes. The design should
 follow actual module boundaries, not assume that every module contains three
 steps or that all sections have equal lengths.
@@ -240,8 +242,7 @@ transition to a landing need separate treatment.
 All sections must share this global definition. Do not independently fit a
 curve through each module's posts: small differences in height or tangent
 would become visible at the seams. Mounting brackets can accommodate the
-difference between a true circular rail and the stair's straight-sided tread
-edges.
+difference between a true circular rail and the posts' straight framing chords.
 
 Possible fabrication approaches are:
 

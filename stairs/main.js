@@ -232,7 +232,7 @@ try {
       moduleCount.max = String(Math.min(3, Math.floor(model.stepCount / 2)));
       moduleCount.value = String(model.moduleCount);
     }
-    const middleRadius = model.cornerRadius + model.stairWidth / 2;
+    const middleRadius = model.innerRadius + model.stairWidth / 2;
     const run = middleRadius * Math.PI / (2 * model.stepCount);
     setMeasurementText(document.querySelector("#dimensions"),
       `Step rise: ${formatLength(model.stepRise)} in / Step run at middle: ${formatLength(run)} in / ` +

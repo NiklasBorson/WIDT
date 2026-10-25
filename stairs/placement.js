@@ -27,7 +27,14 @@ function rotate(geometry, angle) {
     return result;
   };
   return { ...geometry, positions: transform(geometry.positions),
-    normals: transform(geometry.normals) };
+    normals: transform(geometry.normals),
+    ...(geometry.referenceEdges ? { referenceEdges: geometry.referenceEdges.map(datum => ({
+      ...datum, edge: datum.edge.map(([x, y, z]) => [c * x + s * z, y, -s * x + c * z]),
+    })) } : {}),
+    ...(geometry.referenceArcs ? { referenceArcs: geometry.referenceArcs.map(arc => ({
+      ...arc, center: [c * arc.center[0] + s * arc.center[2], arc.center[1],
+        -s * arc.center[0] + c * arc.center[2]], startAngle: arc.startAngle - angle,
+    })) } : {}) };
 }
 
 function triangles(geometry) {
@@ -252,6 +259,8 @@ function planOutline(mesh, faces = null) {
 }
 
 function templateEdges(geometry) {
+  // Arc tessellation vertices are not physical corners or straight-edge datums.
+  if (geometry.referenceEdges) return geometry.referenceEdges;
   const edges = new Map();
   for (const [index, [start, end]] of (geometry.treadRanges ?? []).entries()) {
     const mesh = triangles({ ...geometry, indices: geometry.indices.subarray(start, end) });
@@ -310,7 +319,7 @@ function edgeExtensions(edge, perimeter, datums, selectedEdges, selectedTop) {
   return extensions;
 }
 
-function templateSetbacks(selectedEdges, perimeter, datums, selectedTop) {
+function templateSetbacks(selectedEdges, perimeter, datums, selectedTop, arcs = []) {
   const candidates = selectedEdges.flatMap(edge =>
     edgeExtensions(edge, perimeter, datums, selectedEdges, selectedTop).map(candidate => ({
       ...candidate, kind: "offset", from: candidate.extension[0], to: candidate.extension[1],
@@ -336,6 +345,31 @@ function templateSetbacks(selectedEdges, perimeter, datums, selectedTop) {
       kind: "offset", source: "template-setback", perpendicular: true,
       label: "Perpendicular setback from part edge to template perimeter",
       reference: `Tread template perimeter: Step ${steps.join(" / ")}` });
+  }
+  for (const edge of selectedEdges) for (const arc of arcs) {
+    const from = average(edge), direction = unit(sub(edge[1], edge[0]));
+    const normal = [direction[2], 0, -direction[0]], delta = sub(from, arc.center);
+    const b = dot(delta, normal), discriminant = b ** 2 - dot(delta, delta) + arc.radius ** 2;
+    if (discriminant < 0) continue;
+    for (const gap of [-b - Math.sqrt(discriminant), -b + Math.sqrt(discriminant)]) {
+      const value = Math.abs(gap);
+      if (value <= EPS || value > MAX_GAP) continue;
+      const to = add(from, mul(normal, gap));
+      const theta = Math.atan2(to[2] - arc.center[2], to[0] - arc.center[0]);
+      const turn = Math.PI * 2, sign = Math.sign(arc.sweepRadians);
+      const progress = ((theta - arc.startAngle) * sign % turn + turn) % turn;
+      if (progress > Math.abs(arc.sweepRadians) + ANGULAR ||
+        !clearPlanExtension(from, to, selectedEdges, selectedTop) ||
+        perimeter.some(boundary => {
+          const hit = segmentIntersection([from, to], boundary);
+          return hit && hit.t > EPS / value && hit.t < 1 - (0.001 + EPS) / value;
+        })) continue;
+      const radial = unit(sub(to, arc.center)), tangent = [-radial[2], 0, radial[0]];
+      candidates.push({ from, to, value, datumEdge: [sub(to, tangent), add(to, tangent)],
+        selectedEdge: edge, kind: "offset", source: "template-setback", perpendicular: true,
+        label: "Perpendicular setback from part edge to tread arc",
+        reference: `Tread template arc: Step ${arc.steps.join(" / ")}` });
+    }
   }
   const crossing = candidate => length(cross(unit(sub(candidate.to, candidate.from)),
     unit(sub(candidate.datumEdge[1], candidate.datumEdge[0]))));
@@ -478,7 +512,7 @@ function planLocations(selectedMesh, selectedFaces, contexts, relationships, vie
           a.value - b.value || a.reference.localeCompare(b.reference));
       const fallback = groups.filter(candidate => candidate !== group)
         .flatMap(candidate => [...candidate.ordered, ...candidate.extensions]);
-      const setbacks = templateSetbacks(selectedEdges, perimeter, datums, selectedTop);
+      const setbacks = templateSetbacks(selectedEdges, perimeter, datums, selectedTop, template.referenceArcs);
       for (const candidate of [...setbacks, ...endLocations, ...fallback]) {
         const row = locationRow(candidate);
         if (rank([...rows, row], 3) <= rank(rows, 3)) continue;

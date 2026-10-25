@@ -159,7 +159,7 @@ export function profileContains(profile, point) {
   return winding !== 0;
 }
 
-function subtractProfile(profile, cutter) {
+export function subtractProfile(profile, cutter) {
   const boundaries = [profile.outline, ...profile.holes].flat();
   const pieces = [];
   const retained = point => profileContains(profile, point) &&

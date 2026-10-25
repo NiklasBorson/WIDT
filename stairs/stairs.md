@@ -23,11 +23,11 @@ Each top frame has a front cross-piece and a back step support. Above the
 lowest step it also has a right step support bridging the upright and the
 back support or rear upright. Non-module-last steps above step 1 have a matching
 left support. Step 1 omits both edge-on 1x4 side supports.
-Its flat front and rear supports extend to the tread's left edge,
+Its flat front and rear supports extend to the inner framing tangent,
 and a right 2x4 newel inner block extends toward step 2's upright.
 The riser is a separate piece.
-A half-inch tread sits on each top frame, flush with its side
-and back edges and extending forward to the front of the riser.
+A half-inch tread sits on each top frame, with concentric curved sides,
+a radial back edge, and a front edge flush with the front of the riser.
 Most framing is pine, including every front, rear, and combined upright.
 The support cross-pieces are also pine. Risers, treads, and siding are plywood,
 shown in a slightly lighter wood tone than the pine framing.
@@ -255,17 +255,15 @@ Handrails are not yet modeled.
 ### Newel and boxed first-step connection
 
 Step 1 carries an oak **Newel post** cut from actual `3.5 x 3.5 in` 4x4 stock.
-Its side faces follow the first tread's right edge, which continues step 2's
-right-edge line. Its right face is `2 in` outside that line, measured
+Its side faces follow the first tread's straight right edge, tangent to step 2's
+outer arc at the shared radial boundary. Its right face is `2 in` outside that line, measured
 perpendicular to it. The post is shifted forward along that edge until
 its front face passes through the front cross-piece's rear-right corner.
-In the default layout its uncut front-inner corner above the joint is
-approximately `1.3618 in` behind the tread front.
 The pine 2x6 cross-piece stays parallel to the tread front; its right end
 is flush with the tread's right-edge line, as is the flat rear step support.
 The cross-piece has a straight, unnotched back edge. Instead, the newel's
 front-inner corner has a stopped bevel flush with that back face, only
-between the cross-piece's bottom and top elevations. This is a `15 deg`
+between the cross-piece's bottom and top elevations. This is a `10 deg`
 bevel in the default nine-step layout; its angle follows the right-edge
 orientation when the step count changes. The post remains square above
 the joint, and below it wherever the cross-piece starts above the post bottom.
@@ -1785,14 +1783,11 @@ negative Y to positive Y, matching the normalized notch depth pair.
 The exact planes/profiles disambiguate mirrored and compound cuts.
 
 For example, the default lowest front step support reports 1x4 pine
-stock and its full 3.5-inch finished width. The default first tread's bounding
-blank is approximately 13.3304 by 25.0745 inches. Its stock length and veneer
-grain follow its right edge; the nonparallel left edge also needs an angled cut.
-Later treads retain parallel left and right sides, leaving those edges
-square and requiring only two miter cuts, at the front and back.
-The API retains full precision; these numbers are
-rounded here only for illustration. Combined meshes and Float32 vertex
-buffers are not the source of manufacturing dimensions.
+stock and its full 3.5-inch finished width. Tread cutting descriptions retain
+analytic concentric arcs, radial ends, and fitted post notches in an enclosing
+rectangular plywood blank. Their stock length and veneer grain follow the
+step's mid-angle tangent. Step 1 substitutes a straight tangent for the outer arc.
+Combined meshes and Float32 vertex buffers are not the source of manufacturing dimensions.
 
 These are descriptions of the modeled pieces, not a fabrication-ready cut
 schedule. Kerf, allowances, stock purchase lengths, sheet nesting, fastening
@@ -1885,13 +1880,12 @@ $$
 The total height from the floor to the castle top is exactly `77`. The castle
 is another stage prop, previously called the upper landing; it is not part
 of the modeled stairway.
-`INNER_RADIUS` is the required distance from the arc center to the nearest
-point of every tread: the midpoint of its straight left edge. Each left edge
-is tangent to the castle's reference cylinder, rather than a chord through it.
-For `n` steps, the builder derives the inner-corner radius
-`cornerRadius = INNER_RADIUS / Math.cos(Math.PI / (4 * n))`.
-The model exposes both `innerRadius` (fixed clearance) and `cornerRadius`
-(step-count-dependent geometry); `outerRadius` is `cornerRadius + stairWidth`.
+`INNER_RADIUS` is the radius of every tread's curved left edge and the castle's
+reference cylinder. The model exposes `innerRadius` and
+`outerRadius = INNER_RADIUS + stairWidth`. The latter is also the curved
+siding's inner-face radius. Straight left framing is placed on or outside
+the castle's tangent plane at each step's mid-angle; the tread outline and
+framing envelope are separate geometric datums.
 
 ## Stairway parameters
 
@@ -1951,8 +1945,8 @@ or `1,050 lb` counting only three supporting casters. The latter allows for one
 caster being unloaded on an uneven floor; it is not a separate manufacturer
 rating or a complete dynamic-load/stability assessment.
 
-For context, the current default wooden stairway is approximately `263 lb`,
-with the heaviest module approximately `106 lb`. These estimates include the
+For context, the current default wooden stairway is approximately `262 lb`,
+with the heaviest module approximately `105 lb`. These estimates include the
 support cross-pieces, attachment blocks, flat beams, siding, back panels,
 newel blocking, plywood base rails, and oak spindles, shims, and newel but exclude all caster hardware weight. The working planning allowance
 is up to `200 lb` for a finished module including cladding and banister, and
@@ -2159,21 +2153,16 @@ the right edge is the outside edge.
 
 ## Step footprints
 
-Each step has a straight-sided quadrilateral footprint. The inside and outside
-boundaries of the complete stairway are polylines, each containing exactly
-`stepCount` segments and `stepCount + 1` vertices.
+Each tread has concentric curved sides and radial front/back ends, with the
+step-1 outer-edge exception below. `Step.footprint` is instead a straight-sided
+quadrilateral used to fit framing; its inner side is a tangent plane rather
+than the tread's inner chord.
 
 Use equal angular spacing and a common nominal radial width. Let:
 
 $$
 n = \text{stepCount}, \qquad w = \text{stairWidth}, \qquad
 \Delta\theta = \frac{\pi}{2n}
-$$
-
-The radius used for the vertices is:
-
-$$
-R_c = \frac{R}{\cos(\Delta\theta/2)}
 $$
 
 For boundary index $j = 0,\ldots,n$:
@@ -2186,39 +2175,33 @@ Using horizontal coordinate pairs `(East, North)`, define the inside and
 outside vertices at each boundary:
 
 $$
-I_j = (R_c\cos\theta_j,\ R_c\sin\theta_j)
+I_j = (R\cos\theta_j,\ R\sin\theta_j)
 $$
 
 $$
-O_j = ((R_c+w)\cos\theta_j,\ (R_c+w)\sin\theta_j)
+O_j = ((R+w)\cos\theta_j,\ (R+w)\sin\theta_j)
 $$
 
-Step $i$ has the footprint $I_i,\ O_i,\ O_{i+1},\ I_{i+1}$. This vertex
-construction defines the intended shape as well as the edge lengths below.
+Step $i$ has radial front and back boundaries through these vertices, a curved
+inner side at $R$, and a curved outer side at $R+w$. The outer side meets the
+siding's inner face; the siding top meets the corresponding tread top, except
+at the existing spindle slots. Tread notches fit the actual spindle footprints.
 
-The inside vertices lie on the radius-$R_c$ circle; the outside vertices lie on
-the concentric circle of radius $R_c+w$. The straight inside edges are tangent
-to the radius-$R$ castle cylinder at their midpoints. Neither boundary uses
-curved board edges. Steps 2 onward have identical horizontal
-footprints, differing only in elevation and rotation.
+Step 1 substitutes the tangent to the outer circle at $O_1$ for its outer arc.
+Its front-right corner lies at radius $(R+w)/\cos(\Delta\theta)$ on the front
+radius. The default front width is approximately `24.9644 in` rather than `24 in`.
+Its inner edge remains curved, and its newel cutout remains exact.
 
-Step 1 is an exception: its front-right corner is moved outward along the
-unchanged front-edge line until its right edge lies on the line through
-$O_1$ and $O_2$. Its other three corners are unchanged. Thus its front, back,
-and left edge directions stay the same, while its right edge continues
-step 2's right edge. The first tread is wider at the front; with the default
-dimensions its front width is approximately `25.9636 in` instead of `24 in`.
-
-The hard `60.5` requirement applies to the reference circular arc. The tangent
-inside polyline has total length `2 * n * R * tan(pi / (4 * n))`, slightly
-greater than `60.5`; it is not rescaled to have that length.
+The combined inner tread arcs have length exactly `60.5`. Straight framing does
+not follow their inner chords: the left uprights' outer faces are constrained to
+the mid-angle tangent plane, whose distance from the castle center is $R$.
 
 ## Step component parameters
 
 A reusable step is described by:
 
 ```js
-new Step({ width, leftDepth, rightDepth, height, stepRise })
+new Step({ width, angle, height, stepRise })
 ```
 
 Every step uses the same nominal horizontal dimensions:
@@ -2228,38 +2211,32 @@ $$
 $$
 
 $$
-\text{leftDepth} = 2R_c\sin(\Delta\theta/2) = 2R\tan(\Delta\theta/2)
+\text{leftDepth} = 2R\sin(\Delta\theta/2)
 $$
 
 $$
-\text{rightDepth} = 2(R_c+w)\sin(\Delta\theta/2)
+\text{rightDepth} = 2(R+w)\sin(\Delta\theta/2)
 $$
 
-These depths are horizontal straight-line distances, not arc lengths or sloping
-distances. They describe the regular footprint before the first-step exception.
-
-The step component reconstructs the radial footprint using
-`sin(angle / 2) = (rightDepth - leftDepth) / (2 * width)`. This replaces the
-variable-width quadratic calculation and does not depend on the stairway's
-global radius constant.
-It also reconstructs `cornerRadius = leftDepth / (2 * sin(angle / 2))`
-for local component and neighboring-step transforms.
-The builder passes `extendRightEdge: true` only for step 1, rotating its
-outer-edge direction one step angle around the unchanged back-right corner
-and intersecting that line with the front edge before constructing any parts.
+These derived depths are chord lengths between the arc endpoints, not arc
+lengths, framing side lengths, or sloping distances. The component receives its
+angle explicitly and uses the fixed `INNER_RADIUS` for all placement transforms.
+The builder passes `extendRightEdge: true` only for step 1, intersecting the
+outer-circle tangent at its back-right corner with the front radius before
+constructing the framing and newel.
 `stepRise` is the vertical difference between adjacent step-top elevations;
 the stairway builder passes the same value to every step.
 
 ## Local coordinates and assembly
 
-Each step's local origin is its inside/front/bottom corner. For an unplaced
+Each step's local origin is its inner tread arc's front point at floor level. For an unplaced
 step, East points across the front edge toward the outside, North points toward
 the back, and Up is vertical. Coordinates remain in inches; no unit scaling is
 applied.
 
 To place step $i$:
 
-1. Translate its local geometry East by the model's computed `cornerRadius`.
+1. Translate its local geometry East by `INNER_RADIUS`.
 2. Rotate the translated geometry left about the world origin by
    $i\Delta\theta$.
 
@@ -2311,13 +2288,13 @@ All front, rear, and combined uprights use pine.
 
 | Board | Stock cross section | Placement |
 |---|---|---|
-| `leftUpright` | `1.5 x 3.5 in`, or the combined width from 2x6/2x8/2x10 | Vertical, with its outer face on the left step edge |
-| `rightUpright` | `UPRIGHT_THICKNESS` by `FRAME_WIDTH` | Vertical, with its outer face on the right step edge |
-| `leftRearUpright` | `UPRIGHT_THICKNESS` by `FRAME_WIDTH` | Module backs only when separate; full-width pine, along the left step edge at the rear radius |
-| `rightRearUpright` | `UPRIGHT_THICKNESS` by `FRAME_WIDTH` | Module backs only; full-width pine, along the right step edge at the rear radius |
+| `leftUpright` | `1.5 x 3.5 in`, or the combined width from 2x6/2x8/2x10 | Vertical, with its outer face on the castle tangent plane |
+| `rightUpright` | `UPRIGHT_THICKNESS` by `FRAME_WIDTH` | Vertical, with its outer face along the outer framing chord |
+| `leftRearUpright` | `UPRIGHT_THICKNESS` by `FRAME_WIDTH` | Module backs only when separate; full-width pine, along the castle tangent at the rear radius |
+| `rightRearUpright` | `UPRIGHT_THICKNESS` by `FRAME_WIDTH` | Module backs only; full-width pine, along the outer framing chord at the rear radius |
 
-The left upright's broad west face lies on the left step boundary; the right
-upright's broad east face lies on the right step boundary. Each upright's
+The left upright's broad west face lies on the mid-angle castle tangent; the right
+upright's broad east face lies on the outer framing chord. Each upright's
 width follows that boundary's direction. Every front upright has a continuous
 full-height bevel at the riser's back plane, local North
 `RISER_THICKNESS = 0.25`. There is no additional stopped riser-clearance notch.
@@ -2327,9 +2304,8 @@ slightly forward so its beveled uprights still fit 2x4 stock; adjoining
 side supports are refitted to their new rear planes. The uncut stock
 outline remains rectangular.
 
-Left uprights start at the beam tops, `SUPPORT_BEAM_BOTTOM_HEIGHT + SUPPORT_BEAM_THICKNESS`,
-or `6.5` inches above the floor. Right front and rear uprights start at
-`FLOOR_CLEARANCE`, or `1` inch, flush with the siding bottom. Their
+All uprights start at the beam tops, `SUPPORT_BEAM_BOTTOM_HEIGHT + SUPPORT_BEAM_THICKNESS`,
+or `6.5` inches above the floor. Their
 tops are at `height - TREAD_THICKNESS`, level with the tread's underside.
 Each upright's vertical length is therefore:
 
@@ -2474,15 +2450,23 @@ The preview is not yet a fabrication-ready joint or cut plan.
 ### Left and right step supports
 
 All steps except the lowest receive a pine 1x4, on edge, with a
-`0.75 x 3.5 in` cross-section. Its outside broad face lies on the step's
-straight right edge, and its top meets the tread underside. Its front end
+`0.75 x 3.5 in` cross-section. Its outside broad face follows the straight
+right framing line, and its top meets the tread underside. Where its rear lap
+extends beyond the rear radius, the right support and rear cross-piece end
+are inset just enough to keep their corners inside the siding's inner circle.
+Its front end
 extends three-quarters of an inch into the back of the right-front upright. An upper
 `endFar` upright notch removes that three-quarter-inch stock depth over the
 support's height, leaving a bearing seat beneath the support.
 
 For steps without rear uprights, the support reaches the back radial
 boundary plus the `RISER_THICKNESS` setback. A matching left support follows
-the shorter inside edge, with the same stock and front bearing seat.
+the inner framing tangent, with the same stock and front bearing seat.
+Its right face aligns with the left upright's right face, placing its outer
+face `0.75 in` away from the castle tangent. Its upright seats and rear half-lap
+are recomputed from that position. The left caster beam's inner face is
+independently constrained to be at least `INNER_RADIUS` from the castle center
+in the beam's mid-angle frame.
 A top-right (`endFar`) notch in the back step support and a
 bottom-back (`endNear`) notch in the right step support make a half-lap.
 The left support has the same bottom-back notch, paired with a top-left
@@ -2516,8 +2500,11 @@ top-frame members, including the right step support above the lowest
 step and matching left supports except at module backs, and covers the riser's top edge.
 Its front edge is at local North `0`, flush with the front radial boundary
 and the riser's front face.
-Its remaining edges follow the step's side boundaries and back radial boundary,
-except for step 1's through cutout around the newel.
+Its inner edge is an analytic arc at `INNER_RADIUS`; its outer edge follows
+the siding's inner radius, except for step 1's straight tangent. The back edge
+is radial. Through notches fit the newel and spindles without moving their
+framing attachments. Cutting drawings, stock meshes, and volume calculations
+share the same analytic outlines rather than deriving cuts from tessellation.
 
 ## Heights and risers
 
@@ -2585,12 +2572,10 @@ every configuration even if an earlier one fails. Passing XML files are deleted;
 failed/error cases remain in `.clash-results` for investigation. An optional
 results directory can be supplied with `npm run check:intersections -- DIRECTORY`.
 
-The matrix explicitly excludes `stairway/module-N/siding` for each module and
-logs those IDs. Only the enumerated curved panels are excluded because their
-small tread/framing overlaps are accepted; both flat step-1 siding pieces are
-still checked, as are all flat arc-cut base rails and attachment blocks.
-A clear result applies only to the checked pieces, not the whole
-assembly. The Rust tolerances are unchanged.
+The matrix includes every physical piece, including curved siding, treads,
+flat step-1 siding, base rails, and hardware. The curved-tread framing and post
+reliefs eliminate the former accepted siding overlaps. The Rust analysis inset
+remains `0.001 in` per part.
 
 To export and check one configuration:
 

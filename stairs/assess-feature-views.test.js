@@ -187,7 +187,7 @@ test("default model is exhaustively inventoried without invoking render-mesh gen
   for (const leaf of leaves) leaf.component.createGeometry = () => assert.fail("Render geometry must not be read.");
   const inventory = new PartInventory(model.partTree), actual = assessModel(model);
   assert.equal(actual.summary.occurrences, leaves.length);
-  assert.equal(actual.summary.woodenPatterns, 63);
+  assert.equal(actual.summary.woodenPatterns, 65);
   assert.equal(actual.summary.woodenOccurrences, 142);
   assert.equal(actual.summary.hardwareOccurrences, 12);
   assert.equal(actual.parts.length + actual.hardware.length, inventory.entries.length);
@@ -255,7 +255,7 @@ test("actual stopped newel bevel retains its finite outline and broad-face end-n
   const bevelPatch = newel.features.find(feature => feature.name === "Newel corner bevel");
   assert.ok(bevelPatch.geometry.points.length >= 3);
   const bevel = bevelPatch.measurements.find(measurement => measurement.property === "bevel");
-  close(bevel.valueDegrees, 15);
+  close(bevel.valueDegrees, 10);
   assert.equal(bevel.status, "standard");
   const dado = report.parts.flatMap(part => part.features).find(feature => feature.kind === "end-notch");
   const depth = dado.measurements.find(measurement => measurement.property === "depth");
