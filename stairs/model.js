@@ -1,4 +1,6 @@
-import { PartTree, describeBoard, rectangularBlank, prismaticBlank } from "./parts.js";
+import { PieceTree, createPieces, describeBoard, rectangularBlank, prismaticBlank } from "./parts.js";
+import { placementMatrix, composeTransforms, inverseTransform, transformGeometry } from "./part-design.js";
+import { outlineBounds, outlineArea, validateProfile, tessellateOutline, constructionProfile, bridgeProfile, subtractProfile } from "./plywood-outline.js";
 
 export const TOTAL_HEIGHT = 77;
 export const INNER_ARC_LENGTH = 60.5;
@@ -8,15 +10,29 @@ export const FRAME_WIDTH = 3.5;
 export const RISER_THICKNESS = 1 / 4;
 export const TREAD_THICKNESS = 1 / 2;
 export const SIDING_THICKNESS = 1 / 8;
-export const SIDING_CLEARANCE = 1 / 16;
+export const SIDING_CLEARANCE = 0;
+export const BASE_RAIL_THICKNESS = 3 / 4;
+export const BASE_RAIL_WIDTH = 6;
+export const PANEL_STIFFENER_THICKNESS = 1 / 2;
+export const PANEL_STIFFENER_WIDTH = 1;
 export const DEFAULT_SPINDLE_SHOULDER_ASCENT = 32;
 export const FLOOR_CLEARANCE = 1;
-export const CASTER_HEIGHT = 5;
+export const CASTER_HEIGHT = 4.25;
+export const SUPPORT_BEAM_BOTTOM_HEIGHT = CASTER_HEIGHT;
 export const SUPPORT_NOTCH_DEPTH = 1 / 2;
 export const UPRIGHT_THICKNESS = 1.5;
 export const SUPPORT_BEAM_THICKNESS = 1.5;
+export const BASE_RAIL_BOTTOM_HEIGHT = SUPPORT_BEAM_BOTTOM_HEIGHT + SUPPORT_BEAM_THICKNESS;
+export const BASE_RAIL_TOP_HEIGHT = BASE_RAIL_BOTTOM_HEIGHT + BASE_RAIL_THICKNESS;
+export const SIDING_RIB_THICKNESS = 1 / 2;
+export const SIDING_RIB_WIDTH = 4;
+export const SIDING_RIB_BLOCK_LENGTH = 3.5;
+export const SIDING_RIB_MAX_GAP = 48;
+export const PANEL_SUPPORT_BLOCK_LENGTH = 4;
+export const PANEL_SUPPORT_BLOCK_BOTTOM_HEIGHT = BASE_RAIL_BOTTOM_HEIGHT - FRAME_WIDTH;
+export const PANEL_STIFFENER_BOTTOM_HEIGHT = PANEL_SUPPORT_BLOCK_BOTTOM_HEIGHT - 2 * PANEL_STIFFENER_THICKNESS;
 export const CASTER_DIMENSIONS = Object.freeze({
-  height: CASTER_HEIGHT, wheelDiameter: 3.93, wheelWidth: 1.25, plateLength: 3.74, plateWidth: 2.48,
+  height: CASTER_HEIGHT, wheelDiameter: 3, wheelWidth: 1.25, plateLength: 3.62, plateWidth: 2.5,
 });
 
 const PINE_DENSITY_LB_PER_FT3 = 30;
@@ -32,23 +48,6 @@ const TWO_BY_FOUR_STOCK = { kind: "lumber", nominalSize: "2x4", thickness: UPRIG
 const TWO_BY_SIX_STOCK = { kind: "lumber", nominalSize: "2x6", thickness: UPRIGHT_THICKNESS, width: 5.5 };
 const TWO_BY_TWO_STOCK = { kind: "lumber", nominalSize: "2x2", thickness: 1.5, width: 1.5 };
 const FOUR_BY_FOUR_STOCK = { kind: "lumber", nominalSize: "4x4", thickness: 3.5, width: 3.5 };
-
-function estimateWoodWeightLb(boards) {
-  let weight = 0;
-  for (const board of boards) {
-    const { positions: p, indices } = board.createGeometry();
-    let volume = 0;
-    // Sum signed tetrahedra for the closed board meshes, in cubic inches.
-    for (let i = 0; i < indices.length; i += 3) {
-      const a = indices[i] * 3, b = indices[i + 1] * 3, c = indices[i + 2] * 3;
-      volume += p[a] * (p[b + 1] * p[c + 2] - p[b + 2] * p[c + 1])
-        + p[a + 1] * (p[b + 2] * p[c] - p[b] * p[c + 2])
-        + p[a + 2] * (p[b] * p[c + 1] - p[b + 1] * p[c]);
-    }
-    weight += Math.abs(volume / 6) / 1728 * board.material.density;
-  }
-  return weight;
-}
 
 function validateDimensions(component, dimensions) {
   for (const [name, value] of Object.entries(dimensions)) {
@@ -191,8 +190,18 @@ function placeStockGeometry(board, geometry) {
         sum + vector[axis] * (position[j] + minimum[j]), 0);
       geometry.normals[i + axis] = axes.reduce((sum, vector, j) => sum + vector[axis] * normal[j], 0);
     }
+
   }
   return geometry;
+}
+
+function footprintPlacement(board) {
+  const axes = board.getStockAxes(), start = board.footprint[board.lengthEdge ?? 0];
+  const blank = board.getBlankShape();
+  const minimum = axes.map((_, axis) => Math.min(...blank.vertices.map(point => point[axis])));
+  const origin = [start[0], board.bottomHeight, -start[1]].map((value, i) =>
+    value + axes.reduce((sum, axis, j) => sum + axis[i] * minimum[j], 0));
+  return placementMatrix(axes, origin);
 }
 
 export function combineGeometries(geometries) {
@@ -215,15 +224,28 @@ export function combineGeometries(geometries) {
   };
 }
 
+let castleGeometry;
+
+function createCastleGeometry() {
+  if (!castleGeometry) {
+    const footprint = tessellateOutline([{
+      type: "arc", center: [0, 0], radius: INNER_RADIUS, startAngle: 0, sweepRadians: Math.PI * 2,
+    }]);
+    castleGeometry = extrudeFootprint(footprint, 0, TOTAL_HEIGHT, [0.5, 0.5, 0.5],
+      { direction: [0, 1, 0], endFaces: [], solidColor: true });
+  }
+  return castleGeometry;
+}
+
 let casterGeometry;
 
 function createCasterGeometry() {
   const { wheelDiameter, wheelWidth, plateLength, plateWidth, height } = CASTER_DIMENSIONS;
   // Unspecified hardware dimensions are illustrative, not clearance measurements.
-  const radius = wheelDiameter / 2, tireDepth = 0.45, axleOffset = -0.55;
+  const radius = wheelDiameter / 2, tireDepth = 0.25, axleOffset = -0.55;
   const plateThickness = 0.12, swivelHeight = 0.30, forkThickness = 0.12;
-  const metal = [0.67, 0.70, 0.74], orange = [0.95, 0.25, 0.035];
-  const segments = 24, tubeSegments = 12;
+  const metal = [0.67, 0.70, 0.74], red = [0.8, 0.12, 0.08];
+  const segments = 24;
   const prism = (profile, low, high) => {
     const front = profile.map(([y, z]) => [low, y, z]);
     const back = profile.map(([y, z]) => [high, y, z]);
@@ -241,30 +263,31 @@ function createCasterGeometry() {
     ...prism([[plateBottom, -plateLength / 2], [height, -plateLength / 2],
       [height, plateLength / 2], [plateBottom, plateLength / 2]], -plateWidth / 2, plateWidth / 2),
     ...prism(circle(0.9), forkTop, plateBottom).map(face => face.map(([x, y, z]) => [-y, x, z])),
-    ...prism(circle(1.25, radius, axleOffset), -wheelWidth * 0.36, wheelWidth * 0.36),
+    ...prism(circle(radius - tireDepth, radius, axleOffset), -wheelWidth * 0.36, wheelWidth * 0.36),
     ...prism(circle(0.18, radius, axleOffset), -0.95, 0.95),
   ];
-  const forkProfile = [[radius - 0.25, axleOffset], [forkTop, -1], [forkTop, 0.55]];
+  const forkProfile = [[radius, axleOffset - 0.45], [forkTop, -1], [forkTop, 0.55],
+    [radius, axleOffset + 0.45], ...Array.from({ length: 7 }, (_, i) => {
+      const angle = (i + 1) * Math.PI / 8;
+      return [radius - 0.45 * Math.sin(angle), axleOffset + 0.45 * Math.cos(angle)];
+    })];
   for (const side of [-1, 1]) {
     const center = side * (wheelWidth / 2 + 0.15);
     metalFaces.push(...prism(forkProfile, center - forkThickness / 2, center + forkThickness / 2));
   }
+  const tireProfile = [[-wheelWidth / 2, radius], [wheelWidth / 2, radius],
+    [wheelWidth / 2, radius - tireDepth], [-wheelWidth / 2, radius - tireDepth]];
   const rings = Array.from({ length: segments }, (_, i) => {
     const angle = i * Math.PI * 2 / segments;
-    return Array.from({ length: tubeSegments }, (_, j) => {
-      const tubeAngle = j * Math.PI * 2 / tubeSegments;
-      const r = radius - tireDepth + tireDepth * Math.cos(tubeAngle);
-      return [wheelWidth / 2 * Math.sin(tubeAngle),
-        radius + r * Math.cos(angle), axleOffset + r * Math.sin(angle)];
-    });
+    return tireProfile.map(([x, r]) => [x, radius + r * Math.cos(angle), axleOffset + r * Math.sin(angle)]);
   });
   const tireFaces = rings.flatMap((ring, i) => ring.map((point, j) => {
-    const nextRing = rings[(i + 1) % segments], next = (j + 1) % tubeSegments;
+    const nextRing = rings[(i + 1) % segments], next = (j + 1) % ring.length;
     return [point, nextRing[j], nextRing[next], ring[next]];
   }));
   const solid = { direction: [1, 0, 0], endFaces: [], solidColor: true };
   return combineGeometries([
-    geometryFromFaces(metalFaces, metal, solid), geometryFromFaces(tireFaces, orange, solid),
+    geometryFromFaces(metalFaces, metal, solid), geometryFromFaces(tireFaces, red, solid),
   ]);
 }
 
@@ -282,16 +305,17 @@ export class Caster {
     const { height, wheelDiameter, wheelWidth, plateLength, plateWidth } = CASTER_DIMENSIONS;
     return {
       kind: "hardware",
-      productKey: "castrek-locking-swivel-4in-b0c2q7ny31",
+      productKey: "cwfutureparts-swivel-3in-b0gm477q4m",
       category: "Casters",
-      productName: "Castrek 4-inch locking swivel caster",
-      productUrl: "https://www.amazon.com/dp/B0C2Q7NY31",
-      summary: "Orange-wheel, plate-mounted swivel caster with a locking brake.",
+      productName: "CWfutureparts 3-inch swivel caster",
+      productUrl: "https://www.amazon.com/dp/B0GM477Q4M",
+      summary: "Red flat-tread polyurethane-on-cast-iron, plate-mounted swivel caster; the four-caster set includes two brakes.",
       specifications: [
         `Modeled installed height: ${height} in. Wheel diameter: ${wheelDiameter} in. Tread width: ${wheelWidth} in.`,
-        `Mounting plate: ${plateLength} x ${plateWidth} in. Bolt-hole center spacing: 2.95 x 1.77 in.`,
+        `Mounting plate: ${plateLength} x ${plateWidth} in. Bolt-hole center spacing: 2.75 x 1.75 in. Slots: 0.44 x 0.33 in.`,
+        "Advertised capacity: 350 lb per caster; 1,400 lb per four-caster set.",
       ],
-      note: `Installed height is rounded to ${height} inches for planning; the reference size guide gives 5.11 inches. Other dimensions follow the size guide. The 3D model is approximate; bolt holes and brake details are omitted.`,
+      note: `Installed height is rounded to ${height} inches for planning; the reference size guide gives 4.3 inches. Each mounting plate sits directly beneath a flat 2x4 caster beam, with the 3/4-inch plywood base rail on top of the beam. Other dimensions follow the size guide. The 3D model is approximate; bolt holes and brake details are omitted.`,
     };
   }
 
@@ -309,6 +333,13 @@ export class Caster {
       colors: mesh.colors.slice(), grain: mesh.grain.slice(), indices: mesh.indices.slice(),
     };
   }
+
+  getPlacement() {
+    const c = Math.cos(this.heading), s = Math.sin(this.heading);
+    return placementMatrix([[c, 0, -s], [0, 1, 0], [s, 0, c]], [this.east, 0, -this.north]);
+  }
+
+  createDesign() { return { geometry: casterGeometry ??= createCasterGeometry() }; }
 }
 
 export class Board {
@@ -339,6 +370,15 @@ export class Board {
 
   getStockAxes() { return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]; }
 
+  getPlacement() {
+    return placementMatrix(this.getStockAxes(), [-this.length / 2, -this.thickness / 2, -this.width / 2]);
+  }
+
+  createDesign() {
+    return { flatGeometry: this.createStockGeometry(), material: this.material,
+      volume: this.getMaterialVolume?.() };
+  }
+
   createStockGeometry() {
     const geometry = this.createGeometry();
     const offset = [this.length / 2, this.thickness / 2, this.width / 2];
@@ -367,7 +407,7 @@ export class OneByFour extends Board {
   get label() { return "1x4"; }
 }
 
-function triangulateProfile(points) {
+function triangulateProfile(points, bridged = false) {
   const cross = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) -
     (b[1] - a[1]) * (c[0] - a[0]);
   const remaining = points.map((_, i) => i).filter(i => {
@@ -381,6 +421,7 @@ function triangulateProfile(points) {
       const a = points[previous], b = points[index], c = points[next];
       return cross(a, b, c) > 1e-10 && !remaining.some(other =>
         other !== previous && other !== index && other !== next &&
+        (!bridged || ![a, b, c].some(point => Math.hypot(point[0] - points[other][0], point[1] - points[other][1]) < 1e-10)) &&
         cross(a, b, points[other]) >= -1e-10 &&
         cross(b, c, points[other]) >= -1e-10 &&
         cross(c, a, points[other]) >= -1e-10);
@@ -391,6 +432,37 @@ function triangulateProfile(points) {
     remaining.splice(ear, 1);
   }
   triangles.push(remaining);
+  if (bridged) {
+    // Delaunay flips remove thin internal ears without changing any cut boundary.
+    const canonical = points.map(point => points.findIndex(other =>
+      Math.hypot(point[0] - other[0], point[1] - other[1]) < 1e-10));
+    for (;;) {
+      const edges = new Map();
+      let flipped = false;
+      for (const [index, triangle] of triangles.entries()) {
+        for (let i = 0; i < 3; i++) {
+          const [a, b, c] = [triangle[i], triangle[(i + 1) % 3], triangle[(i + 2) % 3]];
+          const key = [canonical[a], canonical[b]].sort((x, y) => x - y).join(",");
+          const other = edges.get(key);
+          if (!other) { edges.set(key, { index, c }); continue; }
+          const d = other.c;
+          if (cross(points[c], points[a], points[d]) <= 1e-10 ||
+            cross(points[c], points[d], points[b]) <= 1e-10) continue;
+          const [u, v, w] = [a, b, c].map(vertex => points[vertex].map((value, axis) => value - points[d][axis]));
+          const determinant = (u[0] ** 2 + u[1] ** 2) * (v[0] * w[1] - v[1] * w[0]) -
+            (v[0] ** 2 + v[1] ** 2) * (u[0] * w[1] - u[1] * w[0]) +
+            (w[0] ** 2 + w[1] ** 2) * (u[0] * v[1] - u[1] * v[0]);
+          if (determinant <= 1e-8) continue;
+          triangles[index] = [c, a, d];
+          triangles[other.index] = [c, d, b];
+          flipped = true;
+          break;
+        }
+        if (flipped) break;
+      }
+      if (!flipped) break;
+    }
+  }
   return triangles;
 }
 
@@ -580,6 +652,11 @@ export class NotchedBoard extends Board {
     return { ...geometry, positions: geometry.positions.map((value, i) => value + offset[i % 3]) };
   }
 
+  getPlacement() {
+    return placementMatrix(this.getStockAxes(), [-this.length / 2, -this.thickness / 2,
+      Math.min(...this.widthBounds.map(bounds => bounds[0]))]);
+  }
+
   createGeometry() {
     if (this.dados.length > 0 || this.rebates.length > 0) return this.createCutGeometry();
     if (Object.keys(this.notches).length === 0 &&
@@ -708,6 +785,8 @@ class FrameBoard extends Board {
 
   getStockAxes() { return footprintStockAxes(this, false); }
 
+  getPlacement() { return footprintPlacement(this); }
+
   createStockGeometry() { return stockAlignedGeometry(this); }
 
   notchTop(corner, boundary, height) {
@@ -782,19 +861,30 @@ function createSupportBeams(steps, firstModule) {
     return [["leftBoundary", { footprint: [step.footprint[0], step.footprint[3]] }],
       ["rightBoundary", { footprint: [step.footprint[1], step.footprint[2]] }],
       ...[["leftFrontSupport", step.parts.topFrame.boards.frontStepLeftSupport],
-        ["rightFrontSupport", step.parts.topFrame.boards.frontStepRightSupport]].filter(([, board]) => board)]
-      .map(([name, board]) => ({
-      name, footprint: board.footprint.map(([east, north]) =>
-        [c * (east + INNER_RADIUS) - s * north, s * (east + INNER_RADIUS) + c * north]),
-    }));
+        ["rightFrontSupport", step.parts.topFrame.boards.frontStepRightSupport],
+        ["rightUpright", step.parts.uprights.boards.rightUpright],
+        ["rightUpright", step.parts.uprights.boards.rightRearUpright]].filter(([, board]) => board)]
+      .map(([name, board]) => {
+        let footprint = board.footprint;
+        if (name === "rightUpright") {
+          const [inner, outer] = footprint;
+          const length = Math.hypot(outer[0] - inner[0], outer[1] - inner[1]);
+          const outward = outer.map((value, axis) => (value - inner[axis]) / length);
+          // The bottom-open notch removes the inward half inch throughout the beam's height.
+          footprint = clipFootprint(finishedFootprint(board), outward,
+            inner[0] * outward[0] + inner[1] * outward[1] + SUPPORT_NOTCH_DEPTH);
+        }
+        return { name, footprint: footprint.map(([east, north]) =>
+          [c * (east + INNER_RADIUS) - s * north, s * (east + INNER_RADIUS) + c * north]) };
+      });
   });
-  const left = Math.max(...obstacles.filter(board => board.name.startsWith("left"))
+  const left = Math.max(INNER_RADIUS, ...obstacles.filter(board => board.name.startsWith("left"))
     .flatMap(board => board.footprint.map(point => point[0])));
   // The outer end corners sit farther from the radii than the inner corners.
   const rightInset = frontSetback + width * sine;
-  const right = Math.min(...obstacles.filter(board => board.name.startsWith("right")).flatMap(board =>
-    clipFootprint(clipFootprint(board.footprint, [sine, cosine], rightInset), [sine, -cosine], width * sine)
-      .map(point => point[0])));
+  const right = Math.min(...obstacles.filter(board => board.name.startsWith("right") && board.name !== "rightUpright")
+    .flatMap(board => clipFootprint(clipFootprint(board.footprint, [sine, cosine], rightInset),
+      [sine, -cosine], width * sine).map(point => point[0])));
   const beam = (name, across) => {
     const end = across * sine / cosine;
     const front = (frontSetback - across * sine) / cosine;
@@ -810,18 +900,21 @@ function createSupportBeams(steps, firstModule) {
     const board = new FlatFrameBoard(footprint, {
       thickness: SUPPORT_BEAM_THICKNESS, width, length, material: PINE,
       stock: { kind: "lumber", nominalSize: "2x4", thickness: SUPPORT_BEAM_THICKNESS, width },
-    }, CASTER_HEIGHT);
+    }, SUPPORT_BEAM_BOTTOM_HEIGHT);
     board.name = name;
     return board;
   };
   const frame = firstModule ? newelPlanFrame(steps[0].parts.newel) : null;
   const innerCorner = firstModule ? pointAtNorth(frame.place([-TWO_BY_FOUR_STOCK.thickness, 0]),
     frame.place([-TWO_BY_FOUR_STOCK.thickness, 1]), RISER_THICKNESS + TWO_BY_FOUR_STOCK.thickness) : null;
+  const rightAcross = firstModule
+    ? (innerCorner[0] + INNER_RADIUS) * cosine + innerCorner[1] * sine - width
+    : right - width - 3 / 4;
+  const uprightLimit = Math.min(...obstacles.filter(board => board.name === "rightUpright")
+    .flatMap(board => board.footprint.map(point => point[0])));
   const boards = {
     leftSupportBeam: beam("Beam - caster left", left),
-    rightSupportBeam: beam("Beam - caster right", firstModule
-      ? (innerCorner[0] + INNER_RADIUS) * cosine + innerCorner[1] * sine - width
-      : right - width - 3 / 4),
+    rightSupportBeam: beam("Beam - caster right", Math.min(rightAcross, uprightLimit - width)),
   };
   return boards;
 }
@@ -941,6 +1034,8 @@ class FlatFrameBoard extends Board {
 
   getStockAxes() { return footprintStockAxes(this, true); }
 
+  getPlacement() { return footprintPlacement(this); }
+
   createStockGeometry() { return stockAlignedGeometry(this); }
 
   createGeometry() {
@@ -1036,9 +1131,9 @@ class UprightCrossPiece extends FlatFrameBoard {
 }
 
 class SupportCrossPiece extends UprightCrossPiece {
-  constructor(step, beam) {
+  constructor(step) {
     const { leftUpright, rightUpright, leftRearUpright } = step.parts.uprights.boards;
-    const bottomHeight = beam.bottomHeight + beam.thickness;
+    const bottomHeight = BASE_RAIL_TOP_HEIGHT;
     const frontFrame = step.parts.topFrame.boards.southCrossPiece;
     const interferes = bottomHeight < frontFrame.bottomHeight + frontFrame.width - 1e-8 &&
       bottomHeight + TWO_BY_FOUR_STOCK.thickness > frontFrame.bottomHeight + 1e-8;
@@ -1076,13 +1171,16 @@ class SupportCrossPiece extends UprightCrossPiece {
   }
 }
 
-function addModuleCasters(steps, beams) {
+function addModuleCasters({ steps, boards: beams }) {
   const rearAngle = (steps.length - 1) * steps[0].angle;
   const cosine = Math.cos(rearAngle), sine = Math.sin(rearAngle);
-  const inset = CASTER_DIMENSIONS.plateLength / 2 + 0.125;
+  const clearance = 0.125;
+  const { plateLength, plateWidth } = CASTER_DIMENSIONS;
+  const plateDiagonal = Math.hypot(plateLength, plateWidth);
+  const dot = (a, b) => a.reduce((sum, value, i) => sum + value * b[i], 0);
   for (const side of ["left", "right"]) {
     const beam = beams[`${side}SupportBeam`], footprint = beam.footprint;
-    if (beam.width < CASTER_DIMENSIONS.plateWidth || beam.length < inset * 4) {
+    if (beam.width < plateWidth + 2 * clearance) {
       throw new RangeError("Caster plates do not fit beneath their support beam.");
     }
     const front = footprint[0].map((value, axis) => (value + footprint[3][axis]) / 2);
@@ -1090,26 +1188,76 @@ function addModuleCasters(steps, beams) {
     const sideLength = Math.hypot(...footprint[1].map((value, axis) => value - footprint[0][axis]));
     const along = footprint[1].map((value, axis) => (value - footprint[0][axis]) / sideLength);
     const heading = Math.atan2(-along[0], along[1]);
-    const frontInset = (beam.casterFrontBoundary === undefined ? inset
-      : CASTER_DIMENSIONS.plateLength / 2 +
-        (beam.casterFrontBoundary + 0.125 - front[1] +
-          Math.abs(along[0]) * CASTER_DIMENSIONS.plateWidth / 2) / along[1]) +
-      (beam.casterFrontSetback ?? 0);
-    const available = back.reduce((sum, value, axis) => sum + (value - front[axis]) * along[axis], 0);
-    if (frontInset + inset + CASTER_DIMENSIONS.plateLength > available) {
+    const available = dot(back.map((value, i) => value - front[i]), along);
+    const range = () => {
+      let lower = 0, upper = available;
+      const limit = (normal, offset) => {
+        const slope = dot(normal, along), distance = offset - dot(normal, front);
+        if (Math.abs(slope) < 1e-8) {
+          if (distance > 1e-8) throw new RangeError("Caster placement constraints do not meet the beam centerline.");
+        } else if (slope > 0) lower = Math.max(lower, distance / slope);
+        else upper = Math.min(upper, distance / slope);
+      };
+      for (const i of [1, 3]) {
+        const start = footprint[i], end = footprint[(i + 1) % footprint.length];
+        const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
+        const normal = [(start[1] - end[1]) / length, (end[0] - start[0]) / length];
+        limit(normal, dot(normal, start) + plateDiagonal / 2 + clearance);
+      }
+      if (!Number.isFinite(lower) || !Number.isFinite(upper) || lower > upper) {
+        throw new RangeError(`Caster plates do not fit beneath the ${side} support beam.`);
+      }
+      return [lower, upper];
+    };
+    const [frontLimit, rearDistance] = range();
+    const frontDistance = frontLimit + (beam.casterFrontSetback ?? 0);
+    if (rearDistance - frontDistance < plateDiagonal + clearance) {
       throw new RangeError("Caster plates do not fit between the support beam's end clearances.");
     }
-    steps[0].parts.bottomFrame.hardware[`${side}Caster`] = new Caster(
-      front[0] + along[0] * frontInset, front[1] + along[1] * frontInset, heading);
-    const rear = back.map((value, axis) => value - along[axis] * inset);
+    const [frontEast, frontNorth] = front.map((value, i) => value + along[i] * frontDistance);
+    steps[0].parts.bottomFrame.hardware[`${side}Caster`] = new Caster(frontEast, frontNorth, heading);
+    const [rearEast, rearNorth] = front.map((value, i) => value + along[i] * rearDistance);
     steps.at(-1).parts.bottomFrame.hardware[`${side}RearCaster`] = new Caster(
-      cosine * (rear[0] + INNER_RADIUS) + sine * rear[1] - INNER_RADIUS,
-      -sine * (rear[0] + INNER_RADIUS) + cosine * rear[1], heading + Math.PI - rearAngle);
+      cosine * (rearEast + INNER_RADIUS) + sine * rearNorth - INNER_RADIUS,
+      -sine * (rearEast + INNER_RADIUS) + cosine * rearNorth, heading + Math.PI - rearAngle);
   }
 }
 
-function addSupportCrossPiece(step, beams) {
-  const crossPiece = new SupportCrossPiece(step, beams.leftSupportBeam);
+function addPanelSupportBlocks(module) {
+  const radius = moduleSidingRadius(module), halfLength = PANEL_SUPPORT_BLOCK_LENGTH / 2;
+  const across = Math.sqrt(radius ** 2 - halfLength ** 2);
+  const halfAngle = Math.atan2(halfLength, across - TWO_BY_FOUR_STOCK.thickness);
+  for (const rear of [false, true]) {
+    if (!rear && module.startIndex === 0) continue;
+    const step = rear ? module.steps.at(-1) : module.steps[0];
+    const caster = step.parts.bottomFrame.hardware[rear ? "rightRearCaster" : "rightCaster"];
+    const rotation = rear ? (module.steps.length - 1) * step.angle : 0;
+    const c = Math.cos(rotation), s = Math.sin(rotation);
+    const center = [c * (caster.east + INNER_RADIUS) - s * caster.north,
+      s * (caster.east + INNER_RADIUS) + c * caster.north];
+    const casterRadius = Math.hypot(CASTER_DIMENSIONS.plateLength, CASTER_DIMENSIONS.plateWidth) / 2;
+    const casterHalfAngle = Math.asin(casterRadius / Math.hypot(...center));
+    const angle = Math.atan2(center[1], center[0]) + (rear ? -1 : 1) * (casterHalfAngle + halfAngle);
+    const radial = [Math.cos(angle), Math.sin(angle)], tangent = [-radial[1], radial[0]];
+    const point = (distance, along) => [
+      radial[0] * distance + tangent[0] * along - INNER_RADIUS,
+      radial[1] * distance + tangent[1] * along,
+    ];
+    const footprint = [
+      point(across - TWO_BY_FOUR_STOCK.thickness, -halfLength), point(across, -halfLength),
+      point(across, halfLength), point(across - TWO_BY_FOUR_STOCK.thickness, halfLength),
+    ];
+    const block = new FrameBoard(footprint, {
+      length: PANEL_SUPPORT_BLOCK_LENGTH, width: TWO_BY_FOUR_STOCK.width,
+      thickness: TWO_BY_FOUR_STOCK.thickness, stock: TWO_BY_FOUR_STOCK,
+    }, PANEL_SUPPORT_BLOCK_BOTTOM_HEIGHT, 1);
+    block.name = `Panel support block - ${rear ? "rear" : "front"}`;
+    module.boards[rear ? "rearPanelSupportBlock" : "frontPanelSupportBlock"] = block;
+  }
+}
+
+function addSupportCrossPiece(step) {
+  const crossPiece = new SupportCrossPiece(step);
   validateFootprints(crossPiece.name, [crossPiece.footprint], step.footprint);
   const crossTop = crossPiece.bottomHeight + crossPiece.thickness;
   for (const side of ["left", "right"]) {
@@ -1127,11 +1275,10 @@ function addSupportCrossPiece(step, beams) {
   step.parts.bottomFrame.boards.supportCrossPiece = crossPiece;
 }
 
-function addRearSupportCrossPiece(step, beams) {
+function addRearSupportCrossPiece(step) {
   const { leftRearUpright, rightRearUpright, leftUpright } = step.parts.uprights.boards;
   const crossPiece = new UprightCrossPiece(leftRearUpright ?? leftUpright, rightRearUpright,
-    [step.footprint[3], step.footprint[2]], beams.leftSupportBeam.bottomHeight +
-      beams.leftSupportBeam.thickness, true);
+    [step.footprint[3], step.footprint[2]], BASE_RAIL_TOP_HEIGHT, true);
   crossPiece.name = "Beam - cross rear";
   const front = step.parts.bottomFrame.boards.supportCrossPiece;
   const [start, end] = [front.footprint[3], front.footprint[2]];
@@ -1154,16 +1301,17 @@ function addRearSupportCrossPiece(step, beams) {
   step.parts.bottomFrame.boards.rearSupportCrossPiece = crossPiece;
 }
 
-function addSupportBlocks(step, moduleFront = false) {
+function addSupportBlocks(step, moduleFront = false, previous = null) {
   const crossPiece = step.parts.bottomFrame.boards.supportCrossPiece;
   if (!crossPiece) return;
-  const bottomHeight = crossPiece.bottomHeight + crossPiece.thickness;
+  const crossTop = crossPiece.bottomHeight + crossPiece.thickness;
   const frontFrame = step.parts.topFrame.boards.southCrossPiece;
   const rearNormal = [Math.sin(step.angle), -Math.cos(step.angle)];
   const rearOffset = step.footprint[3].reduce((sum, value, axis) => sum + value * rearNormal[axis], 0);
   const stock = { kind: "lumber", nominalSize: "2x4", thickness: 1.5, width: FRAME_WIDTH };
   for (const side of ["left", "right"]) {
     const left = side === "left", upright = step.parts.uprights.boards[`${side}Upright`];
+    const bottomHeight = crossTop;
     const moduleBack = Boolean(step.parts.bottomFrame.boards.rearSupportCrossPiece);
     const frontLimit = moduleBack || (step.parts.riser.bottomHeight < bottomHeight + FRAME_WIDTH &&
       Math.min(...finishedFootprint(upright).map(point => point[1])) >= RISER_THICKNESS - 1e-8)
@@ -1205,6 +1353,18 @@ function addSupportBlocks(step, moduleFront = false) {
       block.notchTop("startFar", [step.parts.riser.footprint[3], step.parts.riser.footprint[2]],
         step.parts.riser.bottomHeight);
     }
+    const previousFrame = previous?.parts.topFrame.boards.northCrossPiece;
+    if (previousFrame && previousFrame.bottomHeight < bottomHeight + block.width &&
+      previousFrame.bottomHeight + previousFrame.width > bottomHeight) {
+      const c = Math.cos(step.angle), s = Math.sin(step.angle);
+      const footprint = previousFrame.footprint.map(([east, north]) => [
+        c * (east + INNER_RADIUS) + s * north - INNER_RADIUS,
+        -s * (east + INNER_RADIUS) + c * north,
+      ]);
+      if (footprintsOverlap(block.footprint, footprint)) {
+        block.notchTop("startFar", [footprint[3], footprint[2]], previousFrame.bottomHeight);
+      }
+    }
     validateFootprints(block.name, [block.footprint], step.footprint);
     step.parts.bottomFrame.boards[`${side}SupportBlock`] = block;
   }
@@ -1212,42 +1372,39 @@ function addSupportBlocks(step, moduleFront = false) {
 
 function addBackSupportBlocks(step, previous) {
   const back = previous.parts.topFrame.boards.northCrossPiece;
-  const length = 6, center = back.bottomHeight + back.width / 2;
-  const preferredBottom = center - length / 2;
-  const obstacles = Object.values(step.parts).flatMap(part => Object.values(part.boards ?? { sheet: part }));
+  const length = 6, bottomHeight = back.bottomHeight;
   for (const side of ["left", "right"]) {
     const left = side === "left", upright = step.parts.uprights.boards[`${side}Upright`];
     const [front, rear] = (left ? [1, 2] : [0, 3]).map(index => upright.footprint[index]);
     const block = new UprightBoard(front, rear, left ? 1 : -1,
-      preferredBottom + length + TREAD_THICKNESS, {
-        bottomHeight: preferredBottom,
+      bottomHeight + length + TREAD_THICKNESS, {
+        bottomHeight,
         frontSetback: RISER_THICKNESS, frontBevel: true,
       });
     block.name = `Attachment block - rear support ${left ? "left" : "right"}`;
     const footprint = finishedFootprint(block);
-    const occupied = obstacles.filter(board => footprintsOverlap(footprint, finishedFootprint(board)))
-      .map(board => {
-        const { positions } = board.createGeometry();
-        let bottom = Infinity, top = -Infinity;
-        for (let i = 1; i < positions.length; i += 3) {
-          bottom = Math.min(bottom, positions[i]);
-          top = Math.max(top, positions[i]);
-        }
-        return [bottom, top];
-      });
-    const maximum = step.parts.tread.bottomHeight - length;
-    const candidates = [preferredBottom, FLOOR_CLEARANCE, maximum,
-      ...occupied.flatMap(([bottom, top]) => [bottom - length, top])]
-      .filter(bottom => bottom >= FLOOR_CLEARANCE - 1e-8 && bottom <= maximum + 1e-8)
-      .sort((a, b) => Math.abs(a - preferredBottom) - Math.abs(b - preferredBottom) || b - a);
-    const bottom = candidates.find(value => occupied.every(([low, high]) =>
-      value + length <= low + 1e-8 || value >= high - 1e-8));
-    if (bottom === undefined) {
-      throw new RangeError(`${block.name} has no unobstructed six-inch vertical position.`);
-    }
-    block.bottomHeight = bottom;
     validateFootprints(block.name, [footprint], step.footprint);
     step.parts.topFrame.boards[`${side}BackSupportBlock`] = block;
+  }
+}
+
+function addPanelRibSupportBlocks(step, bottomHeight, intermediate = false) {
+  for (const [uprightKey, position] of [
+    ["rightUpright", "front"], ["rightRearUpright", "rear"],
+  ]) {
+    const upright = step.parts.uprights.boards[uprightKey];
+    if (!upright) continue;
+    const [front, rear] = [upright.footprint[0], upright.footprint[3]];
+    const block = new UprightBoard(front, rear, -1,
+      bottomHeight + SIDING_RIB_BLOCK_LENGTH + TREAD_THICKNESS, {
+        bottomHeight,
+        frontSetback: RISER_THICKNESS,
+        frontBevel: position === "front",
+        rearBoundary: position === "rear" ? [step.footprint[3], step.footprint[2]] : null,
+      });
+    block.name = `Attachment block - panel rib ${position}`;
+    validateFootprints(block.name, [finishedFootprint(block)], step.footprint);
+    step.parts.topFrame.boards[`${position}${intermediate ? "Intermediate" : ""}RibSupportBlock`] = block;
   }
 }
 
@@ -1348,7 +1505,7 @@ function addNewelFraming(first, second, beams) {
   const front = RISER_THICKNESS + TWO_BY_FOUR_STOCK.thickness;
   const boards = first.parts.topFrame.boards;
   delete boards.frontStepRightSupport;
-  notchAroundNewel(first.parts.tread, newel);
+  first.parts.tread.notchForPost(newel);
   if (boards.frontStepSupport) notchAroundNewel(boards.frontStepSupport, newel);
 
   const inner = -TWO_BY_FOUR_STOCK.thickness;
@@ -1364,11 +1521,14 @@ function addNewelFraming(first, second, beams) {
     thickness: TWO_BY_FOUR_STOCK.thickness, width: FRAME_WIDTH,
     length: blockBack - Math.min(...blockFront.map(point => project(point)[1])),
     stock: TWO_BY_FOUR_STOCK,
-  }, CASTER_HEIGHT + SUPPORT_BEAM_THICKNESS - FRAME_WIDTH, 1);
+  }, BASE_RAIL_BOTTOM_HEIGHT - FRAME_WIDTH, 1);
   cheek.name = "Newel block - inner";
   boards.newelInnerBlock = cheek;
 
-  const backLength = blockBack - newel.width;
+  const rearObstruction = clipFootprint(clipFootprint(upright, [1, 0], 0),
+    [-1, 0], -TWO_BY_FOUR_STOCK.thickness);
+  const rearBack = Math.min(blockBack, ...rearObstruction.map(point => point[1]));
+  const backLength = rearBack - newel.width;
   const rearBlock = new FrameBoard([
     [0, newel.width], [TWO_BY_FOUR_STOCK.thickness, newel.width],
     [TWO_BY_FOUR_STOCK.thickness, newel.width + backLength], [0, newel.width + backLength],
@@ -1382,7 +1542,6 @@ function addNewelFraming(first, second, beams) {
       beam.footprint[1], beam.footprint[2], pointAtNorth(beam.footprint[3], beam.footprint[2], front)];
     beam.length = Math.max(...[[0, 1], [3, 2]].map(([start, end]) =>
       Math.hypot(...beam.footprint[end].map((value, axis) => value - beam.footprint[start][axis]))));
-    beam.casterFrontBoundary = front;
   }
   beams.rightSupportBeam.casterFrontSetback = 1;
 
@@ -1402,7 +1561,7 @@ function addNewelFraming(first, second, beams) {
 export class Uprights {
   constructor(footprint, bottomFrame, height, rearUprights = false, frontSetback = 0,
     frontBevel = rearUprights && frontSetback > 0,
-    bottomHeight = CASTER_HEIGHT + SUPPORT_BEAM_THICKNESS) {
+    bottomHeight = BASE_RAIL_TOP_HEIGHT) {
     const [a, b, c, d] = footprint;
     const [leftFront, leftBack] = [a, d];
     const [rightFront, rightBack] = [b, c];
@@ -1434,7 +1593,8 @@ export class Uprights {
         delete rear.leftRearUpright;
       }
     }
-    const rightUpright = new UprightBoard(rightFront, rightBack, -1, height, { bottomHeight, frontSetback, frontBevel });
+    const rightUpright = new UprightBoard(rightFront, rightBack, -1, height,
+      { bottomHeight, frontSetback, frontBevel });
     if (leftInward.reduce((sum, value, axis) =>
       sum + value * (rightUpright.footprint[0][axis] - leftUpright.footprint[1][axis]), 0) <= 0) {
       throw new RangeError("Uprights overlap.");
@@ -1511,6 +1671,14 @@ class UprightBoard extends Board {
     return (this.notchedStock ?? new NotchedBoard(this)).createStockGeometry();
   }
 
+  getPlacement() {
+    const axes = this.getStockAxes();
+    const near = this.width / 2 + Math.min(...(this.notchedStock?.widthBounds ?? [[-this.width / 2]])
+      .map(bounds => bounds[0]));
+    return placementMatrix(axes, [this.footprint[0][0], this.bottomHeight, -this.footprint[0][1]]
+      .map((value, axis) => value + axes[2][axis] * near));
+  }
+
   notchBottom(face, shoulderHeight) {
     this.notchedStock = new NotchedBoard(this.notchedStock ?? this, this.notches, [
       ...this.dados, { face, start: 0, width: shoulderHeight - this.bottomHeight, depth: SUPPORT_NOTCH_DEPTH },
@@ -1579,12 +1747,22 @@ export class TopFrame {
     const backWidth = Math.hypot(c[0] - d[0], c[1] - d[1]);
     const backInward = [(c[1] - d[1]) / backWidth, (d[0] - c[0]) / backWidth];
     const extendBack = rightStepSupport && !uprights.boards.rightRearUpright;
+    const outerRadius = Math.hypot(b[0] + INNER_RADIUS, b[1]);
+    const halfAngle = Math.atan2(c[1], c[0] + INNER_RADIUS) / 2;
+    const rightInset = extendBack
+      ? (outerRadius - Math.sqrt(outerRadius ** 2 - RISER_THICKNESS ** 2)) * Math.cos(halfAngle) +
+        RISER_THICKNESS * Math.sin(halfAngle)
+      : 0;
+    const rightLength = Math.hypot(c[0] - b[0], c[1] - b[1]);
+    const rightInward = [(b[1] - c[1]) / rightLength, (c[0] - b[0]) / rightLength];
+    const insetRight = point => point.map((value, axis) => value + rightInward[axis] * rightInset);
+    const insetB = insetRight(b), insetC = insetRight(c);
     const backOffset = d[0] * backInward[0] + d[1] * backInward[1] -
       (extendBack ? RISER_THICKNESS : 0);
     const backLeft = pointAtOffset(a, d, backInward, backOffset);
-    const backRight = pointAtOffset(b, c, backInward, backOffset);
+    const backRight = pointAtOffset(insetB, insetC, backInward, backOffset);
     const northLeftFront = offsetCorner(backLeft, a, backInward);
-    const northRightFront = offsetCorner(backRight, b, backInward);
+    const northRightFront = offsetCorner(backRight, insetB, backInward);
     this.boards = {
       southCrossPiece: new FrameBoard([leftFront, rightFront,
         pointAtNorth(b, c, RISER_THICKNESS + FRAME_THICKNESS),
@@ -1624,6 +1802,9 @@ export class TopFrame {
       const front = uprights.boards[`${side}Upright`], rear = uprights.boards[`${side}RearUpright`];
       const along = front.footprint[3].map((value, axis) => (value - front.footprint[0][axis]) / front.width);
       const face = point => {
+        const shift = left ? UPRIGHT_THICKNESS - FRAME_THICKNESS : rightInset;
+        point = point.map((value, axis) =>
+          value + (axis === 0 ? along[1] : -along[0]) * (left ? 1 : -1) * shift);
         const inner = point.map((value, axis) =>
           value + (axis === 0 ? along[1] : -along[0]) * (left ? 1 : -1) * FRAME_THICKNESS);
         return left ? [point, inner] : [inner, point];
@@ -1633,8 +1814,8 @@ export class TopFrame {
       const end = rear
         ? face(rear.footprint[left ? 0 : 1]).map(point =>
           point.map((value, axis) => value + along[axis] * 0.75))
-        : start.map((point, index) => index === (left ? 0 : 1) ? (left ? backLeft : backRight)
-          : pointAtOffset(point, point.map((value, axis) => value + along[axis]), backInward, backOffset));
+        : start.map(point =>
+          pointAtOffset(point, point.map((value, axis) => value + along[axis]), backInward, backOffset));
       const support = new FrameBoard([start[0], start[1], end[1], end[0]], {
         thickness: FRAME_THICKNESS, width: FRAME_WIDTH,
         length: Math.hypot(end[1][0] - start[1][0], end[1][1] - start[1][1]),
@@ -1656,7 +1837,7 @@ export class TopFrame {
       if (extendBack) addSideSupport("left");
     }
     validateFootprints("Top frame", Object.values(this.boards).map(board => board.footprint),
-      [a, b, backRight, backLeft]);
+      [a, b, pointAtOffset(b, c, backInward, backOffset), backLeft]);
   }
 
   createGeometry() {
@@ -1681,39 +1862,6 @@ export class Riser extends FrameBoard {
     super([a, b, pointAtNorth(b, c, RISER_THICKNESS), pointAtNorth(a, d, RISER_THICKNESS)],
       { thickness: RISER_THICKNESS, width: riserHeight, length: b[0] - a[0], material: PLYWOOD,
         stock: { kind: "plywood", thickness: RISER_THICKNESS } }, bottom);
-  }
-}
-
-export class Tread extends Board {
-  get grain() {
-    return { ...super.grain, ...footprintGrain(this.footprint, this.lengthEdge),
-      endFaces: (this.cutFootprint ?? this.footprint).map((_, i) => i + 2),
-      plyDirection: [0, 1, 0], plyThickness: this.thickness / 5 };
-  }
-
-  constructor(footprint, height) {
-    const [a, b, c] = footprint;
-    const length = Math.hypot(c[0] - b[0], c[1] - b[1]);
-    super({ thickness: TREAD_THICKNESS,
-      width: Math.abs((a[0] - b[0]) * (c[1] - b[1]) - (a[1] - b[1]) * (c[0] - b[0])) / length,
-      length, material: PLYWOOD,
-      stock: { kind: "plywood", thickness: TREAD_THICKNESS } });
-    this.footprint = footprint;
-    this.lengthEdge = 1;
-    this.bottomHeight = height - TREAD_THICKNESS;
-  }
-
-  getBlankShape() { return prismaticBlank(this.footprint, this.thickness, this.lengthEdge, true); }
-
-  getStockAxes() { return footprintStockAxes(this, true); }
-
-  get faceCuts() { return describePlanCuts(this); }
-
-  createStockGeometry() { return stockAlignedGeometry(this); }
-
-  createGeometry() {
-    return extrudeFootprint(this.cutFootprint ?? this.footprint, this.bottomHeight,
-      this.thickness, this.color, this.grain, Boolean(this.cutFootprint));
   }
 }
 
@@ -1812,6 +1960,466 @@ export class Siding extends FrameBoard {
   }
 }
 
+const distinctCoordinates = values => values.sort((a, b) => a - b)
+  .filter((value, i, all) => i === 0 || value - all[i - 1] > 1e-8);
+
+export class ProfiledPlywood extends Board {
+  constructor({ outline, holes = [], construction, thickness, origin = [0, 0], heading = 0, bottomHeight = 0 }) {
+    if (construction) {
+      if (outline || holes.length) throw new RangeError("Supply a plywood outline or construction, not both.");
+      construction = structuredClone(construction);
+      ({ outline, holes } = constructionProfile(construction));
+    }
+    validateProfile({ outline, holes });
+    const { min, max } = outlineBounds(outline);
+    const blank = construction?.blank ?? { length: max[0], width: max[1] };
+    if (min.some(value => construction ? value < -1e-8 : Math.abs(value) > 1e-8) ||
+      max[0] > blank.length + 1e-8 || max[1] > blank.width + 1e-8 || !Number.isFinite(heading) ||
+      !Number.isFinite(bottomHeight) || !Array.isArray(origin) || origin.length !== 2 || !origin.every(Number.isFinite)) {
+      throw new RangeError("Profiled plywood requires an origin-aligned outline and finite placement.");
+    }
+    super({ ...blank, thickness, material: PLYWOOD, stock: { kind: "plywood", thickness } });
+    this.construction = construction;
+    this.outline = outline.map(edge => edge.type === "line"
+      ? { type: "line", from: [...edge.from], to: [...edge.to] }
+      : { ...edge, center: [...edge.center] });
+    this.holes = structuredClone(holes);
+    this.origin = [...origin];
+    this.heading = heading;
+    this.bottomHeight = bottomHeight;
+  }
+
+  get grain() { return { direction: [1, 0, 0], endFaces: [], plyDirection: [0, 1, 0], plyThickness: this.thickness / 3 }; }
+
+  getManufacturingDescription() {
+    return { ...super.getManufacturingDescription(), edgeCuts: [],
+      ...(this.construction ? { construction: structuredClone(this.construction) } : {}),
+      outline: this.outline.map(edge => edge.type === "line"
+        ? { type: "line", from: [...edge.from], to: [...edge.to] } : { ...edge, center: [...edge.center] }),
+      ...(this.holes.length ? { holes: structuredClone(this.holes) } : {}) };
+  }
+
+  getMaterialVolume() { return [this.outline, ...this.holes].reduce((sum, loop) => sum + outlineArea(loop), 0) * this.thickness; }
+
+  getStockAxes() {
+    const c = Math.cos(this.heading), s = Math.sin(this.heading);
+    return [[c, 0, -s], [0, 1, 0], [s, 0, c]];
+  }
+
+  getPlacement() {
+    return placementMatrix(this.getStockAxes(), [this.origin[0], this.bottomHeight, -this.origin[1]]);
+  }
+
+  createStockGeometry(sag = 0.001) {
+    const profile = bridgeProfile(this, sag), faces = [], endFaces = [];
+    for (const triangle of triangulateProfile(profile, true)) {
+      for (const surface of [0, this.thickness]) {
+        const corners = triangle.map(i => [profile[i][0], surface, profile[i][1]]);
+        faces.push(surface === 0 ? corners : corners.reverse());
+      }
+    }
+    for (const loop of [this.outline, ...this.holes]) {
+      const points = tessellateOutline(loop, sag);
+      for (const [i, a] of points.entries()) {
+        const b = points[(i + 1) % points.length];
+        endFaces.push(faces.length);
+        faces.push([[a[0], 0, a[1]], [a[0], this.thickness, a[1]],
+          [b[0], this.thickness, b[1]], [b[0], 0, b[1]]]);
+      }
+    }
+    return geometryFromFaces(faces, this.color, { ...this.grain, endFaces });
+  }
+
+  createGeometry() {
+    const geometry = this.createStockGeometry(), axes = this.getStockAxes();
+    for (let i = 0; i < geometry.positions.length; i += 3) {
+      const p = geometry.positions.slice(i, i + 3), n = geometry.normals.slice(i, i + 3);
+      geometry.positions.set([this.origin[0], this.bottomHeight, -this.origin[1]]
+        .map((value, j) => value + axes.reduce((sum, axis, k) => sum + axis[j] * p[k], 0)), i);
+      geometry.normals.set([0, 1, 2].map(j => axes.reduce((sum, axis, k) => sum + axis[j] * n[k], 0)), i);
+    }
+    return geometry;
+  }
+}
+
+export class Tread extends ProfiledPlywood {
+  constructor({ width, angle, height, extendRightEdge = false }) {
+    const half = angle / 2, radius = INNER_RADIUS + width;
+    const heading = half + Math.PI / 2;
+    const project = ([east, north]) => [
+      -Math.sin(half) * (east + INNER_RADIUS) + Math.cos(half) * north,
+      Math.cos(half) * (east + INNER_RADIUS) + Math.sin(half) * north,
+    ];
+    const point = (r, theta) => [r * Math.cos(theta) - INNER_RADIUS, r * Math.sin(theta)];
+    const frontInner = project(point(INNER_RADIUS, 0));
+    const backInner = project(point(INNER_RADIUS, angle));
+    const backOuter = project(point(radius, angle));
+    const frontOuter = project([radius / (extendRightEdge ? Math.cos(angle) : 1) - INNER_RADIUS, 0]);
+    const outline = [
+      extendRightEdge ? { type: "line", from: backOuter, to: frontOuter }
+        : { type: "arc", center: [0, 0], radius, startAngle: Math.PI / 2 - half, sweepRadians: angle },
+      { type: "line", from: frontOuter, to: frontInner },
+      { type: "arc", center: [0, 0], radius: INNER_RADIUS, startAngle: Math.PI / 2 + half, sweepRadians: -angle },
+      { type: "line", from: backInner, to: backOuter },
+    ];
+    const { min } = outlineBounds(outline);
+    const translate = point => point.map((value, axis) => value - min[axis]);
+    super({
+      outline: outline.map(edge => edge.type === "line"
+        ? { ...edge, from: translate(edge.from), to: translate(edge.to) }
+        : { ...edge, center: translate(edge.center) }),
+      thickness: TREAD_THICKNESS, heading, bottomHeight: height - TREAD_THICKNESS,
+      origin: [-INNER_RADIUS - Math.sin(half) * min[0] + Math.cos(half) * min[1],
+        Math.cos(half) * min[0] + Math.sin(half) * min[1]],
+    });
+  }
+
+  get grain() { return { ...super.grain, plyThickness: this.thickness / 5 }; }
+
+  notchForPost(post) {
+    const axes = this.getStockAxes();
+    const cutter = post.footprint.map(([east, north]) => [axes[0], axes[2]].map(axis =>
+      (east - this.origin[0]) * axis[0] - (north - this.origin[1]) * axis[2])).reverse();
+    const profile = subtractProfile(this, cutter.map((from, i) => ({
+      type: "line", from, to: cutter[(i + 1) % cutter.length],
+    })));
+    validateProfile(profile);
+    this.outline = profile.outline;
+    this.holes = profile.holes;
+  }
+}
+
+export class BentPlywood extends Board {
+  constructor({ profile, thickness, innerRadius, startAngle = 0, center = [0, 0], bottomHeight = 0 }) {
+    validateDimensions("Bent plywood", { innerRadius });
+    if (!Array.isArray(profile) || profile.length < 4 || profile.some(point =>
+      point.length !== 2 || point.some(value => !Number.isFinite(value))) ||
+      Math.min(...profile.map(point => point[0])) !== 0 ||
+      Math.min(...profile.map(point => point[1])) !== 0 ||
+      !Number.isFinite(startAngle) || !Number.isFinite(bottomHeight) ||
+      center.length !== 2 || center.some(value => !Number.isFinite(value))) {
+      throw new RangeError("Bent plywood requires a finite, origin-aligned flat outline and placement.");
+    }
+    triangulateProfile(profile);
+    super({ length: Math.max(...profile.map(point => point[0])),
+      width: Math.max(...profile.map(point => point[1])), thickness, material: PLYWOOD,
+      stock: { kind: "plywood", thickness } });
+    this.profile = profile.map(point => [...point]);
+    this.bend = Object.freeze({ innerRadius, neutralRadius: innerRadius + thickness / 2,
+      sweepRadians: this.length / (innerRadius + thickness / 2) });
+    if (this.bend.sweepRadians >= Math.PI * 2) throw new RangeError("Bent plywood must not wrap onto itself.");
+    this.startAngle = startAngle;
+    this.center = [...center];
+    this.bottomHeight = bottomHeight;
+  }
+
+  get grain() {
+    return { direction: [0, 0, 1], endFaces: [], plyDirection: [0, 1, 0], plyThickness: this.thickness / 3 };
+  }
+
+  getBlankShape() {
+    const count = this.profile.length;
+    return {
+      vertices: [0, this.thickness].flatMap(y => this.profile.map(([x, z]) => [x, y, z])),
+      faces: [
+        { name: "Outer face", axis: "thickness", indices: this.profile.map((_, i) => i) },
+        { name: "Inner face", axis: "thickness", indices: this.profile.map((_, i) => count + i).reverse() },
+        ...this.profile.map((point, i) => {
+          const next = (i + 1) % count;
+          return { name: `Edge ${i + 1}`,
+            axis: Math.abs(point[0] - this.profile[next][0]) < 1e-8 ? "length" : "width",
+            indices: [i, count + i, count + next, next] };
+        }),
+      ],
+    };
+  }
+
+  getManufacturingDescription() { return { ...super.getManufacturingDescription(), bend: { ...this.bend } }; }
+
+  getMaterialVolume() {
+    return this.thickness * this.profile.reduce((sum, [x, z], i) => {
+      const next = this.profile[(i + 1) % this.profile.length];
+      return sum + x * next[1] - next[0] * z;
+    }, 0) / 2;
+  }
+
+  getStockAxes() {
+    const angle = this.startAngle + this.bend.sweepRadians / 2, c = Math.cos(angle), s = Math.sin(angle);
+    return [[-s, 0, -c], [-c, 0, s], [0, 1, 0]];
+  }
+
+  getPlacement() {
+    const c = Math.cos(this.startAngle), s = Math.sin(this.startAngle);
+    return placementMatrix([[c, 0, -s], [0, 1, 0], [s, 0, c]],
+      [this.center[0], this.bottomHeight, -this.center[1]]);
+  }
+
+  createDesign() {
+    const local = new BentPlywood({ profile: this.profile, thickness: this.thickness,
+      innerRadius: this.bend.innerRadius });
+    return { ...super.createDesign(), geometry: local.createGeometry() };
+  }
+
+  createStockGeometry() {
+    return geometryFromProfiles([this.profile, this.profile], [0, this.thickness], this.color,
+      this.grain, this.profile.map((_, i) => i));
+  }
+
+  createGeometry() {
+    const { innerRadius, neutralRadius, sweepRadians } = this.bend;
+    // Include outline corners in the angular grid; keep every shared strip edge conforming.
+    const count = Math.ceil(sweepRadians / (2 * Math.acos(1 - 0.001 / (innerRadius + this.thickness))));
+    const xs = distinctCoordinates([...this.profile.map(point => point[0]),
+      ...Array.from({ length: count + 1 }, (_, i) => this.length * i / count)]);
+    const edges = this.profile.map((a, i) => [a, this.profile[(i + 1) % this.profile.length]]);
+    const zAt = ([a, b], x) => a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0]);
+    const levels = xs.map(x => distinctCoordinates(edges.flatMap(edge => {
+      const [a, b] = edge;
+      if (x < Math.min(a[0], b[0]) - 1e-9 || x > Math.max(a[0], b[0]) + 1e-9) return [];
+      return Math.abs(a[0] - b[0]) < 1e-9 ? [a[1], b[1]] : [zAt(edge, x)];
+    })));
+    const faces = [], endFaces = [];
+    const at = ([x, z], y) => [x, y, z];
+    for (let i = 0; i < xs.length - 1; i++) {
+      const left = xs[i], right = xs[i + 1], mid = (left + right) / 2;
+      if (right - left < 1e-9) continue;
+      const crossing = edges.filter(([a, b]) => mid > Math.min(a[0], b[0]) && mid < Math.max(a[0], b[0]))
+        .sort((a, b) => zAt(a, mid) - zAt(b, mid));
+      for (let j = 0; j < crossing.length; j += 2) {
+        const low = crossing[j], high = crossing[j + 1];
+        const bottom = [zAt(low, left), zAt(low, right)], top = [zAt(high, left), zAt(high, right)];
+        const polygon = [
+          [left, bottom[0]], [right, bottom[1]],
+          ...levels[i + 1].filter(z => z > bottom[1] + 1e-9 && z < top[1] - 1e-9).map(z => [right, z]),
+          [right, top[1]], [left, top[0]],
+          ...levels[i].filter(z => z > bottom[0] + 1e-9 && z < top[0] - 1e-9).reverse().map(z => [left, z]),
+        ].filter((point, k, all) => k === 0 || Math.hypot(...point.map((v, axis) => v - all[k - 1][axis])) > 1e-9);
+        for (const triangle of triangulateProfile(polygon)) {
+          faces.push(triangle.map(index => at(polygon[index], 0)),
+            triangle.map(index => at(polygon[index], this.thickness)).reverse());
+        }
+      }
+    }
+    for (const [a, b] of edges) {
+      const vertical = Math.abs(a[0] - b[0]) < 1e-9;
+      const interior = vertical
+        ? levels[xs.findIndex(x => Math.abs(x - a[0]) < 1e-8)]
+          .filter(z => z > Math.min(a[1], b[1]) + 1e-8 && z < Math.max(a[1], b[1]) - 1e-8).map(z => [a[0], z])
+        : xs.filter(x => x > Math.min(a[0], b[0]) + 1e-8 && x < Math.max(a[0], b[0]) - 1e-8)
+          .map(x => [x, zAt([a, b], x)]);
+      interior.sort((p, q) => vertical ? (p[1] - q[1]) * Math.sign(b[1] - a[1])
+        : (p[0] - q[0]) * Math.sign(b[0] - a[0]));
+      const points = [a, ...interior, b];
+      for (let i = 0; i < points.length - 1; i++) {
+        const corners = [at(points[i], 0), at(points[i], this.thickness),
+          at(points[i + 1], this.thickness), at(points[i + 1], 0)];
+        for (const indices of [[0, 1, 2], [0, 2, 3]]) {
+          endFaces.push(faces.length);
+          faces.push(indices.map(index => corners[index]));
+        }
+      }
+    }
+    const geometry = geometryFromFaces(faces, this.color, { ...this.grain, endFaces, origin: [0, 0, 0] });
+    for (let i = 0; i < geometry.positions.length; i += 3) {
+      const angle = this.startAngle + geometry.positions[i] / neutralRadius;
+      const radius = innerRadius + this.thickness - geometry.positions[i + 1];
+      const height = geometry.positions[i + 2];
+      geometry.positions.set([this.center[0] + radius * Math.cos(angle), this.bottomHeight + height,
+        -this.center[1] - radius * Math.sin(angle)], i);
+    }
+    for (let i = 0; i < geometry.indices.length; i += 3) {
+      const vertices = Array.from(geometry.indices.slice(i, i + 3), index => index * 3);
+      const [a, b, c] = vertices.map(index => geometry.positions.slice(index, index + 3));
+      const ab = b.map((v, axis) => v - a[axis]), ac = c.map((v, axis) => v - a[axis]);
+      const normal = [ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2],
+        ab[0] * ac[1] - ab[1] * ac[0]];
+      const length = Math.hypot(...normal);
+      for (const vertex of vertices) geometry.normals.set(normal.map(v => v / length), vertex);
+    }
+    return geometry;
+  }
+}
+
+function moduleSidingRadius(module) {
+  return INNER_RADIUS + module.steps[0].width;
+}
+
+function createModulePlywoodBand(module, innerRadius, radius, name,
+  { thickness = BASE_RAIL_THICKNESS, panel = null, bottomHeight = panel?.bottomHeight ?? BASE_RAIL_BOTTOM_HEIGHT,
+    clearanceParts = [] } = {}) {
+  const { angle } = module.steps[0];
+  const halfAngle = module.steps.length * angle / 2, c = Math.cos(halfAngle), s = Math.sin(halfAngle);
+  const radial = [c, s], tangent = [-s, c], end = module.steps.length * angle;
+  const frontAngle = panel?.startAngle ?? 0;
+  const frontNormal = [-Math.sin(frontAngle), Math.cos(frontAngle)];
+  const firstSupport = module.steps[0].parts.topFrame.boards.southCrossPiece;
+  const frontOffset = !panel && module.startIndex === 0
+    ? Math.max(...firstSupport.footprint.map(point => point[1])) : 0;
+  const backNormal = [Math.sin(end), -Math.cos(end)];
+  const straightInnerEdge = !panel && module.startIndex === 0 && radius === moduleSidingRadius(module);
+  const beamInnerCorner = module.boards.rightSupportBeam.footprint[3];
+  const left = straightInnerEdge
+    ? (beamInnerCorner[0] + INNER_RADIUS) * c + beamInnerCorner[1] * s
+    : innerRadius * c;
+  const intersection = (normal, offset, z) =>
+    (offset - (normal[0] * c + normal[1] * s) * z) / (normal[0] * tangent[0] + normal[1] * tangent[1]);
+  const min = [intersection(frontNormal, frontOffset, radius), left];
+  const blank = { length: intersection(backNormal, 0, radius) - min[0], width: radius - left };
+  const project = point => [tangent, radial].map((axis, i) => point[0] * axis[0] + point[1] * axis[1] - min[i]);
+  const center = project([0, 0]);
+  const trapezoid = {
+    left: { angleRadians: halfAngle + Math.PI / 2 - frontAngle, inset: frontOffset },
+    right: { angleRadians: halfAngle + Math.PI / 2 - end, inset: 0 },
+  };
+  const arc = { center, radius }, notches = [];
+  const rectangle = (points, name, { bound = false, openToOutside = false } = {}) => {
+    const clearance = 1 / 32;
+    points = points.map(project);
+    if (bound) {
+      const edge = points[openToOutside ? 3 : 1].map((value, i) => value - points[0][i]);
+      let u = edge.map(value => value / Math.hypot(...edge)), v = [-u[1], u[0]];
+      if (openToOutside && v.reduce((sum, value, i) => sum + value * (points[0][i] - arc.center[i]), 0) < 0) {
+        u = u.map(value => -value);
+        v = v.map(value => -value);
+      }
+      const xs = points.map(point => point[0] * u[0] + point[1] * u[1]);
+      const ys = points.map(point => point[0] * v[0] + point[1] * v[1]);
+      if (openToOutside) ys.push(arc.center[0] * v[0] + arc.center[1] * v[1] + arc.radius);
+      points = [[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.min(...ys)],
+        [Math.max(...xs), Math.max(...ys)], [Math.min(...xs), Math.max(...ys)]]
+        .map(([x, y]) => [x * u[0] + y * v[0], x * u[1] + y * v[1]]);
+    }
+    const cross = (points[1][0] - points[0][0]) * (points[2][1] - points[1][1]) -
+      (points[1][1] - points[0][1]) * (points[2][0] - points[1][0]);
+    if (cross < 0) points = [points[0], points[3], points[2], points[1]];
+    const outside = point => Math.max(0, -point[0], point[0] - blank.length) ** 2 +
+      Math.max(0, -point[1], point[1] - blank.width) ** 2;
+    const reference = points.reduce((best, point, i) => outside(point) < outside(points[best]) - 1e-8 ? i : best, 0);
+    points = [...points.slice(reference), ...points.slice(0, reference)];
+    const u = points[1].map((value, i) => value - points[0][i]);
+    const v = points[3].map((value, i) => value - points[0][i]);
+    const width = Math.hypot(...u), depth = Math.hypot(...v);
+    return { reference: points[0].map((value, i) => value - clearance * (u[i] / width + v[i] / depth)),
+      width: width + 2 * clearance, depth: depth + 2 * clearance, angleRadians: Math.atan2(u[1], u[0]), name };
+  };
+  for (const [i, step] of module.steps.entries()) {
+    const rotate = ([east, north]) => [
+      Math.cos(i * angle) * (east + INNER_RADIUS) - Math.sin(i * angle) * north,
+      Math.sin(i * angle) * (east + INNER_RADIUS) + Math.cos(i * angle) * north,
+    ];
+    const spindle = step.parts.frontSpindle;
+    if (spindle && spindle.bottomHeight < bottomHeight + thickness) notches.push(
+      rectangle(spindle.footprint.map(rotate), `Step ${module.startIndex + i + 1} spindle clearance`));
+    if (module.startIndex === 0 && i === 0) {
+      const newel = step.parts.newel;
+      if (newel.bottomHeight < bottomHeight + thickness) notches.push(
+        rectangle(newel.footprint.map(rotate), "Newel post clearance"));
+    }
+  }
+  for (const { board, stepIndex, name, openToOutside } of clearanceParts) {
+    const heights = Array.from(board.createGeometry().positions).filter((_, i) => i % 3 === 1);
+    if (Math.min(...heights) >= bottomHeight + thickness || Math.max(...heights) <= bottomHeight) continue;
+    const c = Math.cos(stepIndex * angle), s = Math.sin(stepIndex * angle);
+    notches.push(rectangle(board.footprint.map(([east, north]) => [
+      c * (east + INNER_RADIUS) - s * north, s * (east + INNER_RADIUS) + c * north,
+    ]), name, { bound: true, openToOutside }));
+  }
+  const construction = { blank, trapezoid, arc, ...(!straightInnerEdge ? { innerRadius } : {}), notches: [], openings: [],
+    ...(straightInnerEdge
+      ? { tangentExtension: { angleRadians: Math.PI / 2 + halfAngle - angle } } : {}) };
+  const area = profile => [profile.outline, ...profile.holes].reduce((sum, loop) => sum + outlineArea(loop), 0);
+  let remainingArea = area(constructionProfile(construction));
+  for (const cut of notches) {
+    construction.notches.push(cut);
+    const nextArea = area(constructionProfile(construction));
+    if (remainingArea - nextArea > 1e-8) remainingArea = nextArea;
+    else construction.notches.pop();
+  }
+  const band = new ProfiledPlywood({ construction, thickness,
+    origin: [-INNER_RADIUS + tangent[0] * min[0] + radial[0] * min[1], tangent[1] * min[0] + radial[1] * min[1]],
+    heading: halfAngle + Math.PI / 2, bottomHeight });
+  band.name = name;
+  return band;
+}
+
+function createFlatPanelStiffener(panel, name, bottomHeight, frontInset = 0) {
+  const [a, b, c, d] = panel.footprint;
+  const length = Math.hypot(d[0] - a[0], d[1] - a[1]);
+  const outward = [(d[1] - a[1]) / length, (a[0] - d[0]) / length];
+  const innerOffset = a[0] * outward[0] + a[1] * outward[1] - PANEL_STIFFENER_WIDTH;
+  let front = a, innerFront = pointAtOffset(a, b, outward, innerOffset);
+  const innerBack = pointAtOffset(d, c, outward, innerOffset);
+  if (frontInset) {
+    front = pointAtNorth(a, d, a[1] + frontInset);
+    innerFront = pointAtNorth(innerFront, innerBack, a[1] + frontInset);
+  }
+  const footprint = [front, d, innerBack, innerFront];
+  const board = new FlatFrameBoard(footprint, {
+    length: Math.hypot(d[0] - front[0], d[1] - front[1]),
+    width: PANEL_STIFFENER_WIDTH, thickness: PANEL_STIFFENER_THICKNESS,
+    material: PLYWOOD, stock: { kind: "plywood", thickness: PANEL_STIFFENER_THICKNESS },
+  }, bottomHeight);
+  board.name = name;
+  return board;
+}
+
+function createModuleSiding(module, spindles) {
+  const { angle } = module.steps[0];
+  const innerRadius = moduleSidingRadius(module);
+  const neutralRadius = innerRadius + SIDING_THICKNESS / 2;
+  const start = module.startIndex === 0 ? angle : 0;
+  const end = module.steps.length * angle, cuts = [];
+  if (!Number.isFinite(start) || start >= end) throw new RangeError("Curved siding requires a finite positive angular span.");
+  for (const { spindle, index } of spindles) {
+    const rotation = (index - module.startIndex) * angle, c = Math.cos(rotation), s = Math.sin(rotation);
+    const footprint = spindle.footprint.map(([east, north]) =>
+      [c * (east + INNER_RADIUS) - s * north, s * (east + INNER_RADIUS) + c * north]);
+    const points = footprint.filter(point => {
+      const radius = Math.hypot(...point);
+      return radius >= innerRadius && radius <= innerRadius + SIDING_THICKNESS;
+    });
+    for (let i = 0; i < footprint.length; i++) {
+      const a = footprint[i], b = footprint[(i + 1) % footprint.length], d = b.map((v, axis) => v - a[axis]);
+      const aa = d[0] ** 2 + d[1] ** 2, bb = 2 * (a[0] * d[0] + a[1] * d[1]);
+      for (const radius of [innerRadius, innerRadius + SIDING_THICKNESS]) {
+        const discriminant = bb ** 2 - 4 * aa * (a[0] ** 2 + a[1] ** 2 - radius ** 2);
+        if (discriminant < 0) continue;
+        for (const t of [(-bb - Math.sqrt(discriminant)) / (2 * aa), (-bb + Math.sqrt(discriminant)) / (2 * aa)]) {
+          if (t >= 0 && t <= 1) points.push(a.map((v, axis) => v + d[axis] * t));
+        }
+      }
+    }
+    if (!points.length) continue;
+    const angles = points.map(([x, y]) => Math.atan2(y, x));
+    const left = Math.max(start, Math.min(...angles)), right = Math.min(end, Math.max(...angles));
+    if (right <= left) continue;
+    const outward = footprint[1].map((v, i) => (v - footprint[0][i]) / spindle.width);
+    // A through-cut clears both faces of the bent sheet, including the sloped spindle bottom.
+    const floor = Math.min(...[left, right].flatMap(theta =>
+      [innerRadius, innerRadius + SIDING_THICKNESS].map(radius =>
+        spindle.bottomHeight + outward.reduce((sum, v, axis) =>
+          sum + v * (radius * [Math.cos(theta), Math.sin(theta)][axis] - footprint[0][axis]), 0))));
+    cuts.push({ left, right, floor });
+  }
+  const boundaries = distinctCoordinates([start, end, ...module.steps.map((_, i) => i * angle)
+    .filter(value => value > start && value < end), ...cuts.flatMap(cut => [cut.left, cut.right])]);
+  const top = [];
+  for (let i = 0; i < boundaries.length - 1; i++) {
+    const left = boundaries[i], right = boundaries[i + 1], mid = (left + right) / 2;
+    const height = Math.min(module.steps[Math.floor(mid / angle)].height,
+      ...cuts.filter(cut => mid > cut.left && mid < cut.right).map(cut => cut.floor)) - FLOOR_CLEARANCE;
+    if (height <= 0) throw new RangeError("Curved siding clearance removes the full panel height.");
+    top.push([(left - start) * neutralRadius, height], [(right - start) * neutralRadius, height]);
+  }
+  const outline = [[0, 0], [(end - start) * neutralRadius, 0], ...top.reverse()];
+  const profile = outline.filter((point, i) => i === 0 ||
+    Math.hypot(...point.map((v, axis) => v - outline[i - 1][axis])) > 1e-8);
+  const board = new BentPlywood({ profile, thickness: SIDING_THICKNESS, innerRadius, startAngle: start,
+    center: [-INNER_RADIUS, 0], bottomHeight: FLOOR_CLEARANCE });
+  board.name = "Side panel - curved";
+  return board;
+}
+
 export class BackPanel extends FrameBoard {
   constructor(step) {
     const { leftRearUpright, leftUpright, rightRearUpright } = step.parts.uprights.boards;
@@ -1903,6 +2511,8 @@ export class Newel extends UprightBoard {
 
   createStockGeometry() { return stockAlignedGeometry(this); }
 
+  getPlacement() { return footprintPlacement(this); }
+
   createGeometry() {
     const [a, b, c, d] = this.footprint;
     const { front, side, bottomHeight, topHeight } = this.cornerBevel;
@@ -1949,7 +2559,7 @@ export class Spindle extends Board {
     const run = baselineEnd.reduce((sum, value, axis) =>
       sum + (value - baselineStart[axis]) * along[axis], 0);
     const slope = step.stepRise / run;
-    const descent = step.stepRise + 6;
+    const descent = step.stepRise + 5;
     const frontHeight = shoulderAscent + 2 + descent;
     super({ length: frontHeight + slope * size, width: size, thickness: size,
       material: OAK, stock: TWO_BY_TWO_STOCK });
@@ -1982,6 +2592,11 @@ export class Spindle extends Board {
     return [[0, 1, 0],
       [(front[0] - back[0]) / this.thickness, 0, -(front[1] - back[1]) / this.thickness],
       [(outer[0] - front[0]) / this.width, 0, -(outer[1] - front[1]) / this.width]];
+  }
+
+  getPlacement() {
+    const back = this.footprint[3];
+    return placementMatrix(this.getStockAxes(), [back[0], this.bottomHeight, -back[1]]);
   }
 
   createStockGeometry() {
@@ -2035,6 +2650,11 @@ export class SpindleShim extends Board {
 
   getStockAxes() { return this.axes; }
 
+  getPlacement() {
+    return placementMatrix(this.axes, this.vertices[0].map((value, axis) =>
+      value - this.axes.reduce((sum, vector, i) => sum + vector[axis] * this.stockVertices[0][i], 0)));
+  }
+
   get faceCuts() {
     return this.faces.map((indices, i) => {
       const points = indices.map(index => this.stockVertices[index]);
@@ -2055,23 +2675,19 @@ export class SpindleShim extends Board {
 }
 
 export class Step {
-  constructor({ width, leftDepth, rightDepth, height, stepRise,
+  constructor({ width, angle, height, stepRise,
     rearUprights = false, riserBottom, rightStepSupport = height > stepRise, frontStepSupportStock = null,
     extendRightEdge = false }) {
-    validateDimensions("Step", { width, leftDepth, rightDepth, height, stepRise });
+    validateDimensions("Step", { width, angle, height, stepRise });
+    if (angle >= Math.PI) throw new RangeError("Step angle must be less than a half turn.");
     this.width = width;
-    this.leftDepth = leftDepth;
-    this.rightDepth = rightDepth;
+    this.angle = angle;
+    this.leftDepth = 2 * INNER_RADIUS * Math.sin(angle / 2);
+    this.rightDepth = 2 * (INNER_RADIUS + width) * Math.sin(angle / 2);
     this.height = height;
     this.stepRise = stepRise;
 
-    // The difference between concentric chord lengths is 2 * width * sin(angle / 2).
-    const sine = (rightDepth - leftDepth) / (2 * width);
-    if (!Number.isFinite(sine) || sine <= 0 || sine >= 1) {
-      throw new RangeError("Step edge lengths must form a nondegenerate radial footprint.");
-    }
-    this.angle = 2 * Math.asin(sine);
-    const insideBack = [-leftDepth * sine, leftDepth * Math.sqrt(1 - sine ** 2)];
+    const insideBack = [INNER_RADIUS * (Math.cos(angle) - 1), INNER_RADIUS * Math.sin(angle)];
     this.footprint = [
       [0, 0],
       [width, 0],
@@ -2079,10 +2695,14 @@ export class Step {
         insideBack[1] + width * Math.sin(this.angle)],
       insideBack,
     ];
+    // Straight framing sits on the castle's tangent plane, independently of the tread arc.
+    const half = this.angle / 2, tangent = [Math.cos(half), Math.sin(half)];
+    const tangentOffset = INNER_RADIUS * (1 - tangent[0]);
+    this.footprint[0] = pointAtOffset(this.footprint[0], this.footprint[1], tangent, tangentOffset);
+    this.footprint[3] = pointAtOffset(this.footprint[3], this.footprint[2], tangent, tangentOffset);
     if (extendRightEdge) {
       const c = Math.cos(this.angle), s = Math.sin(this.angle), back = this.footprint[2];
-      const [east, north] = back.map((value, axis) => value - this.footprint[1][axis]);
-      const nextBack = [back[0] + c * east - s * north, back[1] + s * east + c * north];
+      const nextBack = [back[0] - s, back[1] + c];
       this.footprint[1] = pointAtNorth(back, nextBack, 0);
     }
     const frontSetback = rearUprights || height === stepRise || height === 2 * stepRise ? RISER_THICKNESS : 0;
@@ -2090,15 +2710,18 @@ export class Step {
     // Step 1's temporary uprights are replaced after fitting its top frame.
     const uprights = new Uprights(this.footprint, bottomFrame, height, rearUprights,
       frontSetback, frontSetback > 0,
-      height === stepRise ? FLOOR_CLEARANCE : CASTER_HEIGHT + SUPPORT_BEAM_THICKNESS);
+      height === stepRise ? FLOOR_CLEARANCE : BASE_RAIL_TOP_HEIGHT);
     for (const key of ["leftUpright", "rightUpright"]) {
       if (!uprights.boards[key].frontBevel) uprights.boards[key].bevelFront(RISER_THICKNESS);
     }
     this.parts = { bottomFrame, uprights };
     this.parts.topFrame = new TopFrame(this.footprint, bottomFrame, uprights, height,
       rightStepSupport, frontStepSupportStock);
-    this.parts.riser = new Riser(this.footprint, height, stepRise, riserBottom);
-    this.parts.tread = new Tread(this.footprint, height);
+    const riserFootprint = this.footprint.map(point => [...point]);
+    riserFootprint[0] = [0, 0];
+    riserFootprint[3] = [0, this.footprint[3][1]];
+    this.parts.riser = new Riser(riserFootprint, height, stepRise, riserBottom);
+    this.parts.tread = new Tread({ width, angle: this.angle, height, extendRightEdge });
     this.parts.siding = new Siding(this.footprint, height);
   }
 
@@ -2114,7 +2737,7 @@ export class Step {
   }
 }
 
-export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math.min(3, Math.floor(stepCount / 2)),
+export function buildStairway(stairWidth = 20, stepCount = 9, moduleCount = Math.min(3, Math.floor(stepCount / 2)),
   spindleShoulderAscent = DEFAULT_SPINDLE_SHOULDER_ASCENT) {
   validateDimensions("Stairway", { stairWidth });
   if (!Number.isSafeInteger(stepCount) || stepCount < 4) {
@@ -2134,8 +2757,6 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
     : stepCount === 8
       ? { kind: "lumber", nominalSize: "2x4", thickness: SUPPORT_BEAM_THICKNESS, width: FRAME_WIDTH }
       : null;
-  const leftDepth = 2 * INNER_RADIUS * Math.sin(angle / 2);
-  const rightDepth = 2 * (INNER_RADIUS + stairWidth) * Math.sin(angle / 2);
   const stepsPerModule = Math.floor(stepCount / moduleCount);
   const bottomModuleSize = stepCount - (moduleCount - 1) * stepsPerModule;
   const steps = [];
@@ -2143,7 +2764,7 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
     const isModuleBack = i === bottomModuleSize - 1 ||
       (i >= bottomModuleSize && (i - bottomModuleSize + 1) % stepsPerModule === 0);
     steps.push(new Step({
-      width: stairWidth, leftDepth, rightDepth, height: (i + 1) * stepRise, stepRise,
+      width: stairWidth, angle, height: (i + 1) * stepRise, stepRise,
       rearUprights: isModuleBack,
       rightStepSupport: i > 0,
       frontStepSupportStock: i === 0 ? frontStepSupportStock : null,
@@ -2168,17 +2789,24 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
     const boards = createSupportBeams(moduleSteps, i === 0);
     for (const step of moduleSteps) {
       if (step !== steps[0]) {
-        addSupportCrossPiece(step, boards);
+        addSupportCrossPiece(step);
         step.parts.frontSpindle = new Spindle(step, step.parts.uprights.boards.rightUpright, spindleShoulderAscent);
       }
     }
-    addRearSupportCrossPiece(moduleSteps.at(-1), boards);
+    addRearSupportCrossPiece(moduleSteps.at(-1));
     if (startIndex === 0) {
       finishFrontStepSupports(moduleSteps[0], moduleSteps[1]);
       addNewelFraming(moduleSteps[0], moduleSteps[1], boards);
     }
-    addModuleCasters(moduleSteps, boards);
-    for (const step of moduleSteps) addSupportBlocks(step, startIndex > 0 && step === moduleSteps[0]);
+    const module = { startIndex, steps: moduleSteps, boards };
+    const radius = moduleSidingRadius(module);
+    boards.innerBaseRail = createModulePlywoodBand(module, INNER_RADIUS, INNER_RADIUS + BASE_RAIL_WIDTH, "Base rail - inner");
+    boards.outerBaseRail = createModulePlywoodBand(module, radius - BASE_RAIL_WIDTH, radius, "Base rail - outer");
+    addModuleCasters(module);
+    addPanelSupportBlocks(module);
+    for (const [j, step] of moduleSteps.entries()) {
+      addSupportBlocks(step, startIndex > 0 && j === 0, steps[startIndex + j - 1]);
+    }
     for (let j = 1; j < moduleSteps.length; j++) {
       if (moduleSteps[j] !== steps[1]) addBackSupportBlocks(moduleSteps[j], moduleSteps[j - 1]);
     }
@@ -2203,35 +2831,89 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
       [rear.footprint[3], rear.footprint[2], boundary[1], boundary[0]],
       rearTop, angle);
   }
-  for (const [index, step] of steps.entries()) {
-    if (step === first) continue;
-    for (const { spindle, index: sourceIndex } of spindles) {
-      const rotation = (sourceIndex - index) * angle, c = Math.cos(rotation), s = Math.sin(rotation);
-      const footprint = spindle.footprint.map(([east, north]) => [
-        c * (east + INNER_RADIUS) - s * north - INNER_RADIUS,
-        s * (east + INNER_RADIUS) + c * north,
-      ]);
-      step.parts.siding.notchForSpindle(footprint, spindle.bottomHeight);
+  for (const module of modules) {
+    module.boards.siding = createModuleSiding(module, spindles);
+    const panel = module.boards.siding;
+    if (module.startIndex > 0) {
+      const radius = moduleSidingRadius(module);
+      const topHeight = module.steps[0].parts.topFrame.boards.southCrossPiece.bottomHeight;
+      const railTop = module.boards.outerBaseRail.bottomHeight + module.boards.outerBaseRail.thickness;
+      const gap = topHeight - SIDING_RIB_THICKNESS - railTop;
+      const levels = [{ key: "sidingRib", name: "Panel rib", topHeight, intermediate: false }];
+      if (gap > SIDING_RIB_MAX_GAP) {
+        const center = railTop + gap / 2;
+        levels.push({ key: "intermediateSidingRib", name: "Panel rib - intermediate",
+          topHeight: center + SIDING_RIB_THICKNESS / 2, intermediate: true });
+      }
+      for (const level of levels) for (const step of module.steps.slice(level.intermediate ? 0 : 2)) {
+        addPanelRibSupportBlocks(step, level.topHeight, level.intermediate);
+      }
+      const clearanceParts = module.steps.flatMap((step, stepIndex) => [
+        ...Object.entries(step.parts.uprights.boards), ...Object.entries(step.parts.topFrame.boards),
+        ["riser", step.parts.riser], ["backPanel", step.parts.backPanel], ["rearSpindle", step.parts.rearSpindle],
+      ].filter(([, board]) => board).map(([key, board]) => ({ board, stepIndex,
+        openToOutside: ["rightUpright", "rightRearUpright"].includes(key),
+        name: `Step ${module.startIndex + stepIndex + 1} ${key.replace(/[A-Z]/g, letter =>
+          ` ${letter.toLowerCase()}`)} clearance` })));
+      clearanceParts.push({ board: steps[module.startIndex - 1].parts.backPanel, stepIndex: -1,
+        name: "Previous module rear panel clearance" });
+      for (const level of levels) {
+        module.boards[level.key] = createModulePlywoodBand(module,
+          radius - SIDING_RIB_WIDTH, radius, level.name, {
+            thickness: SIDING_RIB_THICKNESS,
+            bottomHeight: level.topHeight - SIDING_RIB_THICKNESS, clearanceParts,
+          });
+      }
+    }
+    for (const [key, layer] of [["sidingStiffener", 0], ["sidingStiffenerUpper", 1]]) {
+      module.boards[key] = createModulePlywoodBand(module,
+        panel.bend.innerRadius - PANEL_STIFFENER_WIDTH, panel.bend.innerRadius, "Bottom rib - curved",
+        { thickness: PANEL_STIFFENER_THICKNESS, panel,
+          bottomHeight: PANEL_STIFFENER_BOTTOM_HEIGHT + layer * PANEL_STIFFENER_THICKNESS });
+    }
+    for (const step of module.steps) {
+      for (const post of [step.parts.frontSpindle, step.parts.rearSpindle].filter(Boolean)) {
+        step.parts.tread.notchForPost(post);
+      }
+      if (step !== first) delete step.parts.siding;
     }
   }
-  for (const module of modules) {
-    module.estimatedWeightLb = module.steps.reduce((sum, step) =>
-      sum + estimateWoodWeightLb(Object.values(step.parts)
-        .flatMap(part => part.boards ? Object.values(part.boards) : [part])), 0)
-      + estimateWoodWeightLb(Object.values(module.boards));
+  const frontPanel = first.parts.frontSiding, frontSupport = first.parts.topFrame.boards.southCrossPiece;
+  for (const [suffix, layer] of [["", 0], ["Upper", 1]]) {
+    const bottomHeight = PANEL_STIFFENER_BOTTOM_HEIGHT + layer * PANEL_STIFFENER_THICKNESS;
+    first.parts[`sidingStiffener${suffix}`] = createFlatPanelStiffener(first.parts.siding,
+      "Bottom rib - rear section", bottomHeight);
+    if (frontSupport.bottomHeight >= bottomHeight + PANEL_STIFFENER_THICKNESS ||
+      frontSupport.bottomHeight + frontSupport.width <= bottomHeight) {
+      first.parts[`frontSidingStiffener${suffix}`] = createFlatPanelStiffener(frontPanel,
+        "Bottom rib - front section", bottomHeight, RISER_THICKNESS);
+    }
   }
   const footprints = new Map();
-  const moduleSeparationRotation = (module, amount) =>
-    ((module.startIndex + module.steps.length / 2) * angle - Math.PI / 4) * amount;
+  const moduleSeparation = (module, amount) => {
+    const midpoint = (module.startIndex + module.steps.length / 2) * angle;
+    const rotation = (midpoint - Math.PI / 4) * amount;
+    const distance = stairWidth * amount, heading = midpoint + rotation;
+    return { rotation, translation: [distance * Math.cos(heading), 0, -distance * Math.sin(heading)] };
+  };
   const model = {
     label: "Curved stairway",
     stairWidth, stepCount, stepRise, landingRise, moduleCount, stepsPerModule, spindleShoulderAscent, steps, modules,
-    estimatedWeightLb: modules.reduce((sum, module) => sum + module.estimatedWeightLb, 0),
-    largestModuleWeightLb: Math.max(...modules.map(module => module.estimatedWeightLb)),
     totalHeight: TOTAL_HEIGHT,
     innerRadius: INNER_RADIUS,
     outerRadius: INNER_RADIUS + stairWidth,
     innerArcLength: INNER_ARC_LENGTH,
+    createCastleGeometry,
+    getModuleTransforms(moduleExplosion = 0) {
+      if (!Number.isFinite(moduleExplosion) || moduleExplosion < 0 || moduleExplosion > 1) {
+        throw new RangeError("Stairway moduleExplosion must be a finite number between 0 and 1.");
+      }
+      return modules.map(module => {
+        const { rotation, translation } = moduleSeparation(module, moduleExplosion);
+        const c = Math.cos(rotation), s = Math.sin(rotation);
+        return new Float32Array([c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, ...translation, 1]);
+      });
+    },
     createFootprintGeometry(nodeId = null, stockAligned = false, inset = true, moduleExplosion = 0, moduleNumber = null) {
       if (!Number.isFinite(moduleExplosion) || moduleExplosion < 0 || moduleExplosion > 1) {
         throw new RangeError("Stairway moduleExplosion must be a finite number between 0 and 1.");
@@ -2243,15 +2925,15 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
         const geometry = this.createFootprintGeometry(null, stockAligned, inset, 0, moduleNumber);
         const positions = geometry.positions.slice();
         for (const module of modules) {
-          const rotation = moduleSeparationRotation(module, moduleExplosion);
+          const { rotation, translation } = moduleSeparation(module, moduleExplosion);
           const cosine = Math.cos(rotation), sine = Math.sin(rotation);
           for (let step = module.startIndex; step < module.startIndex + module.steps.length; step++) {
             const [start, end] = geometry.treadRanges[step];
             for (let i = start; i < end; i++) {
               const vertex = geometry.indices[i] * 3;
               const x = geometry.positions[vertex], z = geometry.positions[vertex + 2];
-              positions[vertex] = cosine * x + sine * z;
-              positions[vertex + 2] = -sine * x + cosine * z;
+              positions[vertex] = cosine * x + sine * z + translation[0];
+              positions[vertex + 2] = -sine * x + cosine * z + translation[2];
             }
           }
         }
@@ -2261,6 +2943,7 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
       if (footprints.has(key)) return footprints.get(key);
       if (nodeId === null) {
         const seamInset = 1 / 16, backNormal = [Math.sin(angle), Math.cos(angle)];
+        const referenceEdges = [], referenceArcs = [];
         const treads = steps.map((step, index) => {
           if (moduleNumber !== null) {
             const module = modules[moduleNumber - 1];
@@ -2268,25 +2951,50 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
               return combineGeometries([]);
             }
           }
-          const tread = step.parts.tread.createGeometry(), faces = [];
+          const piece = this.partTree.getLeaves().find(piece => piece.key === "tread" && piece.stepNumber === index + 1);
+          const faces = [];
           const rotation = index * angle, cosine = Math.cos(rotation), sine = Math.sin(rotation);
+          const frame = placementMatrix([[cosine, 0, -sine], [0, 1, 0], [sine, 0, cosine]],
+            [cosine * INNER_RADIUS, 0, -sine * INNER_RADIUS]);
+          const placement = composeTransforms(inverseTransform(frame), this.getPieceTransform(piece.id));
+          const tread = transformGeometry(piece.part.createGeometry(), placement);
+          const placePoint = (east, south, applyInset = true) => {
+            let x = east + INNER_RADIUS, z = south;
+            if (inset && applyInset && index > 0 && Math.abs(z) < 1e-5) z -= seamInset;
+            else if (inset && applyInset && index < steps.length - 1 && Math.abs(x * backNormal[0] + z * backNormal[1]) < 1e-5) {
+              x += backNormal[0] * seamInset;
+              z += backNormal[1] * seamInset;
+            }
+            return [cosine * x + sine * z, 0, -sine * x + cosine * z];
+          };
+          const part = piece.part;
+          const placeOutlinePoint = (x, z, applyInset = true) => placePoint(
+            placement[12] + placement[0] * x + placement[8] * z,
+            placement[14] + placement[2] * x + placement[10] * z, applyInset);
+          for (const edge of part.outline.filter(edge => edge.type === "line")) {
+            referenceEdges.push({ steps: [index + 1], edge: [edge.from, edge.to].map(([x, z]) =>
+              placeOutlinePoint(x, z)) });
+          }
+          for (const arc of part.outline.filter(edge => edge.type === "arc")) {
+            const [x, z] = arc.center;
+            referenceArcs.push({
+              center: placeOutlinePoint(x, z, false),
+              radius: arc.radius, startAngle: arc.startAngle - Math.atan2(-placement[2], placement[0]) - rotation,
+              sweepRadians: arc.sweepRadians, steps: [index + 1],
+            });
+          }
           for (let i = 0; i < tread.indices.length; i += 3) {
             const indices = [...tread.indices.slice(i, i + 3)];
             if (!indices.every(vertex => tread.normals[vertex * 3 + 1] > 1 - 1e-6)) continue;
-            faces.push(indices.map(vertex => {
-              let x = tread.positions[vertex * 3] + INNER_RADIUS, z = tread.positions[vertex * 3 + 2];
-              if (inset && index > 0 && Math.abs(z) < 1e-5) z -= seamInset;
-              else if (inset && index < steps.length - 1 && Math.abs(x * backNormal[0] + z * backNormal[1]) < 1e-5) {
-                x += backNormal[0] * seamInset;
-                z += backNormal[1] * seamInset;
-              }
-              return [cosine * x + sine * z, 0, -sine * x + cosine * z];
-            }));
+            faces.push(indices.map(vertex =>
+              placePoint(tread.positions[vertex * 3], tread.positions[vertex * 3 + 2])));
           }
           return geometryFromFaces(faces, [0.26, 0.28, 0.31],
             { direction: [1, 0, 0], endFaces: [], solidColor: true });
         });
         const geometry = combineGeometries(treads);
+        geometry.referenceEdges = referenceEdges;
+        geometry.referenceArcs = referenceArcs;
         let offset = 0;
         geometry.treadRanges = treads.map(tread => {
           const start = offset;
@@ -2296,40 +3004,34 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
         footprints.set(key, geometry);
         return geometry;
       }
-      const node = this.partTree.getNode(nodeId), part = node.component;
-      const module = this.partTree.getAncestors(nodeId).find(node => node.kind === "module").component;
-      const rotation = (node.stepNumber === null ? module.startIndex : node.stepNumber - 1) * angle;
-      const cosine = Math.cos(rotation), sine = Math.sin(rotation);
+      const node = this.partTree.getNode(nodeId), part = node.part;
+      if (stockAligned && part.bend) return combineGeometries([]);
       const geometry = this.createFootprintGeometry(null, false, inset, 0, moduleNumber);
-      const positions = geometry.positions.map((value, i) => {
-        const axis = i % 3, start = i - axis;
-        return axis === 1 ? 0 : axis === 0
-          ? cosine * value - sine * geometry.positions[start + 2] - INNER_RADIUS
-          : sine * geometry.positions[start] + cosine * value;
-      });
-      let result = { ...geometry, positions };
-      if (stockAligned) {
-        const axes = part.getStockAxes(), local = part.createGeometry(), stock = part.createStockGeometry();
-        const offset = axes.map((vector, axis) => stock.positions[axis] -
-          vector.reduce((sum, value, j) => sum + value * local.positions[j], 0));
-        const transformed = new Float32Array(positions.length), normals = new Float32Array(positions.length);
-        for (let i = 0; i < positions.length; i += 3) for (let axis = 0; axis < 3; axis++) {
-          transformed[i + axis] = offset[axis] + axes[axis].reduce((sum, value, j) =>
-            sum + value * positions[i + j], 0);
-          normals[i + axis] = axes[axis][1];
-        }
-        result = { ...result, positions: transformed, normals };
-      }
+      const result = transformGeometry(geometry, inverseTransform(this.getPieceTransform(nodeId)));
       footprints.set(key, result);
       return result;
     },
     estimateNodeWeightLb(id = this.partTree.root.id) {
-      return estimateWoodWeightLb(this.partTree.getLeaves(id)
-        .filter(node => ["lumber", "plywood"].includes(node.kind)).map(node => node.component));
+      return this.partTree.getLeaves(id)
+        .filter(piece => ["lumber", "plywood"].includes(piece.kind))
+        .reduce((sum, piece) => sum + piece.part.volume / 1728 * piece.part.material.density, 0);
     },
     createNodeGeometry(id, explosion = 0, moduleExplosion = 0, hiddenCategories = []) {
       this.partTree.getNode(id);
       return this.createGeometry({}, explosion, moduleExplosion, id, hiddenCategories);
+    },
+    getPieceTransform(id, explosion = 0, moduleExplosion = 0) {
+      if (![explosion, moduleExplosion].every(value => Number.isFinite(value) && value >= 0 && value <= 1)) {
+        throw new RangeError("Piece explosion and moduleExplosion must be finite numbers between 0 and 1.");
+      }
+      const piece = this.partTree.getNode(id);
+      if (!piece.part) throw new TypeError("An installation transform requires a Piece.");
+      const module = this.partTree.getNode(piece.parentId).module;
+      const { rotation: separationRotation, translation } = moduleSeparation(module, moduleExplosion);
+      const rotation = (module.startIndex + piece.stepIndex * explosion) * angle +
+        separationRotation;
+      const c = Math.cos(rotation), s = Math.sin(rotation);
+      return composeTransforms(placementMatrix([[c, 0, -s], [0, 1, 0], [s, 0, c]], translation), piece.transform);
     },
     createGeometry(visibility = {}, explosion = 0, moduleExplosion = 0, nodeId = null, hiddenCategories = []) {
       if (!Number.isFinite(explosion) || explosion < 0 || explosion > 1) {
@@ -2338,38 +3040,19 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
       if (!Number.isFinite(moduleExplosion) || moduleExplosion < 0 || moduleExplosion > 1) {
         throw new RangeError("Stairway moduleExplosion must be a finite number between 0 and 1.");
       }
-      const includedBoards = nodeId === null && hiddenCategories.length === 0 ? null :
-        new Set(this.partTree.getLeaves(nodeId ?? this.partTree.root.id)
-          .filter(node => !hiddenCategories.includes(node.category)).map(node => node.component));
-      const placeGeometry = (geometry, i, moduleRotation) => {
-        const positions = new Float32Array(geometry.positions.length);
-        const normals = new Float32Array(geometry.normals.length);
-        const rotation = i * (1 + explosion) * angle + moduleRotation;
-        const cosine = Math.cos(rotation), sine = Math.sin(rotation);
-        for (let j = 0; j < geometry.positions.length; j += 3) {
-          const x = geometry.positions[j] + INNER_RADIUS;
-          const z = geometry.positions[j + 2];
-          positions.set([cosine * x + sine * z, geometry.positions[j + 1],
-            -sine * x + cosine * z], j);
-          const nx = geometry.normals[j], nz = geometry.normals[j + 2];
-          normals.set([cosine * nx + sine * nz, geometry.normals[j + 1],
-            -sine * nx + cosine * nz], j);
-        }
-        return { positions, normals, colors: geometry.colors, grain: geometry.grain, indices: geometry.indices };
-      };
-      return combineGeometries(modules.flatMap(module => {
-        const moduleRotation = moduleSeparationRotation(module, moduleExplosion);
-        return [
-          ...module.steps.map((step, index) =>
-            placeGeometry(step.createGeometry(visibility, includedBoards), module.startIndex + index, moduleRotation)),
-          ...Object.values(module.boards)
-            .filter(board => visibility.supportBeams !== false && (!includedBoards || includedBoards.has(board)))
-            .map(board => placeGeometry(board.createGeometry(), module.startIndex, moduleRotation)),
-        ];
-      }));
+      return combineGeometries(this.partTree.getLeaves(nodeId ?? this.partTree.root.id)
+        .filter(piece => !hiddenCategories.includes(piece.category) && visibility[piece.visibilityKey] !== false)
+        .map(piece => transformGeometry(piece.part.createGeometry(),
+          this.getPieceTransform(piece.id, explosion, moduleExplosion))));
     },
   };
-  model.partTree = new PartTree(model);
+  model.parts = createPieces(model);
+  model.partTree = new PieceTree(model);
+  for (const [index, module] of modules.entries()) {
+    module.estimatedWeightLb = model.estimateNodeWeightLb(`stairway/module-${index + 1}`);
+  }
+  model.estimatedWeightLb = modules.reduce((sum, module) => sum + module.estimatedWeightLb, 0);
+  model.largestModuleWeightLb = Math.max(...modules.map(module => module.estimatedWeightLb));
   return model;
 }
 

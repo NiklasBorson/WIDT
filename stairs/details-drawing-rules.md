@@ -314,7 +314,7 @@ Preserve exact coordinates and signed angle metadata alongside derived
 measurements. This is geometric feasibility, not a proposed dimension for
 every vertex on the eventual drawing.
 
-The default run assesses `buildStairway()` (24-inch width, nine steps, three
+The default run assesses `buildStairway()` (20-inch width, nine steps, three
 modules, 32-inch shoulder ascent). A matrix run samples the UI's 7/8/9 steps,
 2/3 modules, and minimum/default/maximum widths and shoulder ascents.
 It is a finite sample, not proof over the continuous parameter ranges or all

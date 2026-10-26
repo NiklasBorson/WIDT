@@ -1,6 +1,7 @@
 import { formatLength, getSimpleEdgeBevel } from "./part-description.js";
 import { assessPlaneAngle, STOCK_VIEWS } from "./part-angles.js";
 import { partViewLabel } from "./parts.js";
+import { outlinePoint, outlineExtrema, constructionOutline, constructionTrapezoid, constructionTangentExtension, notchRectangle, tessellateOutline } from "./plywood-outline.js";
 
 const EPSILON = 1e-8;
 const dot = (a, b) => a.reduce((sum, value, axis) => sum + value * b[axis], 0);
@@ -312,6 +313,133 @@ export function getPartFeatures(description, view, suppliedViews = []) {
         `Normal to ${faceNames[positive ? 1 : 0]} original face`);
     } else entry.lines.push(`Depth: see ${viewName([0, 0, -1])} / ${viewName([0, 0, 1])} edge`);
     features.push(entry);
+  }
+  if (y && description.outline) {
+    const construction = description.construction, surface = y > 0 ? blank.thickness : 0;
+    const point3 = ([x, z]) => [x, surface, z];
+    let unnotched, radialCuts;
+    if (construction) {
+      const rectangle = feature("B1", "construction-blank", "Starting rectangle", [0, surface, 0]);
+      rectangle.lines = [];
+      rectangle.outline = [[0, 0], [blank.length, 0], [blank.length, blank.width], [0, blank.width]].map(point3);
+      rectangle.closed = rectangle.outlineHidden = true;
+      rectangle.outlineDotted = true;
+      features.push(rectangle);
+      radialCuts = constructionTrapezoid(construction).sides;
+      const [left, right] = radialCuts.map(cut => cut.top[0]);
+      for (const [index, from, to, bottom] of [
+        [1, 0, left, [0, blank.width]], [2, right, blank.length, [blank.length, blank.width]],
+      ]) {
+        const { inset } = radialCuts[index - 1], trimmed = to - from > EPSILON;
+        if (!trimmed && Math.abs(inset) < EPSILON) continue;
+        const vertex = index === 1 ? to : from;
+        const entry = feature(`C${index}`, "corner-cut", "Trapezoid corner cut", [vertex, surface, 0]);
+        entry.lines = [trimmed ? `${entry.id}: ${formatLength(to - from)} in from ${index === 1 ? "left" : "right"}` :
+          `${entry.id}: ${index === 1 ? "Left" : "Right"} cut`];
+        if (Math.abs(inset) > EPSILON) entry.lines.push(
+          `Cut ${formatLength(Math.abs(inset))} in ${inset > 0 ? "inside" : "outside"} radial guide`);
+        if (trimmed) {
+          entry.outline = [[from, 0], [to, 0], bottom].map(point3);
+          entry.closed = entry.outlineHidden = true;
+        }
+        features.push(entry);
+      }
+      for (const [prefix, cuts] of [["N", construction.notches], ["H", construction.openings ?? []]]) {
+        for (const [i, notch] of cuts.entries()) {
+          const entry = feature(`${prefix}${i + 1}`, "rectangular-notch",
+            notch.name ?? (prefix === "H" ? "Rectangular through-opening" : "Rectangular notch"), point3(notch.reference));
+          const offsets = notch.reference.flatMap((coordinate, axis) => {
+            const size = axis === 0 ? blank.length : blank.width;
+            if (Math.abs(coordinate) < EPSILON || Math.abs(size - coordinate) < EPSILON) return [];
+            const fromEnd = Math.abs(size - coordinate) < Math.abs(coordinate);
+            const edge = axis === 0 ? fromEnd ? "right" : "left" : fromEnd ? "bottom" : "top";
+            return [`${formatLength(fromEnd ? size - coordinate : coordinate)} in from ${edge}`];
+          });
+          entry.lines = [`${entry.id}: ${offsets[0] ?? (prefix === "H" ? "Rectangular opening" : "Rectangular notch")}`, ...offsets.slice(1),
+            `Width ${formatLength(notch.width)} in; height ${formatLength(notch.depth)} in`,
+            `Angle ${angleText(notch.angleRadians * 180 / Math.PI)} from blank X`];
+          entry.outline = notchRectangle(notch).map(point3);
+          entry.closed = entry.outlineHidden = true;
+          features.push(entry);
+        }
+      }
+      unnotched = constructionOutline({ ...construction, notches: [], openings: [] });
+      if (construction.tangentExtension) {
+        const extension = constructionTangentExtension(construction);
+        const entry = feature("T1", "tangent-extension", "Straight tangent extension", point3(extension.join[0]));
+        entry.lines = ["T1: Straight tangent extension",
+          construction.innerRadius === undefined ? "Straight inner edge at blank Z = 0" :
+            `${formatLength(construction.arc.radius - construction.innerRadius)} in wide`,
+          `Join radius at ${angleText(construction.tangentExtension.angleRadians * 180 / Math.PI)} from blank X`];
+        entry.outline = extension.outline.map(edge => point3(edge.from));
+        entry.closed = entry.outlineHidden = true;
+        entry.outlineDotted = true;
+        features.push(entry);
+      }
+    }
+    const arcs = [];
+    for (const edge of description.outline.filter(edge => edge.type === "arc")) {
+      const existing = arcs.find(arc => Math.abs(arc.radius - edge.radius) < EPSILON &&
+        Math.hypot(...arc.center.map((value, i) => value - edge.center[i])) < EPSILON);
+      if (!existing) arcs.push(edge);
+      else if (Math.abs(edge.sweepRadians) > Math.abs(existing.sweepRadians)) arcs[arcs.indexOf(existing)] = edge;
+    }
+    const arcEdges = (unnotched ?? description.outline).filter(edge => edge.type === "arc");
+    const sameCenter = (a, b) => Math.hypot(...a.center.map((value, i) => value - b.center[i])) < EPSILON;
+    const onArc = (edge, angle) => {
+      const turn = Math.PI * 2;
+      const delta = ((angle - edge.startAngle) * Math.sign(edge.sweepRadians) % turn + turn) % turn;
+      return delta <= Math.abs(edge.sweepRadians) + EPSILON || turn - delta < EPSILON;
+    };
+    for (const arc of arcs) {
+      const concentric = arcs.filter(other => sameCenter(arc, other)).sort((a, b) => b.radius - a.radius);
+      const outer = concentric[0];
+      const commonPoint = concentric.length > 1 ?
+        [outlinePoint(outer, 0.5), ...arcEdges.filter(edge => sameCenter(arc, edge)).flatMap(outlineExtrema)]
+          .find(point => concentric.every(circle => arcEdges.some(edge =>
+            sameCenter(circle, edge) && Math.abs(circle.radius - edge.radius) < EPSILON &&
+            onArc(edge, Math.atan2(point[1] - arc.center[1], point[0] - arc.center[0]))))) : null;
+      const inner = commonPoint ? concentric[concentric.indexOf(arc) + 1] : null;
+      const commonRadius = commonPoint ? Math.hypot(...commonPoint.map((value, axis) => value - arc.center[axis])) : 0;
+      const point = commonPoint ? commonPoint.map((value, axis) =>
+        arc.center[axis] + (value - arc.center[axis]) * arc.radius / commonRadius) :
+        unnotched ? arcEdges.flatMap(outlineExtrema).toSorted((a, b) => b[1] - a[1])[0] :
+          outlinePoint(arc, 0.5), id = identifier("R");
+      const entry = feature(id, "arc", "Arc cut", point3(point));
+      entry.lines = [];
+      entry.radius = arc.radius;
+      entry.radiusCenter = point3(arc.center);
+      entry.radiusThroughBlank = true;
+      entry.radiusCenterLabel = "C";
+      entry.radialGuides = [];
+      if (inner) {
+        entry.radiusTo = point3(point.map((value, axis) =>
+          arc.center[axis] + (value - arc.center[axis]) * inner.radius / arc.radius));
+        entry.radiusSpan = arc.radius - inner.radius;
+      } else if (radialCuts) {
+        entry.radialGuides = radialCuts.map(cut => ({
+          from: point3(cut.guide.from), to: point3(cut.guide.to), side: cut.side, inset: cut.inset,
+        }));
+      } else {
+        const tolerance = Math.max(1, blank.length, blank.width, arc.radius) * EPSILON;
+        const ray = point => point.map((value, axis) => value - arc.center[axis]);
+        const sameRay = (a, b) => Math.abs(a[0] * b[1] - a[1] * b[0]) <=
+          tolerance * Math.max(Math.hypot(...a), Math.hypot(...b)) && dot(a, b) > 0;
+        for (const edge of [...(unnotched ?? []), ...description.outline].filter(edge => edge.type === "line")) {
+          const delta = edge.to.map((value, axis) => value - edge.from[axis]), relative = ray(edge.from);
+          if (Math.abs(delta[0] * relative[1] - delta[1] * relative[0]) > tolerance * Math.hypot(...delta)) continue;
+          const [from, to] = [edge.from, edge.to].sort((a, b) => Math.hypot(...ray(b)) - Math.hypot(...ray(a)));
+          if (sameRay(ray(from), ray(point)) || entry.radialGuides.some(existing =>
+            sameRay(ray([existing.from[0], existing.from[2]]), ray(from)))) continue;
+          entry.radialGuides.push({ from: point3(from), to: point3(to) });
+        }
+      }
+      if (unnotched) {
+        entry.outline = tessellateOutline(unnotched, 0.005).map(point3);
+        entry.closed = entry.outlineHidden = true;
+      }
+      features.push(entry);
+    }
   }
   return features;
 }

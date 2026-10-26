@@ -31,6 +31,9 @@ try {
   const moduleCount = document.querySelector("#module-count");
   const spindleShoulderAscent = document.querySelector("#spindle-shoulder-ascent");
   const modulesView = document.querySelector("#view-modules");
+  const castleView = isParameters ? null : document.querySelector("#view-castle");
+  const identityTransform = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  let castleShown = false;
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   let modulesSeparated = false;
   let moduleExplosion = 0;
@@ -52,11 +55,13 @@ try {
   const partOptions = new Map();
   let filteredParts = [];
   let pickRanges = [];
+  let meshCache = null;
   let findMatches = [];
   let locatedOccurrenceId = null;
   let renderedDetailsId = null;
   let renderedViewMode = null, placementPlanner = null, placementPlan = null;
-  let selectedPlacementView = "Up", activeDrawingName = "Up", detailsGeometry = null, detailsStockCamera = null;
+  let selectedPlacementView = "Up", activeDrawingName = "Up", detailsGeometry = null, detailsBoundsGeometry = null,
+    detailsStockCamera = null;
   const viewStates = new Map();
   const partDescription = document.querySelector("#part-description");
   const partDetailsError = document.querySelector("#part-details-error");
@@ -111,6 +116,7 @@ try {
         subset: subsetFilter.value,
         type: typeFilter.value,
         part: locatedOccurrenceId ?? "",
+        castle: castleShown ? "shown" : "",
       };
       for (const [key, value] of Object.entries(state)) {
         if (value) url.searchParams.set(key, value);
@@ -140,12 +146,14 @@ try {
       return fallback;
     };
     activeTab = read("tab", "stairway", value => tabs.includes(value), "Selected tab");
+    castleShown = read("castle", "hidden", value => ["shown", "hidden"].includes(value), "Castle visibility") === "shown";
+    renderCastleButton();
     setPartsHidden(read("parts", "shown", value => ["shown", "hidden"].includes(value), "Parts visibility") === "hidden");
     moduleFilter.value = read("module", "", value => value === "" ||
       model.partTree.root.children.some((_, index) => value === String(index + 1)), "Module filter");
     subsetFilter.value = read("subset", "", value => PART_SUBSETS.some(subset => subset.key === value), "Subset filter");
     typeFilter.value = read("type", "", value => value === "" ||
-      inventory.sections.some(section => section.key === value), "Type filter");
+      inventory.sections.some(section => section.key === value), "Material filter");
     locatedOccurrenceId = null;
     renderInventory();
     locatedOccurrenceId = read("part", "", value => value === "" ||
@@ -154,24 +162,36 @@ try {
     renderTabs();
     return warnings;
   }
+  function viewerTransforms() {
+    const transforms = model.getModuleTransforms(moduleExplosion);
+    return castleShown ? [...transforms, identityTransform] : transforms;
+  }
   function modelGeometry(model, locatedId = locatedOccurrenceId) {
+    if (meshCache?.model !== model) {
+      const modules = model.partTree.root.children.map((node, index) => ({
+        bounds: model.createNodeGeometry(node.id),
+        pieces: isParameters ? [] : model.partTree.getLeaves(node.id).map(piece => ({
+          node: piece, geometry: model.createNodeGeometry(piece.id),
+        })),
+        footprint: model.createFootprintGeometry(null, false, true, 0, index + 1),
+      }));
+      meshCache = { model, modules, bounds: combineGeometries(modules.map(module => module.bounds)) };
+    }
     pickRanges = [];
-    const bounds = model.createGeometry({}, 0, moduleExplosion);
+    const castle = castleShown ? model.createCastleGeometry() : null;
+    const bounds = castle ? combineGeometries([meshCache.bounds, castle]) : meshCache.bounds;
     const moduleNumber = !isParameters && moduleFilter.value ? Number(moduleFilter.value) : null;
     const orbitKey = moduleNumber === null ? model.partTree.root.id : model.partTree.root.children[moduleNumber - 1].id;
-    const camera = {
-      orbitKey,
-      orbitGeometry: orbitKey === model.partTree.root.id ? bounds : model.createNodeGeometry(orbitKey, 0, moduleExplosion),
-    };
-    if (!isParameters) {
-      const visibleIds = new Set(filteredParts.flatMap(({ locations }) => locations.map(location => location.id)));
-      const selectedKey = inventory.findOccurrence(locatedId)?.key;
-      const selectedIds = new Set(filteredParts.find(({ entry }) => entry.key === selectedKey)
-        ?.locations.map(location => location.id));
-      let triangleCount = 0;
-      const visible = combineGeometries(model.partTree.getLeaves()
-        .filter(node => visibleIds.has(node.id)).map(node => {
-          const geometry = model.createNodeGeometry(node.id, 0, moduleExplosion);
+    const visibleIds = isParameters ? null :
+      new Set(filteredParts.flatMap(({ locations }) => locations.map(location => location.id)));
+    const selectedKey = inventory?.findOccurrence(locatedId)?.key;
+    const selectedIds = new Set(filteredParts.find(({ entry }) => entry.key === selectedKey)
+      ?.locations.map(location => location.id));
+    const transforms = model.getModuleTransforms(moduleExplosion);
+    let triangleCount = 0;
+    const batches = meshCache.modules.map((module, index) => {
+      const geometry = isParameters ? module.bounds : combineGeometries(module.pieces
+        .filter(({ node }) => visibleIds.has(node.id)).map(({ node, geometry }) => {
           const start = triangleCount;
           triangleCount += geometry.indices.length / 3;
           pickRanges.push({ id: node.id, start, end: triangleCount });
@@ -180,12 +200,22 @@ try {
             ? value * 0.25 + [0.18, 0.8, 1][index % 3] * 0.75 : value * 0.6);
           return { ...geometry, colors };
         }));
-      camera.renderGeometry = combineGeometries([visible,
-        model.createFootprintGeometry(null, false, true, moduleExplosion, moduleNumber)]);
-      return { visible, bounds, camera };
+      const footprint = moduleNumber === null || moduleNumber === index + 1
+        ? module.footprint : combineGeometries([]);
+      return { geometry, boundsGeometry: module.bounds, footprint,
+        renderGeometry: combineGeometries([geometry, footprint]), transform: transforms[index] };
+    });
+    if (castle) {
+      const empty = combineGeometries([]);
+      // Hit-test the castle as an occluder without assigning it a selectable part.
+      pickRanges.push({ id: null, start: triangleCount, end: triangleCount + castle.indices.length / 3 });
+      batches.push({ geometry: castle, boundsGeometry: castle, footprint: empty,
+        renderGeometry: castle, transform: identityTransform });
     }
-    camera.renderGeometry = combineGeometries([bounds, model.createFootprintGeometry(null, false, true, moduleExplosion)]);
-    return { visible: bounds, bounds, camera };
+    const visible = isParameters ? bounds : combineGeometries(batches.map(batch => batch.geometry));
+    const camera = { orbitKey, orbitBatch: moduleNumber === null ? null : moduleNumber - 1, batches,
+      renderGeometry: combineGeometries([visible, ...batches.map(batch => batch.footprint)]) };
+    return { visible, bounds, camera };
   }
   function setMeasurementText(element, text) {
     const children = [];
@@ -278,7 +308,7 @@ try {
     moduleFilter.replaceChildren(option("", "All modules"),
       ...model.partTree.root.children.map((module, index) => option(String(index + 1), module.name)));
     subsetFilter.replaceChildren(...PART_SUBSETS.map(subset => option(subset.key, subset.label)));
-    typeFilter.replaceChildren(option("", "All types"),
+    typeFilter.replaceChildren(option("", "All materials"),
       ...inventory.sections.map(section => option(section.key, stockLabel(section))));
     moduleFilter.value = Number(selectedModule) <= model.moduleCount ? selectedModule : "";
     subsetFilter.value = selectedSubset;
@@ -313,18 +343,6 @@ try {
       (current + direction + findMatches.length) % findMatches.length;
     selectPart(findMatches[index].locations[0].id, true);
   }
-  function renderVisibilitySummary() {
-    const descriptions = [];
-    if (moduleFilter.value) descriptions.push(`module ${moduleFilter.value}`);
-    if (subsetFilter.value) {
-      descriptions.push(PART_SUBSETS.find(subset => subset.key === subsetFilter.value).label.toLocaleLowerCase());
-    }
-    if (typeFilter.value) {
-      descriptions.push(stockLabel(inventory.sections.find(section => section.key === typeFilter.value)));
-    }
-    document.querySelector("#parts-visibility-summary").textContent = descriptions.length
-      ? `Showing ${moduleFilter.value ? "" : "all modules, "}${descriptions.join(", ")}` : "Show all parts";
-  }
   function selectPart(id, reveal = false) {
     const key = inventory.findOccurrence(id)?.key;
     if (id !== null && !filteredParts.some(({ locations }) => locations.some(location => location.id === id))) {
@@ -349,7 +367,6 @@ try {
       stockKey: typeFilter.value,
     });
     filteredParts = results.groups;
-    renderVisibilitySummary();
     const selectedKey = inventory.findOccurrence(locatedOccurrenceId)?.key;
     const selected = filteredParts.find(({ entry }) => entry.key === selectedKey);
     if (!selected?.locations.some(location => location.id === locatedOccurrenceId)) {
@@ -534,13 +551,13 @@ try {
     document.querySelector("#part-view-selected-name").textContent = caption;
     selectedPartCanvas.setAttribute("aria-label", `${caption} of selected part`);
     if (selectedPartViewer) {
-      if (detailsGeometry) selectedPartViewer.setGeometry(detailsGeometry, detailsGeometry,
+      if (detailsGeometry) selectedPartViewer.setGeometry(detailsGeometry, detailsBoundsGeometry,
         name === "Up" ? {} : detailsStockCamera);
       selectedPartViewer.setStandardView(selected.standardView);
       resetPartDrawing();
     }
   }
-  function updatePartAnnotations() {
+  function updatePartAnnotations(layoutOnly = false) {
     const node = detailsNode();
     if (!node) return;
     if (placementActive()) {
@@ -550,7 +567,7 @@ try {
     } else if (node.kind !== "hardware") {
       const views = model.partTree.getStockViews(node.id);
       renderPartAnnotations(partAnnotations, partDrawing, selectedPartViewer, node.getDescription(),
-        views);
+        views, { layoutOnly });
       renderPartCompass(partCompass, selectedPartViewer, views);
     }
     const showTemplate = activeDrawingName === "Up" && (placementActive() || node.kind !== "hardware");
@@ -572,16 +589,25 @@ try {
     partDrawing.style.width = `${width}px`;
     partDrawing.style.height = `${height}px`;
     if (placementActive() || detailsNode().kind !== "hardware") {
-      updatePartAnnotations();
+      updatePartAnnotations(true);
       partDrawing.style.width = `${Math.max(width, parseFloat(partDrawing.style.minWidth))}px`;
-      updatePartAnnotations();
+      updatePartAnnotations(true);
       partDrawing.style.height = `${Math.max(height, parseFloat(partDrawing.style.minHeight))}px`;
       updatePartAnnotations();
     }
     const drawingWidth = partDrawing.clientWidth, drawingHeight = partDrawing.clientHeight;
-    defaultDrawingScale = drawingScale = Math.min(1, width / drawingWidth, height / drawingHeight);
-    drawingX = (width - drawingWidth * drawingScale) / 2;
-    drawingY = (height - drawingHeight * drawingScale) / 2;
+    const part = detailsNode().part;
+    const preserveAnnotationScale = !placementActive() && part?.outline;
+    defaultDrawingScale = drawingScale = preserveAnnotationScale ? 1 :
+      Math.min(1, width / drawingWidth, height / drawingHeight);
+    const partCenter = preserveAnnotationScale ?
+      selectedPartViewer.projectPoint([part.length / 2, part.thickness / 2, part.width / 2]) : null;
+    const center = {
+      x: partCenter && drawingWidth > width ? partCenter.x : drawingWidth / 2,
+      y: partCenter && drawingHeight > height ? partCenter.y : drawingHeight / 2,
+    };
+    drawingX = width / 2 - center.x * drawingScale;
+    drawingY = height / 2 - center.y * drawingScale;
     transformPartDrawing();
     selectedPartViewer.requestRender();
   }
@@ -687,7 +713,7 @@ try {
     try {
       const node = detailsNode();
       if (!node) throw new Error("Select a physical part before opening details.");
-      const part = node.component;
+      const part = node.part;
       const hardware = node.kind === "hardware";
       placementDetailsToggle.hidden = true;
       placementMetadata.hidden = true;
@@ -722,6 +748,7 @@ try {
         throw new Error("Stock-aligned views are not available for this part.");
       }
       const geometry = part.createStockGeometry();
+      const description = node.getDescription();
       const previewGeometry = part.createGeometry();
       const previewCamera = { renderGeometry: combineGeometries([
         previewGeometry, model.createFootprintGeometry(node.id),
@@ -730,6 +757,8 @@ try {
         geometry, model.createFootprintGeometry(node.id, true),
       ]) };
       detailsGeometry = geometry;
+      detailsBoundsGeometry = description.construction ?
+        { positions: new Float32Array(description.blank.vertices.flat()) } : geometry;
       detailsStockCamera = stockCamera;
       if (partPreviewViewer) {
         partPreviewViewer.setGeometry(previewGeometry, previewGeometry, previewCamera);
@@ -737,7 +766,6 @@ try {
       } else partPreviewViewer = new WebGLViewer(partPreviewCanvas, previewGeometry, previewGeometry, previewCamera);
       partPreviewCanvas.setAttribute("aria-label", `Rotatable 3D preview of ${inventory.findOccurrence(node.id).title}`);
       const views = model.partTree.getStockViews(node.id);
-      const description = node.getDescription();
       const singleView = node.kind === "plywood";
       partThumbnails.hidden = singleView;
       partViewsContainer.className = singleView ? "single-stock-view" : "";
@@ -767,8 +795,9 @@ try {
         }
         view.viewer.setStandardView(view.standardView);
       }
-      if (selectedPartViewer) selectedPartViewer.setGeometry(geometry, geometry, stockCamera);
-      else selectedPartViewer = new WebGLViewer(selectedPartCanvas, geometry, geometry, { ...stockCamera, transparent: true });
+      if (selectedPartViewer) selectedPartViewer.setGeometry(geometry, detailsBoundsGeometry, stockCamera);
+      else selectedPartViewer = new WebGLViewer(selectedPartCanvas, geometry, detailsBoundsGeometry,
+        { ...stockCamera, transparent: true });
       partViewsContainer.hidden = false;
       if (singleView) {
         const sheetViews = { riser: "Front", siding: "Right", frontSiding: "Right", backPanel: "Back" };
@@ -907,7 +936,7 @@ try {
     try {
       if (reducedMotion.matches || startValue === target) {
         moduleExplosion = target;
-        updateGeometry();
+        viewer.setBatchTransforms(viewerTransforms());
         return;
       }
       function animate(time) {
@@ -916,7 +945,7 @@ try {
           const progress = Math.max(0, Math.min(1, (time - startTime) / 600));
           const eased = progress * progress * (3 - 2 * progress);
           moduleExplosion = startValue + (target - startValue) * eased;
-          updateGeometry();
+          viewer.setBatchTransforms(viewerTransforms());
           if (progress < 1) animationFrame = requestAnimationFrame(animate);
         } catch (cause) {
           reportUpdateError(cause);
@@ -936,6 +965,21 @@ try {
     modulesSeparated = !modulesSeparated;
     renderModulesButton();
     setView();
+  });
+  function renderCastleButton() {
+    if (!castleView) return;
+    castleView.textContent = castleShown ? "Hide castle" : "Show castle";
+    castleView.setAttribute("aria-pressed", String(castleShown));
+  }
+  castleView?.addEventListener("click", () => {
+    try {
+      castleShown = !castleShown;
+      renderCastleButton();
+      updateGeometry();
+      syncURL();
+    } catch (cause) {
+      reportUpdateError(cause);
+    }
   });
   reducedMotion.addEventListener("change", setView);
   function updateParameters(next, restoreFromURL = false) {
@@ -1087,7 +1131,8 @@ try {
       }
       const hit = pickRanges.find(range => triangle >= range.start && triangle < range.end);
       if (!hit) throw new Error("The selected triangle has no matching part.");
-      selectPart(hit.id, true);
+      if (hit.id === null) clearSelection();
+      else selectPart(hit.id, true);
     } catch (cause) { reportUpdateError(cause); }
   });
   if (!isParameters) {

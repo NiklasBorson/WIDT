@@ -27,7 +27,14 @@ function rotate(geometry, angle) {
     return result;
   };
   return { ...geometry, positions: transform(geometry.positions),
-    normals: transform(geometry.normals) };
+    normals: transform(geometry.normals),
+    ...(geometry.referenceEdges ? { referenceEdges: geometry.referenceEdges.map(datum => ({
+      ...datum, edge: datum.edge.map(([x, y, z]) => [c * x + s * z, y, -s * x + c * z]),
+    })) } : {}),
+    ...(geometry.referenceArcs ? { referenceArcs: geometry.referenceArcs.map(arc => ({
+      ...arc, center: [c * arc.center[0] + s * arc.center[2], arc.center[1],
+        -s * arc.center[0] + c * arc.center[2]], startAngle: arc.startAngle - angle,
+    })) } : {}) };
 }
 
 function triangles(geometry) {
@@ -37,7 +44,7 @@ function triangles(geometry) {
       index => Array.from(geometry.positions.slice(index * 3, index * 3 + 3)));
     if (points.some(p => p.some(v => !Number.isFinite(v)))) continue;
     const normal = cross(sub(points[1], points[0]), sub(points[2], points[0]));
-    if (length(normal) > AREA) result.push({ points, normal: unit(normal) });
+    if (length(normal) > AREA) result.push({ points, normal: unit(normal), index: i / 3 });
   }
   return result;
 }
@@ -205,7 +212,7 @@ function insidePlan(point, mesh) {
 }
 
 // Keep the silhouette of the projected surface union, not triangle or bevel seams.
-function planOutline(mesh) {
+function planOutline(mesh, faces = null) {
   const top = mesh.filter(triangle => triangle.normal[1] > ANGULAR);
   const raw = surfaces(top).flatMap(surface => boundaryEdges(surface))
     .map(edge => edge.map(planPoint)).filter(edge => length(sub(edge[1], edge[0])) > EPS);
@@ -247,10 +254,13 @@ function planOutline(mesh) {
       break;
     }
   }
-  return result;
+  return faces === null ? result : result.filter(edge => faces.some(face =>
+    Math.abs(face.normal[1]) < ANGULAR && edge.every(point => Math.abs(dot(face.normal, point) - face.d) < EPS)));
 }
 
 function templateEdges(geometry) {
+  // Arc tessellation vertices are not physical corners or straight-edge datums.
+  if (geometry.referenceEdges) return geometry.referenceEdges;
   const edges = new Map();
   for (const [index, [start, end]] of (geometry.treadRanges ?? []).entries()) {
     const mesh = triangles({ ...geometry, indices: geometry.indices.subarray(start, end) });
@@ -309,7 +319,7 @@ function edgeExtensions(edge, perimeter, datums, selectedEdges, selectedTop) {
   return extensions;
 }
 
-function templateSetbacks(selectedEdges, perimeter, datums, selectedTop) {
+function templateSetbacks(selectedEdges, perimeter, datums, selectedTop, arcs = []) {
   const candidates = selectedEdges.flatMap(edge =>
     edgeExtensions(edge, perimeter, datums, selectedEdges, selectedTop).map(candidate => ({
       ...candidate, kind: "offset", from: candidate.extension[0], to: candidate.extension[1],
@@ -336,6 +346,31 @@ function templateSetbacks(selectedEdges, perimeter, datums, selectedTop) {
       label: "Perpendicular setback from part edge to template perimeter",
       reference: `Tread template perimeter: Step ${steps.join(" / ")}` });
   }
+  for (const edge of selectedEdges) for (const arc of arcs) {
+    const from = average(edge), direction = unit(sub(edge[1], edge[0]));
+    const normal = [direction[2], 0, -direction[0]], delta = sub(from, arc.center);
+    const b = dot(delta, normal), discriminant = b ** 2 - dot(delta, delta) + arc.radius ** 2;
+    if (discriminant < 0) continue;
+    for (const gap of [-b - Math.sqrt(discriminant), -b + Math.sqrt(discriminant)]) {
+      const value = Math.abs(gap);
+      if (value <= EPS || value > MAX_GAP) continue;
+      const to = add(from, mul(normal, gap));
+      const theta = Math.atan2(to[2] - arc.center[2], to[0] - arc.center[0]);
+      const turn = Math.PI * 2, sign = Math.sign(arc.sweepRadians);
+      const progress = ((theta - arc.startAngle) * sign % turn + turn) % turn;
+      if (progress > Math.abs(arc.sweepRadians) + ANGULAR ||
+        !clearPlanExtension(from, to, selectedEdges, selectedTop) ||
+        perimeter.some(boundary => {
+          const hit = segmentIntersection([from, to], boundary);
+          return hit && hit.t > EPS / value && hit.t < 1 - (0.001 + EPS) / value;
+        })) continue;
+      const radial = unit(sub(to, arc.center)), tangent = [-radial[2], 0, radial[0]];
+      candidates.push({ from, to, value, datumEdge: [sub(to, tangent), add(to, tangent)],
+        selectedEdge: edge, kind: "offset", source: "template-setback", perpendicular: true,
+        label: "Perpendicular setback from part edge to tread arc",
+        reference: `Tread template arc: Step ${arc.steps.join(" / ")}` });
+    }
+  }
   const crossing = candidate => length(cross(unit(sub(candidate.to, candidate.from)),
     unit(sub(candidate.datumEdge[1], candidate.datumEdge[0]))));
   const cost = candidate => candidate.value / Math.max(ANGULAR, crossing(candidate));
@@ -349,15 +384,15 @@ function templateSetbacks(selectedEdges, perimeter, datums, selectedTop) {
   });
 }
 
-function planLocations(selectedMesh, contexts, relationships, view, template, node, origin, radius) {
+function planLocations(selectedMesh, selectedFaces, contexts, relationships, view, template, node, origin, radius) {
   const planarRow = (normal, point) => [normal[0], normal[2],
     cross(sub(point, origin), normal)[1] / radius];
   const implicitRows = [];
-  if (node.kind === "hardware") {
+  if (node.kind === "hardware" || node.part?.bend) {
     view.planar = { rank: 0, implicitRank: 0, required: 3, complete: false };
     return [];
   }
-  const selectedEdges = planOutline(selectedMesh), contacts = [];
+  const selectedEdges = planOutline(selectedMesh, node.part?.outline ? selectedFaces : null), contacts = [];
   const selectedTop = selectedMesh.filter(triangle => triangle.normal[1] > ANGULAR);
   const approachesFromOutside = (from, to) => !insidePlan(average([from, to]), selectedTop) &&
     !insidePlan(add(to, mul(unit(sub(from, to)), EPS * 4)), selectedTop);
@@ -366,7 +401,7 @@ function planLocations(selectedMesh, contexts, relationships, view, template, no
     if (context.node.kind === "hardware") continue;
     const contact = relationships.filter(r => r.contact && r.neighbor === id && Math.abs(r.normal[1]) < ANGULAR);
     if (!contact.length) continue;
-    for (const datum of planOutline(context.mesh)) for (const edge of selectedEdges) {
+    for (const datum of planOutline(context.mesh, context.node.part?.outline ? context.faces : null)) for (const edge of selectedEdges) {
       const direction = unit(sub(datum[1], datum[0])), extent = length(sub(datum[1], datum[0]));
       if (!contact.some(r => edge.every(p => Math.abs(dot(r.normal, sub(p, planPoint(r.from)))) < EPS)) ||
         edge.some(p => length(cross(direction, sub(p, datum[0]))) > EPS)) continue;
@@ -477,7 +512,7 @@ function planLocations(selectedMesh, contexts, relationships, view, template, no
           a.value - b.value || a.reference.localeCompare(b.reference));
       const fallback = groups.filter(candidate => candidate !== group)
         .flatMap(candidate => [...candidate.ordered, ...candidate.extensions]);
-      const setbacks = templateSetbacks(selectedEdges, perimeter, datums, selectedTop);
+      const setbacks = templateSetbacks(selectedEdges, perimeter, datums, selectedTop, template.referenceArcs);
       for (const candidate of [...setbacks, ...endLocations, ...fallback]) {
         const row = locationRow(candidate);
         if (rank([...rows, row], 3) <= rank(rows, 3)) continue;
@@ -598,7 +633,17 @@ export class PlacementPlanner {
     this.model = model;
     this.occurrences = model.partTree.getLeaves().map(node => {
       const geometry = model.createNodeGeometry(node.id, 0, 0);
-      return { node, geometry, bounds: bounds(geometry), mesh: triangles(geometry) };
+      let planarTriangles = null;
+      if (node.part?.outline) {
+        const lines = [node.part.outline, ...(node.part.holes ?? [])].flat().filter(edge => edge.type === "line");
+        planarTriangles = new Set(triangles(node.part.createStockGeometry()).filter(triangle =>
+          Math.abs(triangle.normal[1]) > 1 - ANGULAR || lines.some(edge => {
+            const direction = sub([edge.to[0], 0, edge.to[1]], [edge.from[0], 0, edge.from[1]]);
+            const normal = unit([direction[2], 0, -direction[0]]), d = dot(normal, [edge.from[0], 0, edge.from[1]]);
+            return triangle.points.every(point => Math.abs(dot(normal, point) - d) < EPS);
+          })).map(triangle => triangle.index));
+      }
+      return { node, geometry, bounds: bounds(geometry), mesh: triangles(geometry), planarTriangles };
     });
     this.cache = new Map();
     this.footprint = model.createFootprintGeometry();
@@ -611,7 +656,7 @@ export class PlacementPlanner {
     if (!selected) throw new RangeError(`Placement requires a physical occurrence: ${occurrenceId}`);
     const node = selected.node, ancestors = this.model.partTree.getAncestors(node.id);
     const moduleNode = ancestors.find(ancestor => ancestor.kind === "module");
-    const module = moduleNode?.component;
+    const module = moduleNode?.module;
     const stepAngle = this.model.steps?.[0]?.angle ?? (Math.PI / (2 * this.model.stepCount));
     const midpoint = node.stepNumber != null ? node.stepNumber - 0.5
       : module ? module.startIndex + module.steps.length / 2 : 0;
@@ -619,7 +664,9 @@ export class PlacementPlanner {
     const geometry = rotate(selected.geometry, angle);
     const footprint = rotate(this.footprint, angle);
     const templateGeometry = rotate(this.template, angle);
-    const selectedMesh = triangles(geometry), selectedFaces = surfaces(selectedMesh);
+    const curved = Boolean(node.part?.bend);
+    const selectedMesh = triangles(geometry), selectedFaces = curved ? [] :
+      surfaces(selectedMesh.filter(triangle => selected.planarTriangles === null || selected.planarTriangles.has(triangle.index)));
     const selectedBounds = bounds(geometry);
     const origin = selectedMesh.length ? average(selectedMesh.flatMap(t => t.points)) : [0, 0, 0];
     const radius = Math.max(1, ...selectedBounds.min.map((v, i) => selectedBounds.max[i] - v)
@@ -629,8 +676,10 @@ export class PlacementPlanner {
     const contexts = new Map(), relationships = [];
     for (const candidate of candidates) {
       const contextGeometry = rotate(candidate.geometry, angle), mesh = triangles(contextGeometry);
-      const faces = surfaces(mesh);
-      contexts.set(candidate.node.id, { ...candidate, geometry: dimmed(contextGeometry), mesh });
+      const faces = candidate.node.part?.bend ? [] : surfaces(mesh.filter(triangle =>
+        candidate.planarTriangles === null || candidate.planarTriangles.has(triangle.index)));
+      contexts.set(candidate.node.id, { ...candidate, geometry: dimmed(contextGeometry), mesh, faces });
+      if (curved || candidate.node.part?.bend) continue;
       for (const a of selectedFaces) for (const b of faces) {
         if (length(add(a.normal, b.normal)) > ANGULAR) continue;
         const gap = -b.d - a.d;
@@ -678,6 +727,7 @@ export class PlacementPlanner {
     const contactRows = chosen.filter(r => r.contact).flatMap(r => r.rows);
     const contactRank = rank(contactRows);
     const unresolved = [];
+    if (curved) unresolved.push("Bent plywood is shown in its installed shape. Automatic placement dimensions and contacts are not inferred from curved-surface tessellation; use Details for the flat cutting pattern.");
     if (!selectedFaces.length) unresolved.push("Selected geometry has no usable finite planar surfaces.");
     if (!chosen.length) unresolved.push("No verified opposing finite-face reference within 6 inches.");
     if (contactRank < 6) {
@@ -689,7 +739,8 @@ export class PlacementPlanner {
       standardView: standard.name, direction: standard.direction,
       neighbors: [], occluded: [], dimensions: [], notes: [],
     }));
-    const usefulIds = [...new Set([...chosen, ...relationships.filter(r => r.contact)].map(r => r.neighbor))];
+    const usefulIds = curved ? [...contexts.keys()]
+      : [...new Set([...chosen, ...relationships.filter(r => r.contact)].map(r => r.neighbor))];
     if (node.kind === "hardware" || usefulIds.some(id => contexts.get(id).node.kind === "hardware")) {
       unresolved.push("Hardware geometry is approximate: contacts describe the mesh only; verify the real mounting plate, installed height and fastener pattern. No hardware clearance dimensions are generated.");
     }
@@ -743,7 +794,7 @@ export class PlacementPlanner {
     if (contactRank < 6) unresolved.push("No authored orientation datum: unsupported angular placement is unresolved; no angle is inferred from arbitrary mesh edges.");
     for (const view of views) {
       if (view.name === "Up") {
-        const locations = planLocations(selectedMesh, contexts, relationships, view, templateGeometry, node, origin, radius);
+        const locations = planLocations(selectedMesh, selectedFaces, contexts, relationships, view, templateGeometry, node, origin, radius);
         view.dimensions.push(...locations);
         if (!view.planar.complete) {
           view.notes.push(`Top-plan references constrain ${view.planar.rank}/3 planar freedoms; placement needs an additional reference.`);

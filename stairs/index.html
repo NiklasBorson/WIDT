@@ -51,21 +51,26 @@
         retain bottom half-lap notches, matching top notches in the back support.
         Every module has two pine 2x4 support beams laid flat, extending from
         its first step to its last. Four casters mount directly beneath their
-        ends, using a modeled caster height of 5 inches, with the beam tops
-        6.5 inches above the floor.
+        ends, using a modeled caster height of 4.25 inches, with the beam tops
+        5.75 inches above the floor. Two six-inch-wide, three-quarter-inch plywood
+        base rails sit on the beams and finish at 6.5 inches.
         Both module-1 beam fronts are mitered against its front cross-piece.
         Its right beam meets that cross-piece just inside the newel inner block,
         with both front caster plates clear of the cross-piece.
         The right front caster is set back an additional inch along its beam.
         Other modules' square-cut beam fronts reach the footprint boundary;
         their whole-inch length rounding is trimmed from the rear.
-        All front, rear, and combined uprights start at the beam tops.
-        Pine 2x4 support cross-pieces rest on the beams, spanning 6.5 to 8 inches
+        Left and right front/rear uprights start at the rail tops, 6.5 inches
+        above the floor.
+        Pine 2x4 support cross-pieces rest on the rails, spanning 6.5 to 8 inches
         above the floor, and seat in half-inch-deep, bottom-open face notches
         on every step except step 1. Each module also has a flat pine 2x4 rear
         support cross-piece between its rear uprights, with matching notches.
-        Combined left uprights share one bottom notch. The beams and casters
-        move outward, limited by the footprint and first-step framing.
+        Combined left uprights share one bottom notch. Right bottom notches
+        are longer, retaining the same eight-inch shoulder elevation.
+        Beam placement respects the footprint and first-step framing;
+        right beams and their casters move inward as needed to clear the
+        remaining material in the extended right uprights.
         Rear cross-pieces are trimmed clear of the
         support cross-pieces in front of them.
         Apart from the newel blocking, there are no caster platforms,
@@ -75,7 +80,7 @@
         to step 1's left tread edge; with eight steps it is a flat pine 2x4. Its front edge
         meets the riser's back face, its upper face meets the tread underside,
         and the front cross-piece is lowered beneath it. A matching flat rear
-        step support rests across the beams parallel to the front support,
+        step support rests across the rails parallel to the front support,
         immediately behind the newel's rearmost corner, and ends flush with
         the tread's right edge and front cross-piece. Its left end reaches the tread edge,
         mitered clear of
@@ -91,13 +96,12 @@
         Step 1 has no edge-on 1x4 side supports.
         There are no caster-platform dados.
         Top frames have a cross-piece at each end supporting a half-inch-thick
-        tread flush with the step's side and back edges, extending forward to
-        the front of the riser.
-        Step 1's right tread edge continues step 2's right-edge line, widening
-        its front while preserving its front, left, and back edge directions.
-        Tread plywood is stock-aligned with the right side. Later treads have
-        parallel left and right sides, leaving those edges square and only
-        the front and back mitered; step 1 also has an angled left-edge cut.
+        tread extending forward to the front of the riser. Tread inner edges
+        follow the castle radius; outer edges follow the siding's inner radius.
+        Step 1 instead has a straight right edge tangent to step 2's outer arc.
+        Treads have fitted cutouts around the newel and banister spindles.
+        Left uprights stay outside the castle's tangent plane, and the left
+        side supports' right faces align with the uprights' right faces.
         All front uprights have full-height front-edge bevels flush with
         the quarter-inch risers' back planes, plus parallel deeper notches
         for the upper front cross-pieces. There are no separate stopped
@@ -113,10 +117,9 @@
         fronts notched where needed to clear the footprint, riser, and framing.
         The horizontal blocks span 8 to 11.5 inches above the floor.
         Step 1 has no lower cross-piece or attachment blocks.
-        Flat one-eighth-inch plywood siding segments cover each module's outer
-        side from one inch above the floor to the tread tops, with mitered
-        joints following the curve. The siding is offset one-sixteenth inch
-        outward to clear framing corners and has its own visibility control.
+        Curved one-eighth-inch plywood siding covers each module's outer
+        side from one inch above the floor to the tread tops. Its inner face
+        meets the curved tread edges, and it has its own visibility control.
         Each module has a quarter-inch particle-board back panel, with its
         bottom at the rear support cross-piece bottom and its top one and a half
         inches above the back step support bottom. Its sides align with the
@@ -140,7 +143,7 @@
         line. Its back edge is straight and unnotched. The newel's front-inner
         corner is beveled flush with that face only through the cross-piece's
         contact height, leaving the post square above the joint. The stopped
-        bevel is 15 degrees in the default nine-step layout.
+        bevel is 10 degrees in the default nine-step layout.
         Its top stays at the previous elevation, with its bottom two inches lower.
         An unnotched pine 2x4 inner block runs against the post's inner face
         from that cross-piece toward step 2's right upright, with its rear
@@ -151,7 +154,8 @@
         A pine 2x4 newel rear block runs front-to-back on edge,
         against the post's back and the inner block's right face,
         with its bottom at three inches and its top at 6 1/2 inches.
-        Its square rear end aligns with the inner block's rear-end plane.
+        Its square rear end stops before step 2's extended right upright,
+        independently of the inner block's rear-end plane.
         The first tread and flat front support are cut around the post,
         and step 1's right-side siding has front and rear pieces fitted around the post.
         Fasteners and connection capacities are not modeled.
@@ -168,13 +172,15 @@
         All regular stair rises share one height, rounded to the nearest quarter
         inch. The separate transition onto the 77-inch castle top takes the
         remaining height and can differ. The castle is another stage prop,
-        not part of the modeled stairway.
-        Approximate orange-wheel casters sit below the front and rear mounting boards of each module.
+        shown as an optional gray cylinder,
+        not a selectable part of the stairway.
+        Approximate casters sit directly beneath the front and rear of each module's caster beams.
       </canvas>
       <div class="stage-header">
         <div class="view-controls" role="group" aria-label="3D view controls">
           <button id="reset" type="button">Reset view</button>
           <button id="view-modules" type="button" aria-pressed="false">Split modules</button>
+          <button id="view-castle" type="button" aria-pressed="false">Show castle</button>
         </div>
       </div>
       <p id="error" role="alert" hidden></p>
@@ -241,23 +247,26 @@
   </section>
     </div>
     <aside id="parts-sidebar" class="sidebar" aria-label="Parts">
-      <div class="parts-heading">
-        <h2>Parts</h2>
-        <button id="parts-clear-selection" type="button" disabled>Clear selection</button>
-      </div>
       <div id="parts-panel" class="tab-panel">
-        <details id="parts-visibility">
-          <summary>Filters <span id="parts-visibility-summary">Show all parts</span></summary>
+        <section id="parts-visibility" aria-labelledby="parts-filter-heading">
+          <h2 id="parts-filter-heading">Filter parts</h2>
           <div class="parts-filters">
             <label for="parts-module">Module</label>
             <select id="parts-module"><option value="">All modules</option></select>
             <label for="parts-subset">Subset</label>
             <select id="parts-subset"><option value="">All parts</option></select>
-            <label for="parts-type">Type</label>
-            <select id="parts-type"><option value="">All types</option></select>
-            <button id="parts-clear-filters" type="button">Clear filters</button>
+            <label for="parts-type">Material</label>
+            <select id="parts-type"><option value="">All materials</option></select>
           </div>
-        </details>
+          <div class="parts-filter-actions">
+            <button id="parts-clear-filters" type="button">Clear filters</button>
+            <button id="parts-clear-selection" type="button" disabled>Clear selection</button>
+          </div>
+          <div class="parts-summary" role="status" aria-live="polite" aria-atomic="true">
+            <p id="parts-count"></p>
+            <p id="parts-weight" title="Estimated weight of matching modeled wooden pieces only; excludes hardware and unmodeled items."></p>
+          </div>
+        </section>
         <div class="parts-find">
           <label for="parts-search">Find</label>
           <input id="parts-search" type="search" placeholder="Find parts by name..." autocomplete="off"
@@ -269,10 +278,6 @@
             <button id="parts-find-next" type="button" aria-label="Next matching part"
               title="Next match (Enter)" disabled>Next</button>
           </div>
-        </div>
-        <div class="parts-summary" role="status" aria-live="polite" aria-atomic="true">
-          <p id="parts-count"></p>
-          <p id="parts-weight" title="Estimated weight of matching modeled wooden pieces only; excludes hardware and unmodeled items."></p>
         </div>
         <div id="parts-results">
           <p id="parts-issues" role="alert" hidden></p>

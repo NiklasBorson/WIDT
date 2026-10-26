@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildStairway, NotchedBoard, SpindleShim, PINE, OAK, PARTICLE_BOARD } from "./model.js";
+import { buildStairway, NotchedBoard, Siding, BentPlywood, ProfiledPlywood, SpindleShim, PINE, OAK, PARTICLE_BOARD } from "./model.js";
 import { PartInventory, PART_SUBSETS, manufacturingSpecification } from "./part-list.js";
 import { formatLength, formatPartDescription, getSimpleEdgeBevel } from "./part-description.js";
 import { getPartFeatures } from "./part-annotations.js";
-import { PartTree } from "./parts.js";
+import { PieceTree, createPieces } from "./parts.js";
+import { PartCatalog } from "./part-design.js";
 
 const specification = description => JSON.stringify(manufacturingSpecification(description));
 const boardDescription = (length = 10, material = PINE, notches = {}, dados = []) =>
@@ -13,15 +14,24 @@ const boardDescription = (length = 10, material = PINE, notches = {}, dados = []
     .getManufacturingDescription();
 
 function inventoryTree(descriptions) {
+  const catalog = new PartCatalog();
   const module = { id: "module", name: "Module", kind: "module", children: [] };
   const root = { id: "root", name: "Root", kind: "stairway", children: [module] };
   const leaves = descriptions.map((description, index) => ({
     id: `part-${index}`, name: `Role ${index}`, parentId: module.id,
     kind: description?.kind ?? "lumber",
+    part: catalog.define(description, { kind: description?.kind ?? "lumber", unresolvedId: `part-${index}` }),
     getDescription: () => structuredClone(description),
   }));
   module.children = leaves;
-  return { root, getLeaves: () => leaves, getAncestors: () => [root, module] };
+  return { root, parts: catalog.parts, getLeaves: () => leaves, getAncestors: () => [root, module] };
+}
+
+function pieceTree(model) {
+  model.innerRadius ??= 0;
+  for (const module of model.modules) for (const step of module.steps) step.angle ??= 0;
+  model.parts = createPieces(model);
+  return new PieceTree(model);
 }
 
 const hardwareDescription = {
@@ -29,9 +39,142 @@ const hardwareDescription = {
   category: "Hardware", summary: "A purchased fixture part.",
 };
 
+test("Part creation reuses geometry and inventory counts existing Part references without reading piece specifications", () => {
+  const catalog = new PartCatalog(), description = boardDescription();
+  let generated = 0;
+  const design = { flatGeometry: new NotchedBoard({ length: 10, thickness: 0.75, width: 3.5 })
+    .createStockGeometry() };
+  const part = catalog.define(description, { createDesign: () => { generated++; return design; } });
+  const reused = catalog.define(structuredClone(description), {
+    createDesign: () => assert.fail("Equivalent Parts must not generate independent geometry."),
+  });
+  assert.equal(reused, part);
+  assert.equal(generated, 1);
+  assert.equal(part.createStockGeometry(), reused.createStockGeometry());
+  assert.equal(part.createGeometry(), part.createStockGeometry());
+  assert.ok(Object.isFrozen(part.description.blank));
+  assert.throws(() => { part.description.blank.length = 20; }, TypeError);
+  assert.notEqual(catalog.define(boardDescription(12)), part);
+  const tree = inventoryTree([description, description, boardDescription(12)]);
+  for (const piece of tree.getLeaves()) {
+    piece.getDescription = () => assert.fail("Inventory must not infer Parts from Piece descriptions.");
+  }
+  const inventory = new PartInventory(tree);
+  assert.equal(inventory.entries.length, tree.parts.length);
+  for (const entry of inventory.entries) {
+    assert.ok(tree.parts.includes(entry.part));
+    assert.equal(entry.description, entry.part.description);
+    assert.equal(entry.quantity, tree.getLeaves().filter(piece => piece.part === entry.part).length);
+  }
+});
+
+test("curved Pieces share finished and flat Part geometry while radius changes create a distinct Part", () => {
+  const profile = [[0, 0], [10, 0], [10, 5], [0, 5]];
+  const original = new BentPlywood({ profile, thickness: 0.125, innerRadius: 20 });
+  const moved = new BentPlywood({ profile, thickness: 0.125, innerRadius: 20,
+    startAngle: 1, center: [10, 15], bottomHeight: 8 });
+  const different = new BentPlywood({ profile, thickness: 0.125, innerRadius: 21 });
+  const model = { label: "Bent fixtures", stepCount: 3, innerRadius: 0,
+    modules: [original, moved, different].map((siding, startIndex) => ({
+      startIndex, boards: {}, steps: [{ angle: 0, parts: { siding } }],
+    })) };
+  const tree = pieceTree(model), [first, second, third] = tree.getLeaves();
+  assert.equal(first.part, second.part);
+  assert.notEqual(first.transform, second.transform);
+  assert.notDeepEqual(first.transform, second.transform);
+  assert.notEqual(first.part, third.part);
+  assert.equal(first.part.geometry, second.part.geometry);
+  assert.equal(first.part.flatGeometry, second.part.flatGeometry);
+  assert.notEqual(first.part.flatGeometry, first.part.geometry);
+  assert.equal(tree.parts.length, 2);
+  assert.equal(new PartInventory(tree).findOccurrence(first.id).quantity, 2);
+});
+
+test("arc-cut manufacturing identity and radius annotations use analytic edges, not mesh facets or placement", () => {
+  const rib = buildStairway().modules[1].boards.outerBaseRail, description = rib.getManufacturingDescription();
+  const moved = new ProfiledPlywood({ construction: description.construction, thickness: rib.thickness,
+    origin: [40, 70], heading: 1.2, bottomHeight: 20 });
+  assert.equal(specification(description), specification(moved.getManufacturingDescription()));
+  const original = specification(description);
+  rib.createStockGeometry(0.1);
+  rib.createStockGeometry(0.0001);
+  assert.equal(specification(rib.getManufacturingDescription()), original);
+  const rectangle = structuredClone(description);
+  delete rectangle.outline;
+  assert.notEqual(specification(rectangle), original);
+  const formatted = formatPartDescription(description);
+  assert.match(formatted.summary, /flat outline; arc radius/);
+  assert.doesNotMatch(formatted.summary, /bend|Square cuts/);
+  assert.match(formatted.outlines.join(" "), /line .*arc radius/);
+  assert.match(formatted.dimensions, /Starting rectangle/);
+  assert.match(formatted.cuts.join(" "), /marked reference corner/);
+  const reordered = structuredClone(description);
+  reordered.construction.notches.reverse();
+  reordered.construction.openings.reverse();
+  for (const cut of [...reordered.construction.notches, ...reordered.construction.openings]) cut.name = "Renamed cut";
+  assert.equal(specification(reordered), original);
+  for (const direction of [[0, 1, 0], [0, -1, 0]]) {
+    const view = { direction, up: [1, 0, 0] };
+    const arcs = getPartFeatures(description, view, []).filter(feature => feature.kind === "arc");
+    assert.equal(arcs.length, 2, "Each concentric circle needs one radius annotation, even when interrupted.");
+    assert.equal(arcs[0].radius, rib.outline.find(edge => edge.type === "arc").radius);
+    const center = rib.outline.find(edge => edge.type === "arc").center;
+    assert.deepEqual(arcs[0].radiusCenter, [center[0], direction[1] > 0 ? rib.thickness : 0, center[1]]);
+    assert.deepEqual(arcs[0].lines, [], "The radius is labeled at its arrow, not in a separate note.");
+    assert.equal(arcs[0].dimensions.length, 0);
+    assert.equal(arcs[0].angles.length, 0);
+  }
+  const edgeView = { direction: [1, 0, 0], up: [0, 1, 0] };
+  assert.equal(getPartFeatures(description, edgeView, []).filter(feature => feature.kind === "arc").length, 0);
+});
+
+test("plywood opening size and location distinguish otherwise identical manufacturing specifications", () => {
+  const rib = new ProfiledPlywood({ thickness: 0.25, construction: {
+    blank: { length: 20, width: 10 },
+    trapezoid: { left: { angleRadians: Math.atan2(20, -10), inset: 0 },
+      right: { angleRadians: Math.atan2(20, 10), inset: 0 } },
+    arc: { center: [10, -10], radius: 20 }, innerRadius: 12, notches: [],
+    openings: [7, 11].map(x => ({ reference: [x, 4], width: 2, depth: 2, angleRadians: 0 })),
+  } });
+  const original = specification(rib.getManufacturingDescription());
+  for (const change of [
+    opening => { opening.reference[0] += 0.125; },
+    opening => { opening.width += 0.125; },
+  ]) {
+    const construction = structuredClone(rib.construction);
+    change(construction.openings[0]);
+    const changed = new ProfiledPlywood({ construction, thickness: rib.thickness });
+    assert.notEqual(specification(changed.getManufacturingDescription()), original);
+  }
+  const description = rib.getManufacturingDescription();
+  assert.equal(description.holes.length, 2);
+  description.holes.reverse();
+  assert.equal(specification(description), original, "Hole contour order is not a manufacturing difference.");
+});
+
+test("notch reference callouts use nearby blank edges and omit offsets on exact edges", () => {
+  const construction = {
+    blank: { length: 10, width: 10 }, trapezoid: {
+      left: { angleRadians: Math.PI / 2, inset: -5 }, right: { angleRadians: Math.PI / 2, inset: -5 },
+    },
+    arc: { center: [5, -5], radius: 15 },
+    notches: [{ reference: [0, 2], width: 2, depth: 10, angleRadians: 0 }],
+  };
+  const describe = () => new ProfiledPlywood({ construction, thickness: 0.5 }).getManufacturingDescription();
+  const notch = () => getPartFeatures(describe(), { direction: [0, 1, 0], up: [1, 0, 0] })
+    .find(feature => feature.kind === "rectangular-notch");
+  assert.deepEqual(notch().lines, ["N1: 2 in from top", "Width 2 in; height 10 in", "Angle 0 deg from blank X"]);
+  construction.notches[0].reference = [0, 0];
+  assert.equal(notch().lines[0], "N1: Rectangular notch");
+  construction.notches[0].reference = [7, 6];
+  assert.deepEqual(notch().lines.slice(0, 2), ["N1: 3 in from right", "4 in from bottom"]);
+  assert.deepEqual(notch().dimensions, []);
+});
+
 test("modeled part names use family-first qualifiers across every supported layout", () => {
   const names = {
     leftCaster: "Caster", rightCaster: "Caster", leftRearCaster: "Caster", rightRearCaster: "Caster",
+    innerBaseRail: "Base rail - inner", outerBaseRail: "Base rail - outer",
     leftSupportBeam: "Beam - caster left", rightSupportBeam: "Beam - caster right",
     supportCrossPiece: "Beam - cross", rearSupportCrossPiece: "Beam - cross rear",
     leftUpright: ["Upright - front left", "Upright - full left"],
@@ -47,8 +190,19 @@ test("modeled part names use family-first qualifiers across every supported layo
     newelInnerBlock: "Newel block - inner", newelRearBlock: "Newel block - rear",
     newel: "Newel post", riser: "Riser", tread: "Tread", backPanel: "Rear panel",
     frontSpindle: "Spindle - front", rearSpindle: "Spindle - rear", spindleShim: "Spindle shim",
-    siding: ["Side panel - right", "Side panel - right rear section"],
+    siding: ["Side panel - curved", "Side panel - right rear section"],
     frontSiding: "Side panel - right front section",
+    sidingStiffener: ["Bottom rib - curved", "Bottom rib - rear section"],
+    frontSidingStiffener: "Bottom rib - front section",
+    sidingStiffenerUpper: ["Bottom rib - curved", "Bottom rib - rear section"],
+    frontSidingStiffenerUpper: "Bottom rib - front section",
+    frontPanelSupportBlock: "Panel support block - front", rearPanelSupportBlock: "Panel support block - rear",
+    sidingRib: "Panel rib",
+    intermediateSidingRib: "Panel rib - intermediate",
+    frontRibSupportBlock: "Attachment block - panel rib front",
+    rearRibSupportBlock: "Attachment block - panel rib rear",
+    frontIntermediateRibSupportBlock: "Attachment block - panel rib front",
+    rearIntermediateRibSupportBlock: "Attachment block - panel rib rear",
   };
   const seen = new Set();
   for (const steps of [6, 7, 8, 9]) for (const modules of [2, 3]) {
@@ -57,7 +211,7 @@ test("modeled part names use family-first qualifiers across every supported layo
       assert.ok([names[node.key]].flat().includes(node.name), `${node.id}: ${node.name}`);
       assert.equal(node.getDescription().name, node.name);
       if (node.key === "siding") assert.equal(node.name,
-        node.stepNumber === 1 ? "Side panel - right rear section" : "Side panel - right");
+        node.stepNumber === 1 ? "Side panel - right rear section" : "Side panel - curved");
       const entry = inventory.findOccurrence(node.id);
       assert.ok(entry.roles.some(role => role.label === node.name));
       assert.equal(entry.locations.find(location => location.id === node.id).name, node.name);
@@ -78,76 +232,104 @@ test("Parts inventory filters intersect module, subset, and stock category", () 
     all.occurrences.map(({ location }) => location.id).sort());
   assert.ok(all.groups.every(group => group.title === group.entry.title));
   const key = all.occurrences.find(({ location }) => location.category === "siding").entry.stockKey;
-  const combined = inventory.filter({ moduleNumber: 1, subset: "cladding", stockKey: key });
+  const combined = inventory.filter({ moduleNumber: 1, stockKey: key });
   assert.ok(combined.occurrences.length);
   assert.ok(combined.occurrences.every(({ entry, location }) =>
     entry.stockKey === key && location.moduleNumber === 1 && location.category === "siding"));
   assert.equal(combined.uniqueCount, new Set(combined.occurrences.map(({ entry }) => entry.key)).size);
-  assert.deepEqual(inventory.filter({ moduleNumber: 1, subset: "framing", stockKey: key }),
+  assert.deepEqual(inventory.filter({ moduleNumber: 1, subset: "step-framing", stockKey: key }),
     { occurrences: [], groups: [], uniqueCount: 0 });
   assert.deepEqual(inventory.filter({ moduleNumber: 4 }), { occurrences: [], groups: [], uniqueCount: 0 });
-  const framing = inventory.filter({ subset: "framing" });
+  const framing = inventory.filter({ subset: "step-framing" });
   assert.ok(framing.occurrences.length);
-  assert.ok(framing.occurrences.every(({ entry, location }) => entry.kind === "lumber" &&
-    !["plywood", "siding", "particle-board", "newel", "spindles"].includes(location.category)));
+  assert.ok(framing.occurrences.every(({ entry, location }) =>
+    ["lumber", "hardware"].includes(entry.kind) || location.category === "base-rails"));
   assert.throws(() => inventory.filter({ subset: "missing" }), /Unknown part subset/);
 });
 
-test("curated subsets cover every modeled role, overlap deliberately, and distinguish framing from without cladding", () => {
+test("construction subsets are cumulative and add each role at its construction stage", () => {
   assert.deepEqual(PART_SUBSETS.map(subset => subset.label), [
-    "All parts", "Framing", "Foundation", "Step framing", "Treads and risers", "Cladding", "Banister", "Without cladding",
+    "Foundation", "Uprights", "Step framing", "Banister", "Ribs", "All parts",
   ]);
+  const stages = {
+    foundation: ["leftCaster", "rightCaster", "leftRearCaster", "rightRearCaster",
+      "innerBaseRail", "outerBaseRail", "leftSupportBeam", "rightSupportBeam",
+      "supportCrossPiece", "rearSupportCrossPiece", "frontStepSupport", "rearStepSupport",
+      "frontStepRightSupport", "frontStepLeftSupport"],
+    uprights: ["leftUpright", "rightUpright", "leftRearUpright", "rightRearUpright"],
+    "step-framing": ["southCrossPiece", "northCrossPiece", "leftStepSupport", "rightStepSupport",
+      "leftSupportBlock", "rightSupportBlock", "leftBackSupportBlock", "rightBackSupportBlock"],
+    banister: ["newel", "frontSpindle", "rearSpindle", "spindleShim", "newelInnerBlock", "newelRearBlock"],
+    ribs: ["sidingRib", "sidingStiffener", "sidingStiffenerUpper", "frontSidingStiffener",
+      "frontSidingStiffenerUpper", "frontPanelSupportBlock", "rearPanelSupportBlock",
+      "frontRibSupportBlock", "rearRibSupportBlock", "intermediateSidingRib",
+      "frontIntermediateRibSupportBlock", "rearIntermediateRibSupportBlock"],
+    "": ["tread", "riser", "siding", "frontSiding", "backPanel"],
+  };
+  const keys = PART_SUBSETS.map(({ key }) => key);
   for (const steps of [6, 7, 8, 9]) for (const modules of [2, 3]) {
     const model = buildStairway(24, steps, modules), inventory = new PartInventory(model.partTree);
     const locations = new Map(inventory.filter().occurrences.map(({ location }) => [location.id, location]));
     const ids = subset => new Set(inventory.filter({ subset }).occurrences.map(({ location }) => location.id));
-    const framing = ids("framing"), foundation = ids("foundation"), stepFraming = ids("step-framing");
-    const cladding = ids("cladding"), banister = ids("banister"), surfaces = ids("treads-risers");
-    const withoutCladding = ids("without-cladding");
+    let previous = new Set();
+    for (const key of keys) {
+      const current = ids(key);
+      assert.ok([...previous].every(id => current.has(id)), key);
+      assert.ok(current.size > previous.size, key);
+      previous = current;
+    }
     for (const node of model.partTree.getLeaves()) {
       const { id, key } = node;
-      assert.ok([foundation, stepFraming, cladding, banister, surfaces].some(group => group.has(id)),
-        `Unclassified part role: ${key}`);
-      assert.equal(framing.has(id), node.kind === "lumber" && (foundation.has(id) || stepFraming.has(id)));
-      assert.equal(withoutCladding.has(id), !cladding.has(id));
-      assert.equal(cladding.has(id), ["siding", "frontSiding", "backPanel"].includes(key));
-      assert.equal(surfaces.has(id), ["tread", "riser"].includes(key));
-      assert.equal(banister.has(id), ["newel", "frontSpindle", "rearSpindle", "spindleShim",
-        "newelInnerBlock", "newelRearBlock", "rightUpright", "rightRearUpright"].includes(key) ||
-        (key === "southCrossPiece" && node.stepNumber === 1));
-      if (node.kind === "hardware") {
-        assert.ok(foundation.has(id));
-        assert.ok(withoutCladding.has(id));
-        assert.ok(!framing.has(id));
+      const stage = key === "southCrossPiece" && node.stepNumber === 1 ? "foundation"
+        : Object.keys(stages).find(stage => stages[stage].includes(key));
+      assert.notEqual(stage, undefined, `Unclassified part role: ${key}`);
+      const location = locations.get(id);
+      assert.deepEqual(location.subsets, keys.slice(keys.indexOf(stage)).filter(Boolean), id);
+      assert.equal(node.category === "ribs", stages.ribs.includes(key), id);
+      if (["frontPanelSupportBlock", "rearPanelSupportBlock"].includes(key)) {
+        assert.equal(node.visibilityKey, "supportBeams");
       }
-      if (["newelInnerBlock", "newelRearBlock"].includes(key)) {
-        assert.ok(framing.has(id) && stepFraming.has(id) && banister.has(id));
-      }
-      if (["rightUpright", "rightRearUpright"].includes(key)) {
-        assert.ok(framing.has(id) && stepFraming.has(id) && banister.has(id));
-      }
-      if (["leftUpright", "leftRearUpright"].includes(key)) assert.ok(!banister.has(id));
-      if (key === "southCrossPiece") assert.equal(foundation.has(id), node.stepNumber === 1);
-      if (["frontStepSupport", "rearStepSupport"].includes(key)) assert.ok(foundation.has(id) && stepFraming.has(id));
-      if (["newel", "frontSpindle", "rearSpindle", "spindleShim", "tread", "riser"].includes(key)) {
-        assert.ok(withoutCladding.has(id) && !framing.has(id));
-      }
-      assert.ok(Object.isFrozen(locations.get(id).subsets));
+      assert.ok(Object.isFrozen(location.subsets));
     }
     assert.equal(inventory.filter().occurrences.length, model.partTree.getLeaves().length);
   }
 });
 
+test("base rails retain analytic boundaries and three-quarter-inch plywood specifications", () => {
+  for (const modules of [2, 3]) {
+    const model = buildStairway(24, 9, modules), inventory = new PartInventory(model.partTree);
+    const rails = inventory.entries.filter(entry => entry.locations.some(location => location.category === "base-rails"));
+    assert.equal(rails.reduce((sum, entry) => sum + entry.quantity, 0), modules * 2);
+    for (const entry of rails) for (const location of entry.locations) {
+      assert.equal(entry.kind, "plywood");
+      assert.deepEqual(location.subsets, ["foundation", "uprights", "step-framing", "banister", "ribs"]);
+    }
+    for (const node of model.partTree.getLeaves().filter(node => node.category === "base-rails")) {
+      const description = node.getDescription();
+      assert.equal(description.stock.thickness, 0.75);
+      assert.equal(description.blank.thickness, 0.75);
+      const straight = node.id === "stairway/module-1/outerBaseRail";
+      if (straight) assert.equal(description.construction.innerRadius, undefined);
+      else assert.equal(description.construction.arc.radius - description.construction.innerRadius, 6);
+      const moved = new ProfiledPlywood({ construction: description.construction, thickness: 0.75,
+        origin: [100, 200], heading: 1.3, bottomHeight: 50 });
+      assert.equal(specification(description), specification(moved.getManufacturingDescription()));
+      const features = getPartFeatures(description, { direction: [0, 1, 0], up: [0, 0, -1] });
+      assert.equal(features.filter(feature => feature.kind === "arc").length, straight ? 1 : 2);
+    }
+  }
+});
+
 test("scoped Parts titles describe visible steps without changing global identity or quantity", () => {
   const inventory = new PartInventory(buildStairway().partTree);
-  const tread = inventory.entries.find(entry => entry.title === "Tread (steps 2-9)");
+  const tread = inventory.entries.find(entry => entry.title === "Tread (steps 3, 6, 9)");
   assert.ok(tread);
-  assert.equal(tread.quantity, 8);
+  assert.equal(tread.quantity, 3);
   const scoped = inventory.filter({ moduleNumber: 1 }).groups.find(group => group.entry.key === tread.key);
   assert.equal(scoped.entry, tread);
-  assert.equal(scoped.title, "Tread (steps 2-3)");
-  assert.equal(scoped.locations.length, 2);
-  assert.equal(tread.title, "Tread (steps 2-9)");
+  assert.equal(scoped.title, "Tread (step 3)");
+  assert.equal(scoped.locations.length, 1);
+  assert.equal(tread.title, "Tread (steps 3, 6, 9)");
   const tree = inventoryTree([boardDescription(), boardDescription(12)]);
   tree.getLeaves().forEach(node => { node.name = "Shared"; });
   const variants = new PartInventory(tree);
@@ -201,7 +383,7 @@ test("role-specific visibility categories override the plywood category without 
     stock: { kind: "plywood", thickness: 0.125 } });
   const post = new NotchedBoard({ length: 40, width: 3.5, thickness: 3.5, material: OAK,
     stock: { kind: "lumber", nominalSize: "4x4", thickness: 3.5, width: 3.5 } });
-  const tree = new PartTree({
+  const tree = pieceTree({
     label: "Fixture", stepCount: 1,
     modules: [{ startIndex: 0, boards: {},
       steps: [{ parts: { tread: sheet, siding: sheet, frontSiding: sheet, newel: post } }] }],
@@ -218,12 +400,12 @@ test("role-specific visibility categories override the plywood category without 
   assert.equal(newel.name, "Newel post");
   assert.equal(newel.getDescription().stock.nominalSize, "4x4");
   const inventory = new PartInventory(tree);
-  const sidingGroup = inventory.filter({ subset: "cladding" }).groups
+  const sidingGroup = inventory.filter().groups
     .find(group => group.locations.some(location => location.id === siding.id));
   assert.equal(sidingGroup.entry.quantity, 3);
-  assert.equal(sidingGroup.locations.length, 2);
-  assert.equal(sidingGroup.title, "Side panel - right rear section / Side panel - right front section");
-  assert.ok(sidingGroup.locations.every(location => location.category === "siding"));
+  assert.deepEqual(sidingGroup.locations.filter(location => location.category === "siding")
+    .map(location => location.name).sort(), ["Side panel - right front section", "Side panel - right rear section"]);
+  assert.equal(inventory.filter({ subset: "ribs" }).occurrences.some(({ location }) => location.id === siding.id), false);
 });
 
 test("particle board has independent visibility and inventory identity while remaining sheet stock", () => {
@@ -231,7 +413,7 @@ test("particle board has independent visibility and inventory identity while rem
     stock: { kind: "plywood", thickness: 0.25 } };
   const sheet = new NotchedBoard(dimensions);
   const particle = new NotchedBoard({ ...dimensions, material: PARTICLE_BOARD });
-  const tree = new PartTree({
+  const tree = pieceTree({
     label: "Fixture", stepCount: 1,
     modules: [{ startIndex: 0, boards: {},
       steps: [{ parts: { tread: sheet, siding: particle, backPanel: particle } }] }],
@@ -243,7 +425,7 @@ test("particle board has independent visibility and inventory identity while rem
   assert.notEqual(specification(sheet.getManufacturingDescription()), specification(particle.getManufacturingDescription()));
 });
 
-test("the inventory coalesces manufacturing patterns and retains every occurrence exactly once", () => {
+test("the inventory lists existing catalog Parts and counts every Piece exactly once", () => {
   const tree = inventoryTree([
     boardDescription(), boardDescription(), boardDescription(10, OAK),
     hardwareDescription, hardwareDescription,
@@ -409,7 +591,7 @@ test("inner newel block bevel appears only in the two views exposing its angle",
     assert.equal(features.length, 1);
     assert.equal(features[0].id, "B1");
     assert.equal(features[0].angles.length, 1);
-    assert.ok(Math.abs(features[0].angles[0].valueDegrees - 15) < 1e-8);
+    assert.ok(Math.abs(features[0].angles[0].valueDegrees - 10) < 1e-8);
     assert.ok(features[0].dimensions.some(dimension => dimension.property === "length"));
   }
 });
@@ -461,7 +643,7 @@ test("simple edge bevels need only an actual end-profile angle, not linked featu
     }
   }
   for (const id of ["stairway/module-1/step-1-newel", "stairway/module-1/step-3-rightUpright",
-    "stairway/module-1/step-3-spindleShim", "stairway/module-1/step-2-siding"]) {
+    "stairway/module-1/step-3-spindleShim", "stairway/module-1/siding"]) {
     assert.equal(getSimpleEdgeBevel(model.partTree.getNode(id).getDescription()), null, id);
   }
   for (const [length, depth] of [[5, [0, 0.25]], [10, [0.25, 0.5]]]) {
@@ -485,7 +667,7 @@ test("newel bevel uses an exposed end angle and finite, separately located face 
     assert.equal(face.outline, null);
     const feature = getPartFeatures(description, { direction: [-1, 0, 0] }, [])
       .find(feature => feature.id === face.id);
-    const degrees = stepCount === 9 ? 15 : 135 / stepCount;
+    const degrees = 90 / stepCount;
     if (start < 1e-8) assert.ok(Math.abs(feature.angles[0].valueDegrees - degrees) < 1e-8);
     else {
       assert.equal(feature, undefined, "An internal patch is not an exposed end feature");
@@ -511,7 +693,7 @@ test("finite notch shoulders have dashed edge-view traces through the callout an
     assert.ok(!feature.hidden, "Keep the leader and anchor for the exposed notch");
     assert.deepEqual(feature.outline, [
       [spindle.blank.length - 2, 0, notchIndex ? 1 : 0.5],
-      [47.75 - 2, spindle.blank.thickness, notchIndex ? 1 : 0.5],
+      [46.75 - 2, spindle.blank.thickness, notchIndex ? 1 : 0.5],
     ], "Use each face's actual end, not a square-blank approximation");
     assert.deepEqual(feature.point, [0, 1, 2].map(axis =>
       (feature.outline[0][axis] + feature.outline[1][axis]) / 2));
@@ -603,8 +785,12 @@ test("upright bevel callouts give full-face width difference, not bevel length o
 
 test("single-view plywood retains both notch profiles and labels separate true-angle plane constructions", () => {
   const model = buildStairway();
-  const node = model.partTree.getNode("stairway/module-1/step-2-siding");
-  const description = node.getDescription(), views = model.partTree.getStockViews(node.id);
+  const step = model.steps[1], sheet = new Siding(step.footprint, step.height);
+  sheet.edgeNotches.push({ profiles: [0, 1].map(face =>
+    [[2, sheet.width - 2 + face / 8], [3.5, sheet.width - 2 + face / 8]]) });
+  step.parts.siding = sheet;
+  const tree = pieceTree(model), node = tree.getNode("stairway/module-1/step-2-siding");
+  const description = node.getDescription(), views = tree.getStockViews(node.id);
   const view = views.find(view => view.name === "Right");
   const features = getPartFeatures(description, view, views);
   const notch = features.find(feature => feature.id === "N1");
@@ -619,6 +805,22 @@ test("single-view plywood retains both notch profiles and labels separate true-a
       assert.ok(Math.abs(normal.reduce((sum, value, axis) => sum + value * angle.viewDirection[axis], 0)) < 1e-8);
     }
   }
+});
+
+test("bending requirements distinguish identical flat patterns and explain the installed versus stock views", () => {
+  const profile = [[0, 0], [20, 0], [20, 12], [10, 12], [10, 6], [0, 6]];
+  const make = (innerRadius, startAngle = 0) => new BentPlywood({
+    profile, thickness: 0.125, innerRadius, startAngle,
+  }).getManufacturingDescription();
+  const original = make(60);
+  assert.equal(specification(original), specification(make(60, 0.5)));
+  assert.notEqual(specification(original), specification(make(61)));
+  const flat = structuredClone(original);
+  delete flat.bend;
+  assert.notEqual(specification(original), specification(flat));
+  const formatted = formatPartDescription(original);
+  assert.match(formatted.cuts.join(" "), /inner radius of 60 in.*mid-thickness/);
+  assert.match(formatted.note, /flat cutting pattern.*installed bend/);
 });
 
 test("identity ignores naming, vertex enumeration, feature order, and numerical noise but not geometry", () => {
@@ -661,7 +863,7 @@ test("missing or invalid specifications remain individually accounted for and vi
   assert.equal(inventory.issues.length, 4);
   assert.equal(inventory.sections.at(-1).kind, "unresolved");
   assert.equal(inventory.sections.at(-1).entries.length, 4);
-  assert.ok(inventory.issues.every(issue => issue.startsWith("Could not group")));
+  assert.ok(inventory.issues.every(issue => issue.startsWith("Unresolved Part")));
   assert.ok(inventory.sections.at(-1).entries.every(entry => entry.quantity === 1 && entry.specification === null));
 });
 

@@ -4,6 +4,14 @@ This is the original design proposal. The current consolidated Parts browser,
 Filters section, and Find interaction are documented in
 [Part-browser UI](stairs.md#part-browser-ui).
 
+**Model update:** the current implementation creates canonical, geometry-bearing
+Parts during model construction, then installs Pieces referencing those Parts.
+The Parts list displays those existing definitions and counts their Pieces; it
+does not retroactively group installed component specifications. The ownership
+hierarchy is Stairway -> Modules -> Pieces. Earlier `PartTree`/`PartNode` and
+inventory-coalescing descriptions below are historical; see
+[Part and Piece model](stairs.md#part-and-piece-model) for the current API.
+
 ## 1. Purpose and recommendation
 
 Add a **Parts** tab alongside **Parameters** and **Assemblies**. It presents a
@@ -244,8 +252,8 @@ Plywood - 1/2 in
 
 Hardware - Casters
 
-  Castrek 4-inch locking swivel caster           x 12
-  Purchased part - plate-mounted, locking
+  CWfutureparts 3-inch swivel caster             x 12
+  Purchased part - plate-mounted, two brakes per four-caster set
   [Show locations] [Show details]
 ```
 

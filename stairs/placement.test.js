@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { combineGeometries, buildStairway } from "./model.js";
+import { combineGeometries, buildStairway, ProfiledPlywood } from "./model.js";
 import { PlacementPlanner } from "./placement.js";
 
 function mesh(faces) {
@@ -36,7 +36,7 @@ function fixture(geometries, angle = 0) {
   return {
     calls, steps: [{ angle }], stepCount: 1,
     partTree: { getLeaves: () => nodes, getAncestors: () => [
-      { kind: "module", name: "Module 1", component: { startIndex: 0, steps: [{ angle }] } },
+      { kind: "module", name: "Module 1", module: { startIndex: 0, steps: [{ angle }] } },
     ] },
     createNodeGeometry(id) { calls.push(id); return geometries[id]; },
     createFootprintGeometry: () => combineGeometries([]),
@@ -60,6 +60,33 @@ function templateStrips(stations, width = 10) {
 
 const block = () => box(0, 1, 0, 2, 3, 2);
 const seat = () => box(-2, 0, -2, 4, 1, 4);
+
+test("arc-cut plywood retains its flat seat datum without treating arc facets as planar contacts", () => {
+  const rib = new ProfiledPlywood({ thickness: 0.5, outline: [
+    { type: "line", from: [0, 0], to: [10, 0] },
+    { type: "arc", center: [0, 0], radius: 10, startAngle: 0, sweepRadians: Math.PI / 2 },
+    { type: "line", from: [0, 10], to: [0, 0] },
+  ] });
+  const geometry = rib.createGeometry();
+  let facet;
+  for (let i = 0; i < geometry.indices.length; i += 3) {
+    const index = geometry.indices[i] * 3;
+    if (Math.abs(geometry.normals[index]) > 0.2 && Math.abs(geometry.normals[index + 2]) > 0.2 &&
+      Math.abs(geometry.normals[index + 1]) < 1e-5) {
+      facet = Array.from(geometry.indices.slice(i, i + 3), vertex =>
+        Array.from(geometry.positions.slice(vertex * 3, vertex * 3 + 3))).reverse();
+      break;
+    }
+  }
+  assert.ok(facet);
+  const model = fixture({ rib: geometry, facet: mesh([facet]), support: box(-1, -1, -1, 11, 0, 11) });
+  const node = model.partTree.getLeaves()[0];
+  node.part = rib;
+  node.kind = "plywood";
+  const plan = new PlacementPlanner(model).plan("rib");
+  assert.ok(plan.evidence.relationships.some(relationship => relationship.neighbor === "support" && relationship.contact));
+  assert.ok(plan.evidence.relationships.every(relationship => relationship.neighbor !== "facet"));
+});
 
 test("finite seat contact leaves two sliding directions and yaw unresolved without zero labels", () => {
   const plan = new PlacementPlanner(fixture({ block: block(), seat: seat() })).plan("block");
@@ -203,9 +230,15 @@ test("actual assembled model retains measured surfaces and parameter-dependent p
       assert.ok(dimension.to.every(Number.isFinite));
       assert.ok(view.neighbors.length > 0);
     }
-    const siding = model.partTree.getLeaves().find(node => node.key === "siding");
+    const siding = model.partTree.getLeaves().find(node => node.part.bend);
     const sidingPlan = planner.plan(siding.id);
-    assert.ok(sidingPlan.views.some(view => view.dimensions.length > 0));
+    const top = sidingPlan.views.find(view => view.name === "Up");
+    assert.equal(top.planar.complete, false);
+    assert.equal(sidingPlan.evidence.relationships.length, 0);
+    assert.ok(sidingPlan.views.every(view => view.dimensions.length === 0));
+    assert.ok(sidingPlan.unresolved.some(note => note.includes("curved-surface tessellation")));
+    assert.ok(sidingPlan.previewPickRanges.length > 1);
+    assert.equal(sidingPlan.geometry.positions.length, model.createNodeGeometry(siding.id).positions.length);
   }
 });
 
@@ -271,11 +304,6 @@ test("caster beam locates its support joint and both extreme tread-template cros
     const node = model.partTree.getLeaves().find(n => n.key === "rightSupportBeam");
     const top = planner.plan(node.id).views[0], locations = top.dimensions.filter(d => d.source);
     assert.equal(top.planar.complete, true);
-    if (width === 24 && steps === 9 && modules === 3) {
-      assert.equal(top.planar.implicitRank, 3, "The seam-corner and physical stop already locate this layout.");
-      assert.equal(locations.length, 0);
-      continue;
-    }
     assert.ok(locations.some(d => d.source === "contact-position"), `Missing joint for ${width}/${steps}/${modules}`);
     const crossings = locations.filter(d => d.source === "template-intersection");
     assert.equal(crossings.length, 2);
@@ -361,18 +389,20 @@ test("unreachable template references report an underconstrained plan instead of
   assert.ok(top.notes.some(note => /0\/3 planar freedoms; placement needs an additional reference/.test(note)));
 });
 
-test("cross beams use the nearby perpendicular end setback instead of the adjacent step's oblique reference", () => {
+test("cross beams use real straight or curved tread references for perpendicular end setbacks", () => {
   const model = buildStairway(24, 8, 2), planner = new PlacementPlanner(model);
   for (const step of [3, 4]) {
     const top = planner.plan(`stairway/module-1/step-${step}-supportCrossPiece`).views[0];
-    const setback = top.dimensions.find(d => d.purpose === "longitudinal");
+    const setback = top.dimensions.find(d => d.purpose === "longitudinal" &&
+      d.reference === `Tread template arc: Step ${step}`);
     assert.equal(top.planar.complete, true);
     assert.equal(top.dimensions.length, 3);
     assert.equal(setback.source, "template-setback");
     assert.equal(setback.perpendicular, true);
-    assert.ok(Math.abs(setback.value - 1) < 1e-4);
+    assert.ok(setback.value > 1 && setback.value < 1.1);
     assert.match(setback.reference, new RegExp(`Step ${step}$`));
-    assert.ok(setback.to[0] > setback.from[0], "Use the nearby right-hand edge, not a neighboring step.");
+    const radius = Math.hypot(setback.to[0], setback.to[2]);
+    assert.ok(Math.abs(radius - model.innerRadius) < 1e-8, "The reference is the actual inner arc, not a mesh chord.");
     assert.ok(Math.abs(setback.to[2] - setback.from[2]) < 1e-4);
     for (const axis of [0, 2]) {
       assert.ok(Math.abs(setback.from[axis] -
@@ -381,7 +411,7 @@ test("cross beams use the nearby perpendicular end setback instead of the adjace
   }
 });
 
-test("rear cross-beam parallel stations do not falsely replace a left-right setback", () => {
+test("rear cross-beam parallel stations retain an independent along-beam joint location", () => {
   const model = buildStairway(24, 8, 2);
   const plan = new PlacementPlanner(model).plan("stairway/module-1/step-4-rearSupportCrossPiece");
   const top = plan.views[0], bottom = plan.views[1];
@@ -390,21 +420,20 @@ test("rear cross-beam parallel stations do not falsely replace a left-right setb
   const edge = stations[0].selectedEdge;
   const slide = edge[1].map((value, i) => value - edge[0][i]);
   const span = Math.hypot(...slide);
-  const setback = top.dimensions.find(d => d.source === "template-setback");
+  const setback = top.dimensions.find(d => d.source === "contact-position");
   assert.ok(setback, "Parallel line stations cannot prevent sliding along the beam.");
   const measurement = setback.to.map((value, i) => value - setback.from[i]);
   assert.ok(Math.abs(measurement.reduce((sum, value, i) => sum + value * slide[i], 0)) /
     (Math.hypot(...measurement) * span) > 0.99,
   "Require an actual along-beam measurement, not just the planner's complete flag.");
-  assert.equal(setback.purpose, "longitudinal");
-  assert.equal(setback.perpendicular, true);
-  assert.ok(Math.abs(setback.value - 1) < 1e-4);
+  assert.match(setback.reference, /Rear panel/);
+  assert.ok(Math.abs(setback.value - Math.hypot(1, Math.tan(Math.PI / 32))) < 1e-4);
   assert.equal(top.planar.implicitRank, 2);
   assert.equal(top.planar.complete, true);
   for (const side of ["left", "right"]) {
     const id = `stairway/module-1/step-4-${side}RearUpright`;
     assert.ok(top.occluded.includes(id), "The upright genuinely overlaps the beam in the Top projection.");
-    assert.ok(bottom.neighbors.includes(id), "Bottom still shows the complementary joint context.");
+    assert.ok(bottom.neighbors.includes(id), "Bottom shows both raised uprights' joint context.");
   }
 });
 

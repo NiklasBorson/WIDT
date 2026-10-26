@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
-import { Board, buildStairway, combineGeometries, NotchedBoard } from "./model.js";
+import { Board, buildStairway, combineGeometries, NotchedBoard, ProfiledPlywood } from "./model.js";
 import { WebGLViewer, STANDARD_VIEWS } from "./renderer.js";
 import { PartBrowser, PART_VIEW_NAMES, partViewLabel } from "./parts.js";
 import { PartInventory, PART_SUBSETS } from "./part-list.js";
@@ -11,10 +11,31 @@ import { renderPlacementAnnotations, renderTreadTemplate } from "./placement-dra
 import { formatLength, formatPartDescription, formatPartListDescription, getSimpleEdgeBevel } from "./part-description.js";
 import { getPartFeatures, renderPartAnnotations, renderPartCompass } from "./part-annotations.js";
 import { getProfileChains } from "./part-profile.js";
+import { outlineBounds, outlinePoint, outlineExtrema, constructionOutline, notchRectangle } from "./plywood-outline.js";
 import { PARAMETER_FIELDS, readParameters, parameterURL } from "./parameters.js";
 
 function close(actual, expected, tolerance = 1e-4) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} differs from ${expected}`);
+}
+
+function transformedGeometry(geometry, matrix) {
+  if (matrix.every((value, index) => value === (index % 5 === 0 ? 1 : 0))) return geometry;
+  const positions = new Float32Array(geometry.positions.length), normals = new Float32Array(geometry.normals.length);
+  for (let i = 0; i < positions.length; i += 3) for (let axis = 0; axis < 3; axis++) {
+    positions[i + axis] = [0, 1, 2].reduce((sum, column) =>
+      sum + matrix[column * 4 + axis] * geometry.positions[i + column], matrix[12 + axis]);
+    normals[i + axis] = [0, 1, 2].reduce((sum, column) =>
+      sum + matrix[column * 4 + axis] * geometry.normals[i + column], 0);
+  }
+  return { ...geometry, positions, normals };
+}
+
+function closeGeometry(actual, expected) {
+  for (const key of ["positions", "normals", "colors", "grain"]) {
+    assert.equal(actual[key].length, expected[key].length, key);
+    actual[key].forEach((value, index) => close(value, expected[key][index]));
+  }
+  assert.deepEqual(actual.indices, expected.indices);
 }
 
 function screenPoint(viewer, point) {
@@ -32,6 +53,7 @@ function screenPoint(viewer, point) {
 function createViewer() {
   const viewer = Object.create(WebGLViewer.prototype);
   const matrices = {};
+  const uploads = [], draws = [], deleted = [], allocated = [], bindings = {}, attributes = [];
   Object.assign(viewer, {
     canvas: { clientWidth: 800, clientHeight: 600 },
     center: [10, 20, 30],
@@ -39,23 +61,34 @@ function createViewer() {
     projection: "projection",
     view: "view",
     lightDirection: "light",
-    vertexBuffers: [],
+    modelTransform: "model",
+    vertexBuffers: [["positions", 3], ["normals", 3], ["colors", 3], ["grain", 4]]
+      .map(([key, size], location) => ({ key, size, location, buffer: {} })),
+    indexBuffer: {},
     indexCount: 0,
     requestRender() {},
     gl: {
+      ARRAY_BUFFER: 34962, ELEMENT_ARRAY_BUFFER: 34963, FLOAT: 5126,
+      STATIC_DRAW: 35044, UNSIGNED_SHORT: 5123, UNSIGNED_INT: 5125, TRIANGLES: 4,
       isContextLost: () => false,
       viewport() {},
       clear() {},
-      bindBuffer() {},
-      bufferData() {},
+      bindBuffer(target, buffer) { bindings[target] = buffer; },
+      bufferData(...args) { uploads.push(args); },
+      createBuffer() { const buffer = {}; allocated.push(buffer); return buffer; },
+      deleteBuffer(buffer) { deleted.push(buffer); },
+      vertexAttribPointer(location) { attributes[location] = bindings[this.ARRAY_BUFFER]; },
       getExtension: () => ({}),
-      drawElements() {},
+      drawElements(...args) {
+        draws.push({ args, model: Array.from(matrices.model),
+          indexBuffer: bindings[this.ELEMENT_ARRAY_BUFFER], vertexBuffers: [...attributes] });
+      },
       uniformMatrix4fv(name, transpose, matrix) { matrices[name] = matrix; },
       uniform3f(name, ...values) { matrices[name] = values; },
     },
   });
   viewer.reset();
-  return { viewer, matrices };
+  return { viewer, matrices, uploads, draws, deleted, allocated };
 }
 
 test("panning follows screen axes at different rotations, zooms, sizes and pixel densities", () => {
@@ -333,10 +366,71 @@ test("profile chains retain concave corners but ignore triangulation and covered
   assert.equal(getProfileChains(concave, view), getProfileChains(concave, view));
 });
 
+test("base rail construction annotations locate each authored cut corner and chain concentric radii", () => {
+  for (const parameters of [[20, 4, 2], [24, 9, 3], [36, 9, 2]]) {
+    for (const module of buildStairway(...parameters).modules) for (const rib of [module.boards.innerBaseRail, module.boards.outerBaseRail]) {
+      const description = rib.getManufacturingDescription();
+      const tangent = rib.construction.tangentExtension;
+      const instructions = formatPartDescription(description).cuts.join(" ");
+      if (tangent) assert.match(instructions, /Stop the outer arc at the join radius .*inner edge straight on blank Z = 0.*one piece/);
+      else assert.doesNotMatch(instructions, /join radius|parallel tangents/);
+      for (const direction of [[0, 1, 0], [0, -1, 0]]) {
+        const features = getPartFeatures(description, { direction, up: [1, 0, 0] });
+        const extensions = features.filter(feature => feature.kind === "tangent-extension");
+        assert.equal(extensions.length, tangent ? 1 : 0);
+        if (tangent) {
+          assert.equal(extensions[0].id, "T1");
+          assert.ok(extensions[0].lines.includes("Straight inner edge at blank Z = 0"));
+          assert.match(extensions[0].lines.join(" "), /Join radius at .* from blank X/);
+          assert.equal(extensions[0].outline.length, 4);
+        }
+        const surface = direction[1] > 0 ? rib.thickness : 0;
+        const notches = features.filter(feature => feature.kind === "rectangular-notch");
+        const cuts = [...rib.construction.notches, ...rib.construction.openings];
+        assert.equal(notches.length, cuts.length);
+        notches.forEach((feature, index) => {
+          const notch = cuts[index], [x, z] = notch.reference;
+          assert.deepEqual(feature.point, [x, surface, z]);
+          assert.deepEqual(feature.outline, notchRectangle(notch).map(([x, z]) => [x, surface, z]));
+          assert.deepEqual(feature.dimensions, []);
+          const fromRight = Math.abs(rib.length - x) < Math.abs(x);
+          assert.ok(feature.lines.includes(`${feature.id}: ${formatLength(fromRight ? rib.length - x : x)} in from ${fromRight ? "right" : "left"}`));
+          assert.match(feature.lines.join(" "), /Width .*height .*Angle /);
+        });
+        const arcs = features.filter(feature => feature.kind === "arc");
+        assert.equal(arcs.length, rib.construction.innerRadius === undefined ? 1 : 2);
+        const arc = arcs.find(feature => !feature.radiusTo), outer = arcs.find(feature => feature.radiusTo);
+        close(arc.radius, rib.construction.innerRadius ?? rib.construction.arc.radius);
+        if (outer) close(outer.radiusSpan, outer.radius - arc.radius);
+        assert.equal(arc.radiusCenterLabel, "C");
+        assert.equal(arc.radialGuides.length, 2, "Both authored radial guidelines point toward C.");
+        const inset = rib.construction.trapezoid.left.inset;
+        assert.deepEqual(arc.radialGuides.map(guide => [guide.side, guide.inset]), [["left", inset], ["right", 0]]);
+        const frontCut = features.find(feature => feature.id === "C1");
+        if (inset) assert.ok(frontCut.lines.includes(`Cut ${formatLength(inset)} in inside radial guide`));
+        else assert.doesNotMatch(frontCut.lines.join(" "), /inside radial guide|outside radial guide/);
+        for (const edge of arc.radialGuides) {
+          const delta = edge.to.map((value, axis) => value - edge.from[axis]);
+          const relative = arc.radiusCenter.map((value, axis) => value - edge.from[axis]);
+          close(delta[0] * relative[2] - delta[2] * relative[0], 0);
+        }
+        close(Math.hypot(arc.point[0] - arc.radiusCenter[0], arc.point[2] - arc.radiusCenter[2]), arc.radius);
+        assert.equal(arc.radiusThroughBlank, true);
+        const blank = features.find(feature => feature.kind === "construction-blank");
+        assert.equal(blank.outlineDotted, true);
+        assert.deepEqual(blank.outline, [[0, surface, 0], [rib.length, surface, 0],
+          [rib.length, surface, rib.width], [0, surface, rib.width]]);
+      }
+      assert.equal(getPartFeatures(description, { direction: [1, 0, 0], up: [0, 1, 0] })
+        .filter(feature => ["construction-blank", "rectangular-notch", "corner-cut", "arc", "tangent-extension"].includes(feature.kind)).length, 0);
+    }
+  }
+});
+
 test("actual block end chains measure short face and setback without inventing recessed edges", () => {
   const model = buildStairway();
   const block = model.partTree.getNode("stairway/module-1/step-3-leftBackSupportBlock");
-  const geometry = block.component.createStockGeometry();
+  const geometry = block.part.createStockGeometry();
   for (const view of STANDARD_VIEWS) {
     const chains = getProfileChains(geometry, view);
     if (!view.direction[0]) {
@@ -353,7 +447,7 @@ test("actual block end chains measure short face and setback without inventing r
   }
   const upright = model.partTree.getNode("stairway/module-1/step-2-leftUpright");
   const down = STANDARD_VIEWS.find(view => view.direction[0] === -1);
-  for (const { stops } of getProfileChains(upright.component.createStockGeometry(), down)) {
+  for (const { stops } of getProfileChains(upright.part.createStockGeometry(), down)) {
     assert.ok(stops.every(point => point[1] < 1.5 - 1e-6 || point[0] >= 1.5 - 1e-6),
       "No extension line starts at the removed Right-face edge of the Down end");
   }
@@ -461,7 +555,7 @@ test("short upright depth dimensions use external arrows and keep adjacent label
   const views = model.partTree.getStockViews(node.id), left = views.find(view => view.name === "Left");
   const { viewer } = createViewer();
   viewer.canvas = { clientWidth: 800, clientHeight: 1000 };
-  viewer.setGeometry(node.component.createStockGeometry());
+  viewer.setGeometry(node.part.createStockGeometry());
   viewer.setStandardView(STANDARD_VIEWS.find(view =>
     view.direction.every((value, axis) => value === left.direction[axis])).name);
   const document = { createElementNS(namespace, name) { return svgElement(this, name); } };
@@ -485,12 +579,135 @@ test("short upright depth dimensions use external arrows and keep adjacent label
   }
 });
 
+test("base rail reference callouts do not overlap on narrow drawings", () => {
+  for (const module of [...buildStairway().modules, ...buildStairway(20, 7, 2).modules])
+    for (const rib of [module.boards.innerBaseRail, module.boards.outerBaseRail]) {
+    for (const [width, height] of [[360, 1000], [600, 1000], [600, 119], [1106, 729]]) {
+      const { viewer } = createViewer();
+      viewer.canvas = { clientWidth: width, clientHeight: height };
+      viewer.setGeometry(rib.createStockGeometry());
+      viewer.setStandardView("Top");
+      const document = { createElementNS(namespace, name) { return svgElement(this, name); } };
+      const svg = document.createElementNS("", "svg");
+      const drawing = { style: {} }, description = rib.getManufacturingDescription();
+      renderPartAnnotations(svg, drawing, viewer, description, undefined, { layoutOnly: true });
+      assert.equal(svg.children.length, 0, "Sizing must not route callouts in an undersized viewport.");
+      viewer.canvas.clientWidth = Math.max(width, parseFloat(drawing.style.minWidth));
+      viewer.canvas.clientHeight = Math.max(height, parseFloat(drawing.style.minHeight));
+      renderPartAnnotations(svg, drawing, viewer, description);
+      const texts = node => node.localName === "text" ? [node] : node.children.flatMap(texts);
+      const labels = texts(svg);
+      labels.forEach((label, index) => {
+        const a = label.getBoundingClientRect();
+        for (const other of labels.slice(index + 1)) {
+          const b = other.getBoundingClientRect();
+          assert.ok(Math.min(a.right, b.right) - Math.max(a.left, b.left) <= 1 ||
+            Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) <= 1,
+          `${width}px: ${label.children.map(node => node.textContent).join(" ")} overlaps ` +
+            other.children.map(node => node.textContent).join(" "));
+        }
+      });
+      for (const note of svg.children.filter(node => node.getAttribute("class")?.includes("part-feature-note"))) {
+        const ownLabels = texts(note);
+        for (const leader of note.children.filter(node => node.localName === "polyline")) {
+          const points = leader.getAttribute("points").split(" ").map(point => point.split(",").map(Number));
+          points.slice(1).forEach((end, index) => {
+            const start = points[index];
+            for (const label of labels.filter(label => !ownLabels.includes(label))) {
+              const box = label.getBoundingClientRect();
+              assert.ok(Math.max(start[0], end[0]) <= box.left || Math.min(start[0], end[0]) >= box.right ||
+                Math.max(start[1], end[1]) <= box.top || Math.min(start[1], end[1]) >= box.bottom,
+              `${width}px: a leader crosses ${label.children.map(node => node.textContent).join(" ")}`);
+            }
+          });
+        }
+      }
+    }
+  }
+});
+
+test("concentric arc dimensions chain from the outer cut to the inner cut and then toward C", () => {
+  for (const [innerStart, innerEnd] of [[80, 100], [82, 84]]) {
+    const outer = { type: "arc", center: [0, 0], radius: 120,
+      startAngle: 80 * Math.PI / 180, sweepRadians: 20 * Math.PI / 180 };
+    const inner = { type: "arc", center: [0, 0], radius: 116,
+      startAngle: innerEnd * Math.PI / 180, sweepRadians: (innerStart - innerEnd) * Math.PI / 180 };
+    const outline = [outer, { type: "line", from: outlinePoint(outer, 1), to: outlinePoint(inner, 0) },
+      inner, { type: "line", from: outlinePoint(inner, 1), to: outlinePoint(outer, 0) }];
+    const { min } = outlineBounds(outline);
+    const translate = point => point.map((value, axis) => value - min[axis]);
+    const plywood = new ProfiledPlywood({ thickness: 0.5, outline: outline.map(edge => edge.type === "arc" ?
+      { ...edge, center: translate(edge.center) } : { ...edge, from: translate(edge.from), to: translate(edge.to) }) });
+    const description = plywood.getManufacturingDescription();
+    for (const view of ["Top", "Bottom"]) for (const width of [360, 600, 1106]) {
+      const { viewer } = createViewer();
+      viewer.canvas = { clientWidth: width, clientHeight: 729 };
+      viewer.setGeometry(plywood.createStockGeometry());
+      viewer.setStandardView(view);
+      const document = { createElementNS(namespace, name) { return svgElement(this, name); } };
+      const svg = document.createElementNS("", "svg"), drawing = { style: {} };
+      renderPartAnnotations(svg, drawing, viewer, description, undefined, { layoutOnly: true });
+      viewer.canvas.clientWidth = Math.max(width, parseFloat(drawing.style.minWidth));
+      viewer.canvas.clientHeight = Math.max(729, parseFloat(drawing.style.minHeight));
+      renderPartAnnotations(svg, drawing, viewer, description);
+      const arcs = getPartFeatures(description, STANDARD_VIEWS.find(candidate => candidate.name === view))
+        .filter(feature => feature.kind === "arc").sort((a, b) => b.radius - a.radius);
+      assert.deepEqual(arcs.map(feature => feature.radius), [120, 116]);
+      assert.equal(arcs[0].radiusSpan, 4);
+      arcs.forEach(feature => {
+        close(Math.hypot(...feature.point.map((value, axis) => value - feature.radiusCenter[axis])), feature.radius);
+        const angle = Math.atan2(feature.point[2] - feature.radiusCenter[2],
+          feature.point[0] - feature.radiusCenter[0]) * 180 / Math.PI;
+        assert.ok(angle >= innerStart - 1e-8 && angle <= innerEnd + 1e-8,
+          "The common radius must intersect both actual arc spans.");
+        assert.equal(feature.radiusCenterLabel, "C");
+      });
+      arcs[0].radiusTo.forEach((value, axis) => close(value, arcs[1].point[axis]));
+      const guides = svg.children.filter(node => node.getAttribute("class")?.split(" ").includes("part-radius-reference"));
+      const spacing = guides.find(node => node.getAttribute("data-radius-span") !== null);
+      assert.equal(spacing.getAttribute("data-radius-span"), "4");
+      for (const [point, suffix] of [[arcs[0].point, "1"], [arcs[1].point, "2"]]) {
+        const projected = viewer.projectPoint(point);
+        close(Number(spacing.getAttribute(`x${suffix}`)), projected.x);
+        close(Number(spacing.getAttribute(`y${suffix}`)), projected.y);
+      }
+      const towardC = guides.filter(node => node !== spacing);
+      assert.ok(towardC.length >= 1);
+      if (innerStart === 80) assert.equal(towardC.length, 3, "Both radial edges also point toward C.");
+      const texts = node => node.localName === "text" ? [node] : node.children.flatMap(texts);
+      const labels = texts(svg);
+      assert.ok(labels.some(node => node.children[0].textContent === "Arc spacing 4 in"));
+      assert.ok(labels.some(node => node.children[0].textContent === "Radius 116 in"));
+      assert.equal(labels.filter(node => node.children[0].textContent === "To C").length, towardC.length);
+      for (const guide of towardC) {
+        close(Number(guide.getAttribute("y2")), Number(towardC[0].getAttribute("y2")));
+        const [x1, y1, x2, y2] = ["x1", "y1", "x2", "y2"].map(name => Number(guide.getAttribute(name)));
+        const center = viewer.projectPoint(arcs[1].radiusCenter);
+        close((x2 - x1) * (center.y - y1) - (y2 - y1) * (center.x - x1), 0);
+        assert.ok((x2 - x1) * (center.x - x1) + (y2 - y1) * (center.y - y1) > 0);
+      }
+      for (const guide of guides) {
+        assert.equal(guide.getAttribute("marker-end"), "url(#part-dimension-arrow)");
+        assert.equal(guide.getAttribute("stroke-dasharray"), "1 4");
+      }
+      labels.forEach((label, index) => {
+        const a = label.getBoundingClientRect();
+        for (const other of labels.slice(index + 1)) {
+          const b = other.getBoundingClientRect();
+          assert.ok(Math.min(a.right, b.right) - Math.max(a.left, b.left) <= 1 ||
+            Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) <= 1);
+        }
+      });
+    }
+  }
+});
+
 test("upright face notes omit redundant notches but retain dimensions, outlines, and useful recess notes", () => {
   const model = buildStairway(), node = model.partTree.getNode("stairway/module-1/step-2-leftUpright");
   const description = node.getDescription(), views = model.partTree.getStockViews(node.id);
   const { viewer } = createViewer();
   viewer.canvas = { clientWidth: 800, clientHeight: 1000 };
-  viewer.setGeometry(node.component.createStockGeometry());
+  viewer.setGeometry(node.part.createStockGeometry());
   const document = { createElementNS(namespace, name) { return svgElement(this, name); } };
   const render = name => {
     const view = views.find(view => view.name === name);
@@ -541,16 +758,18 @@ test("dimension lanes and reference-angle notes stay finite and outside the part
   const description = board.getManufacturingDescription();
   const document = { createElementNS(namespace, name) { return svgElement(this, name); } };
   const model = buildStairway();
+  const spindle = model.steps[1].parts.frontSpindle;
+  const spindleBevel = Number((Math.atan(spindle.topRise / spindle.thickness) * 180 / Math.PI).toFixed(2));
   const cases = [{ description, geometry: board.createStockGeometry(), views: [] },
     ...["stairway/module-1/step-3-rightUpright", "stairway/module-1/step-3-spindleShim",
       "stairway/module-1/step-2-leftUpright", "stairway/module-2/step-4-leftUpright",
       "stairway/module-2/step-6-rightUpright", "stairway/module-2/step-5-rightUpright",
       "stairway/module-1/step-2-frontSpindle",
-      "stairway/module-1/step-1-newel", "stairway/module-1/step-2-siding",
+      "stairway/module-1/step-1-newel", "stairway/module-1/siding",
       "stairway/module-1/step-3-leftBackSupportBlock",
       "stairway/module-1/step-1-newelInnerBlock"].map(id => {
       const node = model.partTree.getNode(id);
-      return { description: node.getDescription(), geometry: node.component.createStockGeometry(),
+      return { description: node.getDescription(), geometry: node.part.createStockGeometry(),
         views: model.partTree.getStockViews(id) };
     })];
   const descendants = node => [node, ...node.children.flatMap(descendants)];
@@ -766,8 +985,8 @@ test("dimension lanes and reference-angle notes stay finite and outside the part
           assert.ok(label.includes(" from ") && label.endsWith("(dashed)"));
           assert.ok(!label.includes("Reference:"));
           if (node.attributes["data-property"] === "Bevel" &&
-            Math.abs(Number(node.attributes["data-degrees"]) - 35.43) < 0.01) {
-            assert.equal(label, "B1 Bevel 35.43 deg from square Top end (dashed)");
+            Math.abs(Number(node.attributes["data-degrees"]) - spindleBevel) < 0.01) {
+            assert.equal(label, `B1 Bevel ${spindleBevel} deg from square Top end (dashed)`);
             spindleBevels++;
           }
         }
@@ -979,6 +1198,91 @@ test("hit testing uses the nearest visible indexed triangle with camera transfor
   }
 });
 
+test("module batches retain indexed buffers across transforms, bind each draw, and release surplus buffers", () => {
+  const originalWindow = globalThis.window;
+  globalThis.window = { devicePixelRatio: 1 };
+  try {
+    const { viewer, uploads, draws, deleted, allocated } = createViewer();
+    const geometry = new Board({ length: 12, width: 4, thickness: 1 }).createGeometry();
+    const model = buildStairway(), transforms = model.getModuleTransforms(1);
+    const batches = transforms.map((transform, index) => ({
+      geometry, transform,
+      renderGeometry: index === 2 ? { ...geometry, indices: new Uint32Array(geometry.indices) } : geometry,
+    }));
+    viewer.setGeometry(combineGeometries(batches.map(batch => batch.geometry)), geometry, { batches });
+    assert.equal(uploads.length, 15);
+    assert.equal(allocated.length, 10);
+    const resources = viewer.batches.map(batch => batch.indexBuffer);
+    viewer.setBatchTransforms(model.getModuleTransforms(0.5));
+    viewer.draw();
+    assert.equal(uploads.length, 15, "Transform updates must not upload geometry.");
+    assert.equal(allocated.length, 10, "Transform updates must not allocate GPU buffers.");
+    assert.equal(draws.length, 3);
+    viewer.batches.forEach((batch, index) => {
+      assert.equal(draws[index].indexBuffer, resources[index]);
+      assert.deepEqual(draws[index].vertexBuffers, batch.vertexBuffers.map(attribute => attribute.buffer));
+      assert.deepEqual(draws[index].model, Array.from(batch.transform));
+      assert.equal(draws[index].args[2], index === 2 ? viewer.gl.UNSIGNED_INT : viewer.gl.UNSIGNED_SHORT);
+    });
+    viewer.setGeometry(geometry, geometry, { batches });
+    assert.deepEqual(viewer.batches.map(batch => batch.indexBuffer), resources);
+    assert.equal(allocated.length, 10);
+    viewer.setGeometry(geometry, geometry, { batches: batches.slice(0, 2) });
+    assert.equal(deleted.length, 5);
+    assert.ok(deleted.includes(resources[2]));
+    viewer.setGeometry(geometry);
+    assert.equal(deleted.length, 10);
+    assert.equal(new Set(deleted).size, 10);
+    viewer.draw();
+    assert.equal(draws.at(-1).indexBuffer, viewer.indexBuffer);
+    draws.at(-1).model.forEach((value, index) => close(value, index % 5 === 0 ? 1 : 0));
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test("transformed batch picking matches world geometry, excluding footprints and empty batches", () => {
+  const model = buildStairway(24, 7, 2);
+  const { viewer } = createViewer(), { viewer: reference } = createViewer();
+  const bounds = model.createGeometry(), empty = combineGeometries([]);
+  const batches = model.partTree.root.children.map((module, index) => ({
+    geometry: model.createNodeGeometry(module.id),
+    boundsGeometry: model.createNodeGeometry(module.id),
+    transform: model.getModuleTransforms(1)[index],
+    renderGeometry: combineGeometries([model.createNodeGeometry(module.id), model.createFootprintGeometry()]),
+  }));
+  batches.splice(1, 0, { geometry: empty, boundsGeometry: bounds, transform: model.getModuleTransforms(0)[0] });
+  viewer.setGeometry(bounds, bounds, { batches, orbitBatch: 2 });
+  const world = combineGeometries(batches.map(batch => transformedGeometry(batch.geometry, batch.transform)));
+  const worldBounds = combineGeometries(batches.map(batch => transformedGeometry(batch.boundsGeometry, batch.transform)));
+  reference.setGeometry(world, worldBounds, {
+    orbitGeometry: transformedGeometry(batches[2].boundsGeometry, batches[2].transform),
+    renderGeometry: combineGeometries(batches.map(batch => transformedGeometry(batch.renderGeometry ?? batch.geometry, batch.transform))),
+  });
+  for (const standard of [false, true]) {
+    if (standard) {
+      viewer.setStandardView("Top");
+      reference.setStandardView("Top");
+    }
+    let hits = 0;
+    for (let y = 50; y < 600; y += 37) for (let x = 50; x < 800; x += 37) {
+      const expected = reference.hitTest(x, y);
+      assert.equal(viewer.hitTest(x, y), expected);
+      if (expected !== null) hits++;
+    }
+    assert.ok(hits > 10, "Compare actual piece hits, not just background.");
+  }
+  viewer.orbitCenter.forEach((value, axis) => close(value, reference.orbitCenter[axis]));
+  close(viewer.radius, reference.radius);
+  close(viewer.clipRadius, reference.clipRadius);
+  assert.throws(() => viewer.setBatchTransforms([]), /Every module/);
+  const invalid = model.getModuleTransforms(0);
+  invalid.splice(1, 0, invalid[0]);
+  invalid[0][0] = 2;
+  assert.throws(() => viewer.setBatchTransforms(invalid), /rigid/);
+});
+
 function createControls({
   reducedMotion = false, buildModel = buildStairway, failOnError = true,
   page = "home", search = "",
@@ -1061,6 +1365,7 @@ function createControls({
         this.geometry = updatedGeometry;
       }
     }
+    setBatchTransforms(transforms) { this.stockViewer.setBatchTransforms(transforms); }
     get standardView() { return this.stockViewer?.standardView; }
     get orientation() { return this.stockViewer.orientation; }
     set orientation(value) { this.stockViewer.orientation = value; }
@@ -1128,9 +1433,19 @@ function createControls({
       url.search = search;
       windowEvents.get("popstate")?.();
     },
-    get geometry() { return geometry; },
-    get bounds() { return bounds; },
-    get renderGeometry() { return renderGeometry; },
+    get geometry() {
+      return mainViewer.batches
+        ? combineGeometries(mainViewer.batches.map(batch => transformedGeometry(batch.geometry, batch.transform))) : geometry;
+    },
+    get bounds() {
+      return mainViewer.batches
+        ? combineGeometries(mainViewer.batches.map(batch => transformedGeometry(batch.boundsGeometry, batch.transform))) : bounds;
+    },
+    get renderGeometry() {
+      return mainViewer.batches ? combineGeometries([
+        this.geometry, ...mainViewer.batches.map(batch => transformedGeometry(batch.footprint, batch.transform)),
+      ]) : renderGeometry;
+    },
     get mainViewer() { return mainViewer; },
     get activeElement() { return activeElement; },
     resize() { resizeCallbacks.forEach(callback => callback()); },
@@ -1342,7 +1657,7 @@ test("3D taps respect Filters, separated modules, URL parameters, and the active
     return { ...geometry, colors: geometry.colors.map((value, i) => selectedColors.get(node.id) === selected.entry.key
       ? value * 0.25 + [0.18, 0.8, 1][i % 3] * 0.75 : value * 0.6) };
   }));
-  assert.deepEqual(controls.geometry, expected);
+  closeGeometry(controls.geometry, expected);
   controls.calls.length = 0;
   controls.node("#details-tab").dispatch("click");
   tapPart(controls, point);
@@ -1608,7 +1923,7 @@ test("Parts Filters module, subset, and type filters update list, geometry, coun
   const search = controls.node("#parts-search");
   assert.equal(module.children.length, 4);
   assert.deepEqual(Array.from(subset.children, option => option.textContent), PART_SUBSETS.map(subset => subset.label));
-  search.value = "LOCKING";
+  search.value = "SWIVEL";
   search.dispatch("input");
   module.value = "2";
   module.dispatch("change");
@@ -1630,24 +1945,21 @@ test("Parts Filters module, subset, and type filters update list, geometry, coun
   assert.equal(list.children[0].getAttribute("aria-selected"), "true");
   assert.deepEqual(controls.geometry, expectedPartsGeometry(model, expected.groups, expected.groups[0].entry.key));
   assert.deepEqual(controls.bounds, model.createGeometry());
-  assert.equal(search.value, "LOCKING");
-  assert.match(controls.node("#parts-visibility-summary").textContent, /^Showing module 2, foundation, Hardware/);
+  assert.equal(search.value, "SWIVEL");
   assert.ok(controls.calls.every(([name]) => name !== "reset"));
 });
 
 test("Parts subsets preserve visible geometry across content tabs and support empty intersections", () => {
   const model = buildStairway(), inventory = new PartInventory(model.partTree);
   const controls = createControls({ buildModel: () => model });
-  assert.equal(controls.node("#parts-visibility-summary").textContent, "Show all parts");
   controls.node("#stairway-tab").dispatch("click");
   const module = controls.node("#parts-module"), type = controls.node("#parts-type");
   const subset = controls.node("#parts-subset");
   module.value = "1";
   module.dispatch("change");
-  subset.value = "framing";
+  subset.value = "step-framing";
   subset.dispatch("change");
-  assert.equal(controls.node("#parts-visibility-summary").textContent, "Showing module 1, framing");
-  const expected = inventory.filter({ moduleNumber: 1, subset: "framing" });
+  const expected = inventory.filter({ moduleNumber: 1, subset: "step-framing" });
   assert.deepEqual(controls.geometry, expectedPartsGeometry(model, expected.groups));
   assert.equal(controls.node("#parts-groups").children.length, expected.uniqueCount);
   assert.equal(controls.node("#parts-count").textContent,
@@ -1659,8 +1971,8 @@ test("Parts subsets preserve visible geometry across content tabs and support em
   controls.node("#stairway-tab").dispatch("click");
   assert.deepEqual(controls.geometry, expectedPartsGeometry(model, expected.groups));
   assert.equal(module.value, "1");
-  assert.equal(subset.value, "framing");
-  type.value = inventory.entries.find(entry => entry.roles.some(role => role.label === "Tread")).stockKey;
+  assert.equal(subset.value, "step-framing");
+  type.value = inventory.entries.find(entry => entry.roles.some(role => role.label.startsWith("Side panel"))).stockKey;
   type.dispatch("change");
   assert.equal(controls.node("#parts-groups").children.length, 0);
   assert.equal(controls.node("#parts-empty").hidden, false);
@@ -1694,12 +2006,12 @@ test("Module filters limit footprints and orbit around the module while retainin
         const values = geometry.positions.filter((_, i) => i % 3 === axis);
         return (Math.min(...values) + Math.max(...values)) / 2;
       });
-      assert.deepEqual(viewer.orbitCenter, expectedCenter);
+      viewer.orbitCenter.forEach((value, axis) => close(value, expectedCenter[axis]));
       assert.deepEqual(viewer.panOffset, [0, 0]);
       assert.deepEqual(viewer.orientation, orientation);
       assert.equal(viewer.zoomFactor, 0.8);
-      assert.deepEqual(controls.renderGeometry.positions.slice(controls.geometry.positions.length),
-        model.createFootprintGeometry(null, false, true, amount, index + 1).positions);
+      const footprint = model.createFootprintGeometry(null, false, true, amount, index + 1).positions;
+      controls.renderGeometry.positions.slice(controls.geometry.positions.length).forEach((value, i) => close(value, footprint[i]));
       const projected = screenPoint(viewer, expectedCenter);
       viewer.orbit(20, -15);
       const rotated = screenPoint(viewer, expectedCenter);
@@ -1709,12 +2021,12 @@ test("Module filters limit footprints and orbit around the module while retainin
     }
     filter.value = "";
     filter.dispatch("change");
-    assert.deepEqual(controls.bounds, model.createGeometry({}, 0, amount));
+    closeGeometry(controls.bounds, model.createGeometry({}, 0, amount));
   }
   controls.node("#view-modules").dispatch("click");
   controls.advance(600);
   assert.deepEqual(viewer.orbitCenter, center);
-  assert.equal(viewer.radius, radius);
+  close(viewer.radius, radius);
 });
 
 test("each Parts subset updates actual geometry, counts, weight, and Find without changing the camera", () => {
@@ -1733,27 +2045,24 @@ test("each Parts subset updates actual geometry, counts, weight, and Find withou
       `${expected.uniqueCount} unique parts (${expected.occurrences.length} total)`);
     const weight = expected.occurrences.reduce((sum, { location }) => sum + model.estimateNodeWeightLb(location.id), 0);
     assert.equal(controls.node("#parts-weight").textContent, `Weight ~${Math.round(weight)} lb (wood only)`);
-    assert.equal(controls.node("#parts-visibility-summary").textContent,
-      key ? `Showing all modules, ${label.toLocaleLowerCase()}` : "Show all parts");
     assert.equal(search.value, "no such part");
     assert.equal(controls.node("#parts-find-status").textContent, "No matches");
     assert.deepEqual(controls.mainViewer.getCameraMatrices(), camera);
   }
 });
 
-test("Clear filters restores all Parts while preserving Find, selection, and disclosure state", () => {
+test("Clear filters restores all Parts while preserving Find and selection", () => {
   const model = buildStairway(), inventory = new PartInventory(model.partTree);
   const controls = createControls({ buildModel: () => model });
   const module = controls.node("#parts-module"), type = controls.node("#parts-type");
   const subset = controls.node("#parts-subset");
-  const search = controls.node("#parts-search"), section = controls.node("#parts-visibility");
+  const search = controls.node("#parts-search");
   const hardware = inventory.sections.find(stock => stock.kind === "hardware");
-  section.open = true;
   module.value = "2";
   module.dispatch("change");
   type.value = hardware.key;
   type.dispatch("change");
-  subset.value = "without-cladding";
+  subset.value = "ribs";
   subset.dispatch("change");
   search.value = "caster";
   search.dispatch("input");
@@ -1766,9 +2075,7 @@ test("Clear filters restores all Parts while preserving Find, selection, and dis
   assert.equal(type.value, "");
   assert.equal(subset.value, "");
   assert.equal(search.value, "caster");
-  assert.equal(section.open, true);
   assert.equal(controls.node("#parts-results").scrollTop, 0);
-  assert.equal(controls.node("#parts-visibility-summary").textContent, "Show all parts");
   assert.equal(controls.node("#parts-count").textContent,
     `${inventory.entries.length} unique parts (${inventory.quantity} total)`);
   assert.equal(controls.node("#parts-weight").textContent,
@@ -1838,7 +2145,7 @@ test("Parts row titles show scoped steps and visible quantities out of the whole
   const module = controls.node("#parts-module"), list = controls.node("#parts-groups");
   module.value = "1";
   module.dispatch("change");
-  assert.ok(list.children.some(row => row.children[0].textContent === "Tread (steps 2-3) x 2 (of 8)"));
+  assert.ok(list.children.some(row => row.children[0].textContent === "Tread (step 3) x 1 (of 3)"));
   let single;
   for (const moduleNumber of [1, 2, 3]) {
     single = inventory.filter({ moduleNumber }).groups
@@ -1858,23 +2165,23 @@ test("Home restores URL parameters, filters, visibility, tab, and exact selectio
   controls.node("#stairway-tab").dispatch("click");
   const module = controls.node("#parts-module"), search = controls.node("#parts-search");
   const subset = controls.node("#parts-subset");
-  subset.value = "treads-risers";
+  subset.value = "ribs";
   subset.dispatch("change");
   module.value = "3";
   module.dispatch("change");
-  search.value = "tread";
+  search.value = "rib";
   search.dispatch("input");
   const part = controls.url.searchParams.get("part");
-  controls.restoreURL(`?width=28&module=3&subset=treads-risers&part=${encodeURIComponent(part)}`);
+  controls.restoreURL(`?width=28&module=3&subset=ribs&part=${encodeURIComponent(part)}`);
   assert.equal(module.value, "3");
-  assert.equal(subset.value, "treads-risers");
-  assert.equal(search.value, "tread");
+  assert.equal(subset.value, "ribs");
+  assert.equal(search.value, "rib");
   assert.ok(controls.node("#parts-groups").getAttribute("aria-activedescendant"));
-  controls.restoreURL(`?width=28&modules=2&module=3&subset=treads-risers&part=${encodeURIComponent(part)}`);
+  controls.restoreURL(`?width=28&modules=2&module=3&subset=ribs&part=${encodeURIComponent(part)}`);
   assert.equal(module.children.length, 3);
   assert.equal(module.value, "");
-  assert.equal(subset.value, "treads-risers");
-  assert.equal(search.value, "tread");
+  assert.equal(subset.value, "ribs");
+  assert.equal(search.value, "rib");
   assert.equal(controls.node("#parts-groups").getAttribute("aria-activedescendant"), "");
   assert.equal(controls.url.searchParams.has("module"), false);
   assert.equal(controls.url.searchParams.has("part"), false);
@@ -1894,7 +2201,7 @@ test("viewer URLs hydrate all tabs, Parts visibility, filters, and an exact inst
   for (const tab of ["stairway", "details", "placement"]) {
     const query = new URLSearchParams({
       width: "30", steps: "8", modules: "2", shoulderAscent: "35",
-      tab, parts: "hidden", module: "2", subset: "framing", type: entry.stockKey, part: id,
+      tab, parts: "hidden", module: "2", subset: "step-framing", type: entry.stockKey, part: id,
     });
     const controls = createControls({ search: `?${query}`, buildModel: () => model });
     assert.equal(controls.node(`#${tab}-tab`).getAttribute("aria-selected"), "true");
@@ -1902,7 +2209,7 @@ test("viewer URLs hydrate all tabs, Parts visibility, filters, and an exact inst
     assert.equal(controls.node(".workspace").getAttribute("data-parts-collapsed"), "true");
     assert.equal(controls.node("#toggle-parts").textContent, "Show parts");
     assert.equal(controls.node("#parts-module").value, "2");
-    assert.equal(controls.node("#parts-subset").value, "framing");
+    assert.equal(controls.node("#parts-subset").value, "step-framing");
     assert.equal(controls.node("#parts-type").value, entry.stockKey);
     const selected = controls.node("#parts-groups").children.find(row => row.getAttribute("aria-selected") === "true");
     assert.ok(selected.children[0].textContent.startsWith(entry.title));
@@ -1911,7 +2218,7 @@ test("viewer URLs hydrate all tabs, Parts visibility, filters, and an exact inst
     if (tab === "placement") assert.equal(controls.node("#placement-instance").value, id);
     assert.equal(controls.node("#parameter-notice").hidden, true);
     assert.equal(new URL(controls.node("#page-link").href).search, controls.url.search);
-    const visible = inventory.filter({ moduleNumber: 2, subset: "framing", stockKey: entry.stockKey });
+    const visible = inventory.filter({ moduleNumber: 2, subset: "step-framing", stockKey: entry.stockKey });
     const ids = new Set(visible.occurrences.map(({ location }) => location.id));
     assert.deepEqual(controls.geometry.positions, combineGeometries(model.partTree.getLeaves()
       .filter(node => ids.has(node.id)).map(node => model.createNodeGeometry(node.id))).positions);
@@ -1927,11 +2234,11 @@ test("viewer controls replace the current URL for tabs, Parts visibility, filter
     assert.equal(controls.historyReplacements.length, before + 1);
   };
   change("#parts-module", "change", "2");
-  change("#parts-subset", "change", "framing");
+  change("#parts-subset", "change", "step-framing");
   const type = controls.node("#parts-type").children.find(option => option.value).value;
   change("#parts-type", "change", type);
   assert.equal(controls.url.searchParams.get("module"), "2");
-  assert.equal(controls.url.searchParams.get("subset"), "framing");
+  assert.equal(controls.url.searchParams.get("subset"), "step-framing");
   assert.equal(controls.url.searchParams.get("type"), type);
   const row = controls.node("#parts-groups").children[0], before = controls.historyReplacements.length;
   row.dispatch("click");
@@ -1961,7 +2268,7 @@ test("invalid, duplicate, and filtered-out viewer URL settings show notices and 
   assert.equal(invalid.node("#stairway-tab").getAttribute("aria-selected"), "true");
   assert.equal(invalid.node("#parts-sidebar").hidden, false);
   for (const selector of ["#parts-module", "#parts-subset", "#parts-type"]) assert.equal(invalid.node(selector).value, "");
-  for (const label of ["Stair width", "Selected tab", "Parts visibility", "Module filter", "Subset filter", "Type filter", "Selected part"]) {
+  for (const label of ["Stair width", "Selected tab", "Parts visibility", "Module filter", "Subset filter", "Material filter", "Selected part"]) {
     assert.ok(invalid.node("#parameter-notice").textContent.includes(label));
   }
   for (const key of ["tab", "parts", "module", "subset", "type", "part"]) assert.equal(invalid.url.searchParams.has(key), false);
@@ -1972,14 +2279,14 @@ test("invalid, duplicate, and filtered-out viewer URL settings show notices and 
   assert.equal(filtered.node("#part-details-empty").hidden, false);
   assert.equal(filtered.url.searchParams.has("part"), false);
   assert.match(filtered.node("#parameter-notice").textContent, /Selected part/);
-  const duplicate = createControls({ search: "?module=1&module=2&subset=framing&subset=banister&parts=hidden&parts=shown&part=a&part=b" });
+  const duplicate = createControls({ search: "?module=1&module=2&subset=step-framing&subset=banister&parts=hidden&parts=shown&part=a&part=b" });
   for (const key of ["module", "subset", "parts", "part"]) assert.equal(duplicate.url.searchParams.has(key), false);
   assert.equal(duplicate.node("#parameter-notice").hidden, false);
 });
 
 test("Parameters links, slider edits, and Reset defaults retain Home viewer URL settings", () => {
-  const state = { tab: "placement", parts: "hidden", module: "2", subset: "framing",
-    type: "a stock type", part: "stairway/module-2/step-5-rightUpright" };
+  const state = { tab: "placement", parts: "hidden", module: "2", subset: "step-framing",
+    type: "a stock type", part: "stairway/module-2/step-5-rightUpright", castle: "shown" };
   const controls = createControls({ page: "parameters", search: `?${new URLSearchParams(state)}` });
   for (const action of [
     () => { const slider = controls.node("#stair-width"); slider.valueAsNumber = 30; slider.dispatch("input"); },
@@ -2008,7 +2315,7 @@ test("Details omits duplicate locations and preserves Parts selection and filter
   module.dispatch("change");
   subset.value = "foundation";
   subset.dispatch("change");
-  search.value = "locking";
+  search.value = "swivel";
   search.dispatch("input");
   const list = controls.node("#parts-groups"), details = controls.node("#details-tab");
   const selected = list.children.find(item => item.getAttribute("aria-selected") === "true");
@@ -2022,7 +2329,7 @@ test("Details omits duplicate locations and preserves Parts selection and filter
     assert.equal(!controls.node("#part-details").hidden, false);
     assert.equal(module.value, "1");
     assert.equal(subset.value, "foundation");
-    assert.equal(search.value, "locking");
+    assert.equal(search.value, "swivel");
     assert.equal(selected.getAttribute("aria-selected"), "true");
     assert.equal(selected.children[1].textContent, context);
   }
@@ -2059,8 +2366,8 @@ test("part thumbnails mark annotated views and Details captions describe the sel
     item.dispatch("click");
     controls.node("#details-tab").dispatch("click");
   };
-  const check = part => {
-    const node = model.partTree.getLeaves().find(node => node.component === part);
+  const check = id => {
+    const node = model.partTree.getNode(id);
     const views = model.partTree.getStockViews(node.id);
     const description = node.getDescription();
     const markers = views.map(view => getPartFeatures(description, view, views).some(feature =>
@@ -2089,16 +2396,16 @@ test("part thumbnails mark annotated views and Details captions describe the sel
     return markers;
   };
   open("Newel post");
-  const marked = check(model.steps[0].parts.newel);
+  const marked = check("stairway/module-1/step-1-newel");
   assert.ok(marked.some(Boolean));
   controls.node("#stairway-tab").dispatch("click");
   open("Newel block - rear");
-  const unmarked = check(model.steps[0].parts.topFrame.boards.newelRearBlock);
+  const unmarked = check("stairway/module-1/step-1-newelRearBlock");
   assert.ok(unmarked.every(value => !value));
   assert.match(controls.node("#part-view-drawing").style.minWidth, /px$/);
   controls.node("#stairway-tab").dispatch("click");
   open("Newel block - inner");
-  assert.deepEqual(check(model.steps[0].parts.topFrame.boards.newelInnerBlock),
+  assert.deepEqual(check("stairway/module-1/step-1-newelInnerBlock"),
     [true, true, false, false, false, false]);
   controls.node("#part-view-choice-back").dispatch("click");
   assert.doesNotMatch(controls.node("#part-view-annotations").textContent, /B1|Bevel: see/);
@@ -2111,9 +2418,152 @@ test("part thumbnails mark annotated views and Details captions describe the sel
     assert.equal(controls.node(id).getAttribute("title"), `${partViewLabel(name)} placement`);
   }
   controls.node("#stairway-tab").dispatch("click");
-  open("Castrek");
+  open("CWfutureparts");
   assert.equal(controls.node("#part-view-drawing").style.minWidth, "0");
   assert.equal(controls.node("#part-view-drawing").style.minHeight, "0");
+});
+
+test("panel rib Details frame the complete cutting blank even when framing relief removes an end", () => {
+  const model = buildStairway(24), id = "stairway/module-2/sidingRib";
+  const controls = createControls({ search: `?tab=details&part=${id}`, buildModel: () => model });
+  assert.equal(controls.node("#part-details-error").hidden, true);
+  const drawing = controls.partViewers.find(viewer => viewer.canvas.id === "part-view-selected").stockViewer;
+  const { blank } = model.partTree.getNode(id).getDescription();
+  assert.deepEqual(drawing.center, [blank.length / 2, blank.thickness / 2, blank.width / 2]
+    .map(value => Math.fround(value * 2) / 2));
+  assert.deepEqual(drawing.boundsSize, [blank.length, blank.thickness, blank.width].map(Math.fround));
+});
+
+test("arc-cut base rails show construction dimensions and a radius arrow through the blank in Details", () => {
+  const model = buildStairway(), controls = createControls({ buildModel: () => model });
+  controls.node("#part-view-selected").clientHeight = 1200;
+  controls.node("#part-view-annotations").clientHeight = 1200;
+  controls.node("#stairway-tab").dispatch("click");
+  const item = controls.node("#parts-groups").children.find(item =>
+    item.children[0].textContent.startsWith("Base rail - outer"));
+  assert.ok(item);
+  item.dispatch("click");
+  controls.node("#details-tab").dispatch("click");
+  assert.match(controls.node("#part-description").textContent, /flat outline; arc radius/);
+  const svg = controls.node("#part-view-annotations");
+  const groups = [...svg.children].filter(node => node.getAttribute("class")?.includes("part-feature-arc"));
+  assert.equal(groups.length, 1);
+  const overall = [...svg.children].filter(node => node.getAttribute("class") === "part-blank-dimension");
+  assert.deepEqual(overall.map(node => node.getAttribute("data-side")), ["top", "left"]);
+  const chains = [...svg.children].filter(node => node.getAttribute("class") === "part-profile-chain");
+  assert.deepEqual(chains, []);
+  const drawing = controls.partViewers.find(viewer => viewer.canvas.id === "part-view-selected");
+  const arc = getPartFeatures(model.modules[0].boards.outerBaseRail.getManufacturingDescription(),
+    STANDARD_VIEWS.find(view => view.direction[1] === 1)).find(feature => feature.kind === "arc" && !feature.radiusTo);
+  const radius = [...svg.children].find(node => node.getAttribute("class") === "part-radius-reference" &&
+    node.getAttribute("data-feature-id") === arc.id);
+  assert.ok(radius);
+  assert.equal(radius.getAttribute("stroke-dasharray"), "1 4");
+  assert.equal(radius.getAttribute("marker-end"), "url(#part-dimension-arrow)");
+  assert.equal(groups[0].children.filter(node => node.name === "polyline").length, 0,
+    "The radius label has no separate callout leader.");
+  const anchor = drawing.projectPoint(arc.point), center = drawing.projectPoint(arc.radiusCenter);
+  const start = ["x1", "y1"].map(name => Number(radius.getAttribute(name)));
+  const end = ["x2", "y2"].map(name => Number(radius.getAttribute(name)));
+  const callout = groups.find(node => node.getAttribute("data-feature-id") === arc.id)
+    .children.find(node => node.getAttribute("class") === "part-feature-callout");
+  const centerShown = Math.hypot(end[0] - center.x, end[1] - center.y) < 0.001;
+  assert.equal(callout.children.find(node => node.name === "text").children[0].textContent, centerShown ? "C" : "To C");
+  const labelPosition = callout.getAttribute("transform").match(/translate\(([^ ]+) ([^)]+)\)/).slice(1).map(Number);
+  close(Math.abs(labelPosition[0] - end[0]), 8);
+  assert.ok(Math.abs(labelPosition[1] - end[1] - 3) <= 39);
+  close(end[1], Math.max(48, center.y), 0.001);
+  assert.equal(radius.getAttribute("data-center"), "C");
+  close(start[0], anchor.x);
+  close(start[1], anchor.y);
+  const dx = end[0] - start[0], dy = end[1] - start[1];
+  assert.ok(dx * (center.x - anchor.x) + dy * (center.y - anchor.y) > 0);
+  close(dx * (center.y - anchor.y) - dy * (center.x - anchor.x), 0);
+  const rib = model.modules[0].boards.outerBaseRail;
+  const edgeGuides = [...svg.children].filter(node =>
+    node.getAttribute("class")?.includes("part-radius-edge-reference"));
+  assert.equal(edgeGuides.length, arc.radialGuides.length);
+  assert.deepEqual(edgeGuides.map(guide => [guide.getAttribute("data-cut-side"), Number(guide.getAttribute("data-cut-inset"))]),
+    [["left", rib.construction.trapezoid.left.inset], ["right", 0]]);
+  const edgeLabels = svg.children.filter(node => node.getAttribute("class") === "part-feature-note part-feature-radius-edge");
+  assert.equal(edgeLabels.length, edgeGuides.length);
+  for (const note of edgeLabels) {
+    const label = note.children.find(node => node.getAttribute("class") === "part-feature-callout")
+      .children.find(node => node.name === "text");
+    assert.equal(label.children[0].textContent, centerShown ? "C" : "To C");
+  }
+  const mask = svg.children.find(node => node.name === "defs").children.find(node =>
+    node.getAttribute("id") === "part-radius-text-mask");
+  assert.ok(mask);
+  const corner = svg.children.find(node => node.getAttribute("class") === "part-feature-note part-feature-corner-cut" &&
+    node.getAttribute("data-feature-id") === "C2").children.find(node =>
+    node.getAttribute("class") === "part-feature-callout").children.find(node => node.name === "text");
+  const cornerBox = corner.getBoundingClientRect();
+  assert.ok(mask.children.some(node => node.getAttribute("fill") === "black" &&
+    Number(node.getAttribute("x")) <= cornerBox.left && Number(node.getAttribute("y")) <= cornerBox.top &&
+    Number(node.getAttribute("x")) + Number(node.getAttribute("width")) >= cornerBox.right &&
+    Number(node.getAttribute("y")) + Number(node.getAttribute("height")) >= cornerBox.bottom),
+  "Radius guides break behind corner-cut text instead of crossing its glyphs.");
+  for (const guide of edgeGuides) {
+    const [x1, y1, x2, y2] = ["x1", "y1", "x2", "y2"].map(name => Number(guide.getAttribute(name)));
+    close(y2, end[1], 0.001);
+    close((x2 - x1) * (center.y - y1) - (y2 - y1) * (center.x - x1), 0);
+    assert.ok((x2 - x1) * (center.x - x1) + (y2 - y1) * (center.y - y1) > 0);
+    assert.equal(guide.getAttribute("stroke-dasharray"), "1 4");
+    assert.equal(guide.getAttribute("marker-end"), "url(#part-dimension-arrow)");
+    assert.equal(guide.getAttribute("data-center"), "C");
+    assert.equal(guide.getAttribute("mask"), "url(#part-radius-text-mask)");
+  }
+  const top = drawing.projectPoint([arc.point[0], rib.thickness, 0]);
+  assert.ok(end[1] < top.y - 20, "Radius arrow continues above the original blank.");
+  assert.ok(Math.hypot(dx, dy) <= Math.hypot(center.x - anchor.x, center.y - anchor.y) + 0.001,
+    "The radius arrow must not extend past its center.");
+  const dimensions = [...svg.children].filter(node => node.getAttribute("class") === "part-feature-dimension");
+  assert.equal(dimensions.length, 0, "Construction callouts replace all piecewise and locating dimensions.");
+  const blank = [...svg.children].find(node => node.getAttribute("class") === "part-feature-outline" &&
+    node.getAttribute("data-feature-id") === "B1");
+  assert.equal(blank.getAttribute("stroke-dasharray"), "1 4");
+  assert.equal([...svg.children].filter(node => node.getAttribute("class")?.includes("part-feature-rectangular-notch")).length,
+    rib.construction.notches.length + rib.construction.openings.length);
+  assert.deepEqual(drawing.geometry.positions, rib.createStockGeometry().positions);
+  const stage = controls.node("#part-view-stage");
+  stage.clientWidth = 600;
+  stage.clientHeight = 119;
+  controls.resize();
+  const transform = controls.node("#part-view-drawing").style.transform;
+  assert.equal(Number(transform.match(/scale\(([^)]+)\)/)[1]), 1);
+  stage.dispatch("keydown", { key: "ArrowRight", preventDefault() {} });
+  assert.notEqual(controls.node("#part-view-drawing").style.transform, transform);
+  stage.dispatch("keydown", { key: "Home", preventDefault() {} });
+  assert.equal(controls.node("#part-view-drawing").style.transform, transform);
+  controls.node("#placement-tab").dispatch("click");
+  assert.ok(drawing.geometry.indices.length);
+});
+
+test("curved plywood Details keeps all stock views flat and its independent preview bent", () => {
+  const model = buildStairway(), controls = createControls({ buildModel: () => model });
+  const panel = model.partTree.getLeaves().find(node => node.part.bend);
+  controls.node("#stairway-tab").dispatch("click");
+  const item = controls.node("#parts-groups").children.find(item =>
+    item.children[0].textContent.startsWith("Side panel - curved"));
+  assert.ok(item);
+  item.dispatch("click");
+  controls.node("#details-tab").dispatch("click");
+  assert.match(controls.node("#part-description").textContent, /inner radius.*flat cutting pattern/);
+  const drawing = controls.partViewers.find(viewer => viewer.canvas.id === "part-view-selected");
+  const preview = controls.partViewers.find(viewer => viewer.canvas.id === "part-view-preview");
+  const stock = panel.part.createStockGeometry(), installed = panel.part.createGeometry();
+  for (const name of PART_VIEW_NAMES) {
+    controls.node(`#part-view-choice-${name.toLowerCase()}`).dispatch("click");
+    assert.deepEqual(drawing.geometry.positions, stock.positions);
+    assert.deepEqual(drawing.geometry.indices, stock.indices);
+    assert.deepEqual(preview.geometry.positions, installed.positions);
+  }
+  assert.ok(installed.indices.length > stock.indices.length);
+  assert.equal(controls.node("#part-view-sidebar").hidden, false);
+  controls.node("#placement-tab").dispatch("click");
+  assert.ok(drawing.geometry.indices.length >= installed.indices.length);
+  assert.match(controls.node("#placement-view-metadata").textContent, /installed shape|flat cutting pattern/);
 });
 
 test("the reusable part preview rotates independently and survives view, size, and part changes", () => {
@@ -2195,7 +2645,7 @@ test("the reusable part preview rotates independently and survives view, size, a
   open("Riser");
   assert.equal(controls.node("#part-views").hidden, true);
   assert.equal(controls.node("#part-view-sidebar").hidden, false);
-  open("Castrek");
+  open("CWfutureparts");
   assert.equal(controls.node("#part-view-sidebar").hidden, true);
   const hardwareCamera = camera(drawing.stockViewer);
   canvas.dispatch("keydown", { key: "ArrowRight", preventDefault() {} });
@@ -2269,7 +2719,7 @@ test("Placement metadata is a collapsed caption disclosure, follows the view, an
   assert.equal(toggle.hidden, true);
   assert.equal(metadata.hidden, true);
   controls.node("#parts-groups").children.find(item =>
-    item.children[0].textContent.startsWith("Castrek")).dispatch("click");
+    item.children[0].textContent.startsWith("CWfutureparts")).dispatch("click");
   assert.equal(controls.node("#part-view-compass").style.display, "none");
   controls.node("#placement-tab").dispatch("click");
   assert.equal(controls.node("#part-view-compass").style.display, "");
@@ -2358,7 +2808,7 @@ test("Details restores its default transform on part, view, and viewport changes
   pan();
   stage.dispatch("keydown", { key: "Home", preventDefault() {} });
   assert.equal(drawing.style.transform, resized);
-  items.find(item => item.children[0].textContent.startsWith("Castrek")).dispatch("click");
+  items.find(item => item.children[0].textContent.startsWith("CWfutureparts")).dispatch("click");
   assert.equal(drawing.style.transform, resized);
   controls.calls.length = 0;
   pan();
@@ -2408,13 +2858,13 @@ test("Parameters hydrates sliders, links, URL history, and Reset defaults togeth
   assert.equal(controls.node("#stair-count").value, "7");
   assert.equal(models.at(-1).stairWidth, 28.25);
   controls.node("#reset-defaults").dispatch("click");
-  assert.equal(controls.url.search, "?width=24&steps=9&modules=3&shoulderAscent=32");
+  assert.equal(controls.url.search, "?width=20&steps=9&modules=3&shoulderAscent=32");
   assert.equal(controls.node("#page-link").href, `http://localhost/index.html${controls.url.search}`);
-  assert.equal(controls.node("#stair-width").value, "24");
+  assert.equal(controls.node("#stair-width").value, "20");
   assert.equal(controls.node("#stair-count").value, "9");
   assert.equal(controls.node("#module-count").value, "3");
   assert.equal(controls.node("#spindle-shoulder-ascent").value, "32");
-  assert.equal(models.at(-1).stairWidth, 24);
+  assert.equal(models.at(-1).stairWidth, 20);
   assert.equal(models.at(-1).stepCount, 9);
   assert.equal(controls.node("#parameter-notice").hidden, true);
   assert.ok(controls.calls.every(([name]) => name !== "reset"));
@@ -2516,19 +2966,82 @@ test("view buttons float inside the 3D stage while model information occupies th
   const stage = html.slice(start, html.indexOf("</section>", start));
   assert.match(stage, /class="view-controls" role="group" aria-label="3D view controls"/);
   assert.match(stage, /id="reset"[^>]*>Reset view<\/button>\s*<button id="view-modules"[^>]*>Split modules<\/button>/);
+  assert.match(stage, /id="view-modules"[^>]*>Split modules<\/button>\s*<button id="view-castle"[^>]*>Show castle<\/button>/);
   assert.doesNotMatch(html, /<section class="view-controls"|<legend>View<\/legend>|type="checkbox"/);
   assert.doesNotMatch(stage, /id="model-information"/);
   assert.match(html.slice(html.indexOf("</section>", start)),
     /<section id="model-information" aria-label="Model information">[\s\S]*id="dimensions"[\s\S]*id="controls"/);
 });
 
+test("castle visibility persists in the URL, stays fixed during splitting, and never selects a part", () => {
+  const model = buildStairway(), part = model.partTree.getLeaves()[0].id;
+  const controls = createControls({ buildModel: () => model,
+    search: `?part=${encodeURIComponent(part)}` });
+  const button = controls.node("#view-castle"), partsCount = controls.node("#parts-groups").children.length;
+  assert.equal(button.textContent, "Show castle");
+  const stairGeometry = controls.geometry;
+  button.dispatch("click");
+  assert.equal(button.textContent, "Hide castle");
+  assert.equal(button.getAttribute("aria-pressed"), "true");
+  assert.equal(controls.url.searchParams.get("castle"), "shown");
+  assert.equal(new URL(controls.node("#page-link").href).searchParams.get("castle"), "shown");
+  const castle = controls.mainViewer.batches.at(-1);
+  closeGeometry(castle.geometry, model.createCastleGeometry());
+  controls.node("#view-modules").dispatch("click");
+  controls.advance(300);
+  closeGeometry(controls.bounds, combineGeometries([model.createGeometry({}, 0, 0.5), castle.geometry]));
+  assert.deepEqual(Array.from(castle.transform), [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  controls.advance(300);
+  controls.mainViewer.setStandardView("Top");
+  const point = screenPoint(controls.mainViewer, [0, model.totalHeight, 0]);
+  assert.ok(controls.mainViewer.hitTest(point.x, point.y) >= stairGeometry.indices.length / 3);
+  tapPart(controls, point);
+  assert.equal(controls.url.searchParams.get("part"), null);
+  assert.equal(controls.node("#parts-groups").children.length, partsCount);
+  assert.deepEqual(controls.errors, []);
+  button.dispatch("click");
+  assert.equal(button.textContent, "Show castle");
+  assert.equal(button.getAttribute("aria-pressed"), "false");
+  assert.equal(controls.url.searchParams.get("castle"), null);
+  assert.equal(controls.mainViewer.batches.length, model.moduleCount);
+});
+
+test("castle URL restoration validates visibility without changing Details or Placement geometry", () => {
+  const model = buildStairway();
+  const controls = createControls({ buildModel: () => model, search: "?castle=shown" });
+  assert.equal(controls.node("#view-castle").textContent, "Hide castle");
+  controls.node("#parts-groups").children[0].dispatch("click");
+  for (const tab of ["details", "placement"]) {
+    controls.node(`#${tab}-tab`).dispatch("click");
+    const views = controls.partViewers.map(view => ({ view, geometry: view.geometry, render: view.renderGeometry }));
+    const annotations = controls.node("#part-view-annotations").textContent;
+    controls.node("#view-castle").dispatch("click");
+    for (const { view, geometry, render } of views) {
+      assert.deepEqual(view.geometry, geometry);
+      assert.deepEqual(view.renderGeometry, render);
+    }
+    assert.equal(controls.node("#part-view-annotations").textContent, annotations);
+  }
+  for (const search of ["?castle=hidden", "", "?castle=yes", "?castle=shown&castle=shown"]) {
+    controls.restoreURL(search);
+    assert.equal(controls.node("#view-castle").textContent, "Show castle");
+    assert.equal(controls.url.searchParams.has("castle"), false);
+    if (search.includes("yes") || search.includes("&")) {
+      assert.match(controls.node("#parameter-notice").textContent, /Castle visibility was invalid/);
+    }
+  }
+  controls.restoreURL("?castle=shown");
+  assert.equal(controls.node("#view-castle").textContent, "Hide castle");
+  assert.deepEqual(controls.errors, []);
+});
+
 test("Split and Join modules buttons preserve smooth reversible animation and camera-only reset", () => {
   const model = buildStairway(), controls = createControls({ buildModel: () => model });
   const button = controls.node("#view-modules");
   const checkGeometry = amount => {
-    assert.deepEqual(controls.bounds, model.createGeometry({}, 0, amount));
-    assert.deepEqual(controls.renderGeometry.positions.slice(controls.geometry.positions.length),
-      model.createFootprintGeometry(null, false, true, amount).positions);
+    closeGeometry(controls.bounds, model.createGeometry({}, 0, amount));
+    const footprint = model.createFootprintGeometry(null, false, true, amount).positions;
+    controls.renderGeometry.positions.slice(controls.geometry.positions.length).forEach((value, i) => close(value, footprint[i]));
   };
   assert.equal(button.textContent, "Split modules");
   assert.equal(button.getAttribute("aria-pressed"), "false");
@@ -2557,6 +3070,23 @@ test("Split and Join modules buttons preserve smooth reversible animation and ca
   checkGeometry(0);
 });
 
+test("Split and Join animation ticks neither rebuild meshes nor upload or allocate buffers", () => {
+  const model = buildStairway(), controls = createControls({ buildModel: () => model });
+  for (const name of ["createGeometry", "createNodeGeometry", "createFootprintGeometry"]) {
+    model[name] = () => assert.fail(`${name} must not run during Split/Join animation.`);
+  }
+  for (const name of ["bufferData", "createBuffer"]) {
+    controls.mainViewer.gl[name] = () => assert.fail(`${name} must not run during Split/Join animation.`);
+  }
+  const meshes = controls.mainViewer.batches.map(batch => batch.geometry);
+  for (let cycle = 0; cycle < 2; cycle++) {
+    controls.node("#view-modules").dispatch("click");
+    for (let frame = 0; frame < 40; frame++) controls.advance(15);
+  }
+  assert.deepEqual(controls.mainViewer.batches.map(batch => batch.geometry), meshes);
+  assert.deepEqual(controls.mainViewer.batches.map(batch => batch.transform), model.getModuleTransforms(0));
+});
+
 test("Split and Join modules buttons update geometry immediately with reduced motion", () => {
   const model = buildStairway(), controls = createControls({ reducedMotion: true, buildModel: () => model });
   const button = controls.node("#view-modules");
@@ -2564,9 +3094,9 @@ test("Split and Join modules buttons update geometry immediately with reduced mo
     button.dispatch("click");
     assert.equal(button.textContent, split ? "Join modules" : "Split modules");
     assert.equal(button.getAttribute("aria-pressed"), String(split));
-    assert.deepEqual(controls.bounds, model.createGeometry({}, 0, Number(split)));
-    assert.deepEqual(controls.renderGeometry.positions.slice(controls.geometry.positions.length),
-      model.createFootprintGeometry(null, false, true, Number(split)).positions);
+    closeGeometry(controls.bounds, model.createGeometry({}, 0, Number(split)));
+    const footprint = model.createFootprintGeometry(null, false, true, Number(split)).positions;
+    controls.renderGeometry.positions.slice(controls.geometry.positions.length).forEach((value, i) => close(value, footprint[i]));
   }
 });
 

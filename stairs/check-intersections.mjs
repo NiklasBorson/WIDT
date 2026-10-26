@@ -18,7 +18,7 @@ export async function checkConfigurations(directory = join(root, ".clash-results
   let passed = 0, failed = 0, errors = 0;
   for (const stairCount of [7, 8, 9]) {
     for (const moduleCount of [2, 3]) {
-      const label = `${stairCount} steps / ${moduleCount} modules / width 24 in`;
+      const label = `${stairCount} steps / ${moduleCount} modules / width 20 in`;
       const file = join(directory, `${stairCount}-steps-${moduleCount}-modules.xml`);
       console.log(`\nChecking ${label}`);
       try {
@@ -40,7 +40,7 @@ export async function checkConfigurations(directory = join(root, ".clash-results
       }
     }
   }
-  console.log(`\nSix configurations: ${passed} clear, ${failed} with interference, ${errors} errors.`);
+  console.log(`\nSix configurations: ${passed} clear, ${failed} with interference, ${errors} errors. All physical pieces and the castle included.`);
   return { passed, failed, errors, exitCode: errors ? 2 : Number(failed > 0) };
 }
 

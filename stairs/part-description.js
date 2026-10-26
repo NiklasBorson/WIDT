@@ -1,3 +1,5 @@
+import { constructionTrapezoid } from "./plywood-outline.js";
+
 export function formatLength(value) {
   if (!Number.isFinite(value)) throw new RangeError("A displayed length must be finite.");
   const thirtySeconds = Math.round(Math.abs(value) * 32);
@@ -65,7 +67,7 @@ export function formatPartDescription(description) {
     : `Stock: ${stock.nominalSize ? `${stock.nominalSize} ` : ""}${material}` +
       ` (${formatLength(stock.thickness)} x ${formatLength(stock.width)} in actual).`;
   const dimensions = kind === "plywood"
-    ? `Bounding rectangle (sheet/grain aligned): ${formatLength(boundingRectangle.length)} x ` +
+    ? `${description.construction ? "Starting rectangle" : "Bounding rectangle"} (sheet/grain aligned): ${formatLength(boundingRectangle.length)} x ` +
       `${formatLength(boundingRectangle.width)} in.`
     : `Cut length (long point): ${inches(cutLength)}. Finished width: ${inches(finishedWidth)}.`;
   const features = [];
@@ -80,10 +82,52 @@ export function formatPartDescription(description) {
     description.notches.some(notch => Math.abs(notch.bevelDegrees) > 1e-8 ||
       Math.abs(notch.shoulderBevelDegrees ?? 0) > 1e-8) ? " (with bevels)" : "");
   countFeature(description.dados.filter(dado => !dado.endNotch).length, "dados");
-  const summary = getSimpleEdgeBevel(description) ? "One full-length edge bevel; square ends" : features.length > 1
+  let summary = getSimpleEdgeBevel(description) ? "One full-length edge bevel; square ends" : features.length > 1
     ? `${features.slice(0, -1).join(", ")} and ${features.at(-1)}`
     : features[0] ?? "Square cuts only";
   const cuts = [];
+  if (description.outline) {
+    const radii = [...new Set(description.outline.filter(edge => edge.type === "arc").map(edge => edge.radius))];
+    summary = radii.length ? `Cut the flat outline; arc radius ${radii.map(inches).join(", ")}.` : "Cut the flat outline.";
+    cuts.push(summary);
+    if (description.construction) {
+      const { notches } = description.construction, { sides } = constructionTrapezoid(description.construction);
+      cuts.push(`Start with the rectangular blank. Trim ${inches(sides[0].top[0])} from the left top corner and ` +
+        `${inches(blank.length - sides[1].top[0])} from the right top corner, each to the corresponding bottom corner. ` +
+        `Cut the ${description.construction.innerRadius ? "concentric arcs" : "arc"}, then the notches and any through-openings.`);
+      if (description.construction.tangentExtension) {
+        const { innerRadius, arc, tangentExtension } = description.construction;
+        cuts.push(`Stop ${innerRadius === undefined ? "the outer arc" : "both arcs"} at the join radius ` +
+          `${angle(tangentExtension.angleRadians * 180 / Math.PI)} from blank X toward +Z. ` +
+          (innerRadius === undefined
+            ? "Continue its tangent to the front cut. Keep the inner edge straight on blank Z = 0. "
+            : `Continue forward along parallel tangents, ${inches(arc.radius - innerRadius)} apart, to the front cut. `) +
+          "Keep the curved section and straight extension as one piece.");
+      }
+      for (const side of sides) cuts.push(`${side.side === "left" ? "Left" : "Right"} cut: ` +
+        `radial guide from C at ${angle(side.angleRadians * 180 / Math.PI)} from blank X toward +Z; ` +
+        (Math.abs(side.inset) < 1e-8 ? "cut on the guide." :
+          `cut ${inches(Math.abs(side.inset))} ${side.inset > 0 ? "inside" : "outside"} the guide.`));
+      notches.forEach((notch, i) => cuts.push(`N${i + 1}: ${notch.name ?? "rectangular notch"}; reference corner at (X, Z) = ` +
+        `(${notch.reference.map(formatLength).join(", ")}) in from the original blank; width ${inches(notch.width)}, ` +
+        `depth ${inches(notch.depth)}, angle ${angle(notch.angleRadians * 180 / Math.PI)} from blank X toward +Z.`));
+      for (const [i, opening] of (description.construction.openings ?? []).entries()) {
+        cuts.push(`H${i + 1}: ${opening.name ?? "rectangular through-opening"}; reference corner at (X, Z) = ` +
+          `(${opening.reference.map(formatLength).join(", ")}) in from the original blank; width ${inches(opening.width)}, ` +
+          `height ${inches(opening.depth)}, angle ${angle(opening.angleRadians * 180 / Math.PI)} from blank X toward +Z. ` +
+          "Cut through the sheet; a rectangle crossing the perimeter forms an edge opening.");
+      }
+      cuts.push("Each rectangular cut starts at its marked reference corner in the cutting-face view (X right, Z down). Width follows the labeled angle from +X toward +Z; height runs perpendicular toward the next clockwise corner. Overlapping cuts are removed together.");
+    }
+  }
+  if (description.bend) {
+    const forming = `After cutting the flat outline, bend to an inner radius of ${inches(description.bend.innerRadius)} ` +
+      `through ${angle(description.bend.sweepRadians * 180 / Math.PI)}. ` +
+      `Developed length uses the mid-thickness radius (${inches(description.bend.neutralRadius)}); ` +
+      "Y=0 is the outer face and Y=thickness is the inner face.";
+    cuts.push(forming);
+    summary = forming + " Details show the flat cutting pattern; the preview and Placement show the installed bend.";
+  }
   if (widthTrim) {
     cuts.push(`Rip width from ${inches(widthTrim.from)} to ${inches(widthTrim.to)} ` +
       `(remove ${inches(widthTrim.removed)}).`);
@@ -119,7 +163,12 @@ export function formatPartDescription(description) {
       .join("; ") + ". Cut from the far edge to these corners.");
   }
   const outlines = [];
-  if (kind === "plywood") {
+  if (description.outline) {
+    outlines.push("Flat cutting outline (X, Z): " + description.outline.map(edge =>
+      edge.type === "line"
+        ? `line (${edge.from.map(formatLength).join(", ")}) to (${edge.to.map(formatLength).join(", ")})`
+        : `arc radius ${inches(edge.radius)}`).join("; ") + "; close to first point.");
+  } else if (kind === "plywood") {
     const { negativeY, positiveY } = blank.profiles;
     const sameOutline = negativeY.length === positiveY.length && negativeY.every(point =>
       positiveY.some(other => point.every((value, axis) => Math.abs(value - other[axis]) < 1e-8)));
@@ -135,7 +184,9 @@ export function formatPartDescription(description) {
   }
   return {
     stock: stockText, dimensions, summary, cuts, outlines,
-    note: "Stock coordinates: X along length/grain, Y through thickness, Z across width. " +
+    note: (description.bend ? "Details show the flat cutting pattern; the preview and Placement show the installed bend. " : "") +
+      "Stock coordinates: X along length" + (description.bend ? ", grain along Z" : "/grain") +
+      ", Y through thickness, Z across width. " +
       "Start/end are minimum/maximum X; near/far are minimum/maximum Z. " +
       "Outline coordinates are in inches. Dimensions rounded to the nearest 1/32 in; signed angles to 0.01 deg.",
   };

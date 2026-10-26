@@ -23,15 +23,21 @@ function does not automatically satisfy the other.
 ## Fit with the current stairs
 
 The stairs turn through 90 degrees, with concentric inner and outer reference
-curves. The outer radius is `INNER_RADIUS + stairWidth`. Modules contain
+curves. The inner tread edges follow the fixed `INNER_RADIUS` cylinder.
+The outer tread arcs and siding inner face use `INNER_RADIUS + stairWidth`;
+step 1 instead has a straight outer edge tangent at step 2's front.
+The treads are notched around the spindles, which retain their upright attachments.
+Modules contain
 consecutive steps, and their boundaries are radial planes. The design should
 follow actual module boundaries, not assume that every module contains three
 steps or that all sections have equal lengths.
 
 The present foundation has right-front uprights at each step and an additional
 right-rear upright at each module's back. All of these uprights are pine, based on
-`0.75 x 3.5 in` stock, with existing notches and dados. Their outer faces now
-align with the step sides. There are no side boards.
+`1.5 x 3.5 in` stock, with existing notches and dados. Their outer faces
+align with the step sides. Their bottoms reach the siding bottom, `1 in`
+above the floor; the bottom-open cross-beam notches retain their `8 in`
+shoulder elevation. There are no side boards.
 
 Those uprights provide useful attachment locations, but they should not be
 assumed adequate as freestanding railing posts. They are thin in one bending
@@ -236,8 +242,7 @@ transition to a landing need separate treatment.
 All sections must share this global definition. Do not independently fit a
 curve through each module's posts: small differences in height or tangent
 would become visible at the seams. Mounting brackets can accommodate the
-difference between a true circular rail and the stair's straight-sided tread
-edges.
+difference between a true circular rail and the posts' straight framing chords.
 
 Possible fabrication approaches are:
 
