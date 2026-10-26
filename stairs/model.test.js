@@ -184,7 +184,7 @@ test("three-inch caster mesh and purchased-part details use the new reference ha
   assert.match(details.note, /4\.25.*4\.3.*flat 2x4 caster beam.*plywood base rail on top/);
 });
 
-test("six-inch-wide base rails sit on caster beams below unchanged upper framing without spacers", () => {
+test("base rails sit on caster beams below unchanged upper framing without spacers", () => {
   for (const width of [20, 24, 36]) for (const count of [4, 5, 6, 7, 8, 9]) for (const modules of [2, 3]) {
     if (count < modules * 2) continue;
     const model = buildStairway(width, count, modules);
@@ -203,30 +203,38 @@ test("six-inch-wide base rails sit on caster beams below unchanged upper framing
         assert.equal(rib.construction.trapezoid.right.inset, 0);
         assert.equal(rib.construction.trapezoid.top, undefined, "Corner coordinates are derived, not independently authored.");
         const angle = module.steps[0].angle, half = module.steps.length * angle / 2;
+        const straight = module.startIndex === 0 && rib === module.boards.outerBaseRail;
+        const corner = module.boards.rightSupportBeam.footprint[3];
+        const left = straight ? (corner[0] + INNER_RADIUS) * Math.cos(half) + corner[1] * Math.sin(half)
+          : innerRadius * Math.cos(half);
         assert.equal(rib.thickness, BASE_RAIL_THICKNESS);
         assert.equal(rib.thickness, 0.75);
         assert.equal(rib.bottomHeight, 5.75);
         close(rib.bottomHeight + rib.thickness, 6.5);
         assert.deepEqual(rib.construction.openings, [], "Beam-mounted casters require no large rail openings.");
-        close(rib.construction.innerRadius, innerRadius);
+        if (straight) assert.equal(rib.construction.innerRadius, undefined);
+        else close(rib.construction.innerRadius, innerRadius);
         assert.deepEqual([...new Set(rib.outline.filter(edge => edge.type === "arc").map(edge => edge.radius))].sort((a, b) => a - b),
-          [innerRadius, innerRadius + 6]);
+          straight ? [innerRadius + 6] : [innerRadius, innerRadius + 6]);
         const stock = rib.createStockGeometry(), installed = rib.createGeometry();
         assertBoardsGeometry(stock);
         assertBoardsGeometry(installed);
         close(meshVolume(stock), meshVolume(installed), 0.001);
-        close(meshVolume(stock), rib.getMaterialVolume(), 0.02);
+        const arcVolumeError = rib.outline.filter(edge => edge.type === "arc")
+          .reduce((sum, edge) => sum + edge.radius * Math.abs(edge.sweepRadians) * 0.001 * rib.thickness, 0);
+        close(meshVolume(stock), rib.getMaterialVolume(), arcVolumeError + 0.001);
         const plan = ([x, z]) => [
           rib.origin[0] + Math.cos(rib.heading) * x + Math.sin(rib.heading) * z + INNER_RADIUS,
           rib.origin[1] + Math.sin(rib.heading) * x - Math.cos(rib.heading) * z,
         ];
-        const left = innerRadius * Math.cos(half), back = module.steps.length * angle;
+        const back = module.steps.length * angle;
         for (const edge of rib.outline) for (const t of [0, 0.5, 1]) {
           const [east, north] = plan(outlinePoint(edge, t));
           if (edge.type === "arc") close(Math.hypot(east, north), edge.radius);
           assert.ok(north >= frontOffset - 1e-8);
           assert.ok(Math.sin(back) * east - Math.cos(back) * north >= -1e-8);
-          assert.ok(Math.hypot(east, north) >= innerRadius - 1e-8);
+          if (straight) assert.ok(east * Math.cos(half) + north * Math.sin(half) >= left - 1e-8);
+          else assert.ok(Math.hypot(east, north) >= innerRadius - 1e-8);
         }
         close((rib.origin[0] + INNER_RADIUS) * Math.cos(half) + rib.origin[1] * Math.sin(half), left);
       }
@@ -278,7 +286,7 @@ test("rectangular notch references retain outside-looking-in handedness when rot
   assert.throws(() => new ProfiledPlywood({ construction, outline: rib.outline, thickness: rib.thickness }), /not both/);
 });
 
-test("module 1 rails reach the vertical front cross-piece and the outer rail has a six-inch tangent extension", () => {
+test("module 1 outer rail keeps its outer arc and front tangent with a straight caster-beam-aligned inner edge", () => {
   for (const width of [20, 24, 36]) for (const count of [7, 8, 9]) for (const modules of [2, 3]) {
     const model = buildStairway(width, count, modules), module = model.modules[0];
     const rail = module.boards.outerBaseRail, construction = rail.construction;
@@ -293,9 +301,12 @@ test("module 1 rails reach the vertical front cross-piece and the outer rail has
     ];
     const [outerJoin, outerFront, innerFront, innerJoin] = extension.outline.map(edge => plan(edge.from));
     const angle = model.steps[0].angle, radial = [Math.cos(angle), Math.sin(angle)];
-    for (const [point, radius] of [[outerJoin, model.outerRadius], [innerJoin, model.outerRadius - 6]]) {
-      point.forEach((value, i) => close(value, radius * radial[i]));
-    }
+    outerJoin.forEach((value, i) => close(value, model.outerRadius * radial[i]));
+    const beam = module.boards.rightSupportBeam;
+    const beamStart = [beam.footprint[3][0] + INNER_RADIUS, beam.footprint[3][1]];
+    const beamDirection = beam.footprint[2].map((value, i) => value - beam.footprint[3][i]);
+    for (const point of [innerJoin, innerFront]) close(
+      (point[0] - beamStart[0]) * beamDirection[1] - (point[1] - beamStart[1]) * beamDirection[0], 0);
     const support = model.steps[0].parts.topFrame.boards.southCrossPiece;
     const frontOffset = Math.max(...support.footprint.map(point => point[1]));
     close(outerFront[1], frontOffset);
@@ -313,13 +324,17 @@ test("module 1 rails reach the vertical front cross-piece and the outer rail has
         Math.min(Math.max(a[0], b[0]), supportMax) - Math.max(Math.min(a[0], b[0]), supportMin) > 1),
         "Each installed rail must actually reach the vertical front cross-piece, not just its unnotched construction.");
     }
-    for (const [from, to] of [[outerJoin, outerFront], [innerJoin, innerFront]]) {
-      close(to.reduce((sum, value, i) => sum + (value - from[i]) * radial[i], 0), 0);
-    }
-    close(outerFront.reduce((sum, value, i) => sum + (value - innerFront[i]) * radial[i], 0), 6);
+    close(outerFront.reduce((sum, value, i) => sum + (value - outerJoin[i]) * radial[i], 0), 0);
     const unnotched = constructionProfile({ ...construction, notches: [] });
-    for (const join of extension.join) assert.ok(unnotched.outline.some(edge => edge.type === "arc" &&
-      [0, 1].some(t => Math.hypot(...outlinePoint(edge, t).map((value, i) => value - join[i])) < 1e-8)));
+    assert.ok(unnotched.outline.some(edge => edge.type === "arc" &&
+      [0, 1].some(t => Math.hypot(...outlinePoint(edge, t).map((value, i) => value - extension.join[0][i])) < 1e-8)));
+    const innerEdges = unnotched.outline.filter(edge => edge.type === "line" &&
+      Math.abs(edge.from[1]) < 1e-8 && Math.abs(edge.to[1]) < 1e-8);
+    assert.ok(innerEdges.length, "The inner boundary follows the straight beam edge, not an arc or a bent extension.");
+    const innerEnds = innerEdges.flatMap(edge => [edge.from, edge.to]).map(plan).sort((a, b) => a[1] - b[1]);
+    close(innerEnds[0][1], frontOffset);
+    close(innerEnds.at(-1)[0] * Math.sin(module.steps.length * angle) -
+      innerEnds.at(-1)[1] * Math.cos(module.steps.length * angle), 0);
     for (const across of [0.1, 0.5, 0.9]) for (const along of [0.1, 0.5, 0.9]) {
       const [a, b, c, d] = extension.outline.map(edge => edge.from);
       const point = a.map((value, i) => (value + (b[i] - value) * along) * (1 - across) +
@@ -1036,8 +1051,9 @@ test("plan cutouts preserve closed concave meshes and describe cuts inside the o
   }
 });
 
-test("whole caster plates fit their beam undersides with edge clearance and tangent headings except at step 1", () => {
-  for (const width of [20, 24, 36]) for (const count of [7, 8, 9]) for (const modules of [2, 3]) {
+test("whole caster plates align with their beam undersides and retain edge clearance", () => {
+  for (const width of [20, 24, 36]) for (const count of [4, 5, 6, 7, 8, 9]) for (const modules of [2, 3]) {
+    if (count < modules * 2) continue;
     const model = buildStairway(width, count, modules);
     for (const module of model.modules) for (const side of ["left", "right"]) for (const rear of [false, true]) {
       const beam = module.boards[`${side}SupportBeam`];
@@ -1046,13 +1062,9 @@ test("whole caster plates fit their beam undersides with edge clearance and tang
       const angle = rear ? (module.steps.length - 1) * module.steps[0].angle : 0;
       const along = [-Math.sin(caster.heading), Math.cos(caster.heading)];
       const across = [Math.cos(caster.heading), Math.sin(caster.heading)];
-      if (module.startIndex === 0 && !rear) {
-        const front = beam.footprint[0].map((value, i) => (value + beam.footprint[3][i]) / 2);
-        const back = beam.footprint[1].map((value, i) => (value + beam.footprint[2][i]) / 2);
-        close(caster.heading, Math.atan2(front[0] - back[0], back[1] - front[1]));
-      } else {
-        close(Math.sin(caster.heading - Math.atan2(caster.north, caster.east + INNER_RADIUS)), 0);
-      }
+      const beamHeading = Math.atan2(beam.footprint[0][0] - beam.footprint[1][0],
+        beam.footprint[1][1] - beam.footprint[0][1]);
+      close(Math.sin(caster.heading + angle - beamHeading), 0);
       close(beam.bottomHeight, Math.max(...Array.from(caster.createGeometry().positions)
         .filter((_, i) => i % 3 === 1)));
       for (const lengthSign of [-1, 1]) for (const widthSign of [-1, 1]) {

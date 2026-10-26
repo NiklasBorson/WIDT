@@ -96,10 +96,13 @@ export function formatPartDescription(description) {
         `${inches(blank.length - sides[1].top[0])} from the right top corner, each to the corresponding bottom corner. ` +
         `Cut the ${description.construction.innerRadius ? "concentric arcs" : "arc"}, then the notches and any through-openings.`);
       if (description.construction.tangentExtension) {
-        cuts.push(`Stop both arcs at the join radius ${angle(description.construction.tangentExtension.angleRadians * 180 / Math.PI)} ` +
-          `from blank X toward +Z. Continue forward along parallel tangents, ` +
-          `${inches(description.construction.arc.radius - description.construction.innerRadius)} apart, ` +
-          `to the front cut. Keep the curved section and straight extension as one piece.`);
+        const { innerRadius, arc, tangentExtension } = description.construction;
+        cuts.push(`Stop ${innerRadius === undefined ? "the outer arc" : "both arcs"} at the join radius ` +
+          `${angle(tangentExtension.angleRadians * 180 / Math.PI)} from blank X toward +Z. ` +
+          (innerRadius === undefined
+            ? "Continue its tangent to the front cut. Keep the inner edge straight on blank Z = 0. "
+            : `Continue forward along parallel tangents, ${inches(arc.radius - innerRadius)} apart, to the front cut. `) +
+          "Keep the curved section and straight extension as one piece.");
       }
       for (const side of sides) cuts.push(`${side.side === "left" ? "Left" : "Right"} cut: ` +
         `radial guide from C at ${angle(side.angleRadians * 180 / Math.PI)} from blank X toward +Z; ` +

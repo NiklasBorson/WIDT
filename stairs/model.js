@@ -1162,7 +1162,7 @@ class SupportCrossPiece extends UprightCrossPiece {
   }
 }
 
-function addModuleCasters({ steps, boards: beams, startIndex }) {
+function addModuleCasters({ steps, boards: beams }) {
   const rearAngle = (steps.length - 1) * steps[0].angle;
   const cosine = Math.cos(rearAngle), sine = Math.sin(rearAngle);
   const clearance = 0.125;
@@ -1180,10 +1180,7 @@ function addModuleCasters({ steps, boards: beams, startIndex }) {
     const along = footprint[1].map((value, axis) => (value - footprint[0][axis]) / sideLength);
     const heading = Math.atan2(-along[0], along[1]);
     const available = dot(back.map((value, i) => value - front[i]), along);
-    // The projected plate width is W*cos(delta) + L*sin(abs(delta)).
-    const maxAngle = Math.asin((beam.width - 2 * clearance) / plateDiagonal) -
-      Math.atan2(plateWidth, plateLength);
-    const range = tangent => {
+    const range = () => {
       let lower = 0, upper = available;
       const limit = (normal, offset) => {
         const slope = dot(normal, along), distance = offset - dot(normal, front);
@@ -1198,29 +1195,22 @@ function addModuleCasters({ steps, boards: beams, startIndex }) {
         const normal = [(start[1] - end[1]) / length, (end[0] - start[0]) / length];
         limit(normal, dot(normal, start) + plateDiagonal / 2 + clearance);
       }
-      if (tangent) for (const sign of [-1, 1]) {
-        const angle = heading + sign * maxAngle;
-        const normal = [sign * Math.sin(angle), -sign * Math.cos(angle)];
-        limit(normal, -INNER_RADIUS * normal[0]);
-      }
       if (!Number.isFinite(lower) || !Number.isFinite(upper) || lower > upper) {
         throw new RangeError(`Caster plates do not fit beneath the ${side} support beam.`);
       }
       return [lower, upper];
     };
-    const frontDistance = Math.max(range(startIndex !== 0)[0], range(false)[0] + (beam.casterFrontSetback ?? 0));
-    const rearDistance = range(true)[1];
+    const [frontLimit, rearDistance] = range();
+    const frontDistance = frontLimit + (beam.casterFrontSetback ?? 0);
     if (rearDistance - frontDistance < plateDiagonal + clearance) {
       throw new RangeError("Caster plates do not fit between the support beam's end clearances.");
     }
     const [frontEast, frontNorth] = front.map((value, i) => value + along[i] * frontDistance);
-    const frontHeading = startIndex === 0 ? heading : Math.atan2(frontNorth, frontEast + INNER_RADIUS);
-    steps[0].parts.bottomFrame.hardware[`${side}Caster`] = new Caster(frontEast, frontNorth, frontHeading);
+    steps[0].parts.bottomFrame.hardware[`${side}Caster`] = new Caster(frontEast, frontNorth, heading);
     const [rearEast, rearNorth] = front.map((value, i) => value + along[i] * rearDistance);
-    const rearHeading = Math.atan2(rearNorth, rearEast + INNER_RADIUS) + Math.PI;
     steps.at(-1).parts.bottomFrame.hardware[`${side}RearCaster`] = new Caster(
       cosine * (rearEast + INNER_RADIUS) + sine * rearNorth - INNER_RADIUS,
-      -sine * (rearEast + INNER_RADIUS) + cosine * rearNorth, rearHeading - rearAngle);
+      -sine * (rearEast + INNER_RADIUS) + cosine * rearNorth, heading + Math.PI - rearAngle);
   }
 }
 
@@ -2231,7 +2221,11 @@ function createModuleBaseRail(module, innerRadius, radius, name) {
   const firstSupport = module.steps[0].parts.topFrame.boards.southCrossPiece;
   const frontOffset = module.startIndex === 0 ? Math.max(...firstSupport.footprint.map(point => point[1])) : RISER_THICKNESS;
   const backNormal = [Math.sin(end), -Math.cos(end)];
-  const left = innerRadius * c;
+  const straightInnerEdge = module.startIndex === 0 && radius === moduleSidingRadius(module);
+  const beamInnerCorner = module.boards.rightSupportBeam.footprint[3];
+  const left = straightInnerEdge
+    ? (beamInnerCorner[0] + INNER_RADIUS) * c + beamInnerCorner[1] * s
+    : innerRadius * c;
   const intersection = (normal, offset, z) =>
     (offset - (normal[0] * c + normal[1] * s) * z) / (normal[0] * tangent[0] + normal[1] * tangent[1]);
   const min = [intersection(frontNormal, frontOffset, radius), left];
@@ -2274,8 +2268,8 @@ function createModuleBaseRail(module, innerRadius, radius, name) {
       }
     }
   }
-  const construction = { blank, trapezoid, arc, innerRadius, notches: [], openings: [],
-    ...(module.startIndex === 0 && radius === moduleSidingRadius(module)
+  const construction = { blank, trapezoid, arc, ...(!straightInnerEdge ? { innerRadius } : {}), notches: [], openings: [],
+    ...(straightInnerEdge
       ? { tangentExtension: { angleRadians: Math.PI / 2 + halfAngle - angle } } : {}) };
   const area = profile => [profile.outline, ...profile.holes].reduce((sum, loop) => sum + outlineArea(loop), 0);
   let remainingArea = area(constructionProfile(construction));

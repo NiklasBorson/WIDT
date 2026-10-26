@@ -372,7 +372,7 @@ test("base rail construction annotations locate each authored cut corner and cha
       const description = rib.getManufacturingDescription();
       const tangent = rib.construction.tangentExtension;
       const instructions = formatPartDescription(description).cuts.join(" ");
-      if (tangent) assert.match(instructions, /Stop both arcs at the join radius .*parallel tangents, 6 in apart.*one piece/);
+      if (tangent) assert.match(instructions, /Stop the outer arc at the join radius .*inner edge straight on blank Z = 0.*one piece/);
       else assert.doesNotMatch(instructions, /join radius|parallel tangents/);
       for (const direction of [[0, 1, 0], [0, -1, 0]]) {
         const features = getPartFeatures(description, { direction, up: [1, 0, 0] });
@@ -380,7 +380,7 @@ test("base rail construction annotations locate each authored cut corner and cha
         assert.equal(extensions.length, tangent ? 1 : 0);
         if (tangent) {
           assert.equal(extensions[0].id, "T1");
-          assert.ok(extensions[0].lines.includes("6 in wide"));
+          assert.ok(extensions[0].lines.includes("Straight inner edge at blank Z = 0"));
           assert.match(extensions[0].lines.join(" "), /Join radius at .* from blank X/);
           assert.equal(extensions[0].outline.length, 4);
         }
@@ -398,10 +398,10 @@ test("base rail construction annotations locate each authored cut corner and cha
           assert.match(feature.lines.join(" "), /Width .*height .*Angle /);
         });
         const arcs = features.filter(feature => feature.kind === "arc");
-        assert.equal(arcs.length, 2);
+        assert.equal(arcs.length, rib.construction.innerRadius === undefined ? 1 : 2);
         const arc = arcs.find(feature => !feature.radiusTo), outer = arcs.find(feature => feature.radiusTo);
-        close(arc.radius, rib.construction.innerRadius);
-        close(outer.radiusSpan, outer.radius - arc.radius);
+        close(arc.radius, rib.construction.innerRadius ?? rib.construction.arc.radius);
+        if (outer) close(outer.radiusSpan, outer.radius - arc.radius);
         assert.equal(arc.radiusCenterLabel, "C");
         assert.equal(arc.radialGuides.length, 2, "Both authored radial guidelines point toward C.");
         const inset = rib.construction.trapezoid.left.inset;
@@ -2442,7 +2442,7 @@ test("arc-cut base rails show construction dimensions and a radius arrow through
   assert.match(controls.node("#part-description").textContent, /flat outline; arc radius/);
   const svg = controls.node("#part-view-annotations");
   const groups = [...svg.children].filter(node => node.getAttribute("class")?.includes("part-feature-arc"));
-  assert.equal(groups.length, 2);
+  assert.equal(groups.length, 1);
   const overall = [...svg.children].filter(node => node.getAttribute("class") === "part-blank-dimension");
   assert.deepEqual(overall.map(node => node.getAttribute("data-side")), ["top", "left"]);
   const chains = [...svg.children].filter(node => node.getAttribute("class") === "part-profile-chain");

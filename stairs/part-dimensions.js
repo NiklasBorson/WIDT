@@ -368,7 +368,8 @@ export function getPartFeatures(description, view, suppliedViews = []) {
         const extension = constructionTangentExtension(construction);
         const entry = feature("T1", "tangent-extension", "Straight tangent extension", point3(extension.join[0]));
         entry.lines = ["T1: Straight tangent extension",
-          `${formatLength(construction.arc.radius - construction.innerRadius)} in wide`,
+          construction.innerRadius === undefined ? "Straight inner edge at blank Z = 0" :
+            `${formatLength(construction.arc.radius - construction.innerRadius)} in wide`,
           `Join radius at ${angleText(construction.tangentExtension.angleRadians * 180 / Math.PI)} from blank X`];
         entry.outline = extension.outline.map(edge => point3(edge.from));
         entry.closed = entry.outlineHidden = true;

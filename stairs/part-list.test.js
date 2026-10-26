@@ -91,7 +91,7 @@ test("curved Pieces share finished and flat Part geometry while radius changes c
 });
 
 test("arc-cut manufacturing identity and radius annotations use analytic edges, not mesh facets or placement", () => {
-  const rib = buildStairway().modules[0].boards.outerBaseRail, description = rib.getManufacturingDescription();
+  const rib = buildStairway().modules[1].boards.outerBaseRail, description = rib.getManufacturingDescription();
   const moved = new ProfiledPlywood({ construction: description.construction, thickness: rib.thickness,
     origin: [40, 70], heading: 1.2, bottomHeight: 20 });
   assert.equal(specification(description), specification(moved.getManufacturingDescription()));
@@ -286,7 +286,7 @@ test("curated subsets cover every modeled role, overlap deliberately, and distin
   }
 });
 
-test("base rails retain their analytic six-inch bands and three-quarter-inch plywood specifications", () => {
+test("base rails retain analytic boundaries and three-quarter-inch plywood specifications", () => {
   for (const modules of [2, 3]) {
     const model = buildStairway(24, 9, modules), inventory = new PartInventory(model.partTree);
     const rails = inventory.entries.filter(entry => entry.locations.some(location => location.category === "base-rails"));
@@ -300,12 +300,14 @@ test("base rails retain their analytic six-inch bands and three-quarter-inch ply
       const description = node.getDescription();
       assert.equal(description.stock.thickness, 0.75);
       assert.equal(description.blank.thickness, 0.75);
-      assert.equal(description.construction.arc.radius - description.construction.innerRadius, 6);
+      const straight = node.id === "stairway/module-1/outerBaseRail";
+      if (straight) assert.equal(description.construction.innerRadius, undefined);
+      else assert.equal(description.construction.arc.radius - description.construction.innerRadius, 6);
       const moved = new ProfiledPlywood({ construction: description.construction, thickness: 0.75,
         origin: [100, 200], heading: 1.3, bottomHeight: 50 });
       assert.equal(specification(description), specification(moved.getManufacturingDescription()));
       const features = getPartFeatures(description, { direction: [0, 1, 0], up: [0, 0, -1] });
-      assert.equal(features.filter(feature => feature.kind === "arc").length, 2);
+      assert.equal(features.filter(feature => feature.kind === "arc").length, straight ? 1 : 2);
     }
   }
 });

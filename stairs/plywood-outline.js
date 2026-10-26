@@ -211,13 +211,18 @@ export function constructionTangentExtension(construction) {
   const { arc, innerRadius, tangentExtension } = construction;
   const angle = tangentExtension.angleRadians;
   if (!Number.isFinite(angle) || angle <= 0 || angle >= Math.PI ||
-    !Number.isFinite(innerRadius) || innerRadius <= 0 || innerRadius >= arc.radius) {
-    throw new RangeError("A tangent extension requires an upper-half-circle join and concentric inner radius.");
+    (innerRadius !== undefined && (!Number.isFinite(innerRadius) || innerRadius <= 0 || innerRadius >= arc.radius))) {
+    throw new RangeError("A tangent extension requires an upper-half-circle join and a valid inner boundary.");
   }
   const radial = [Math.cos(angle), Math.sin(angle)], tangent = [-radial[1], radial[0]];
   const front = constructionTrapezoid(construction).sides[0];
-  const join = [arc.radius, innerRadius].map(radius => arc.center.map((value, i) => value + radius * radial[i]));
-  const ends = join.map(point => {
+  const joinRadius = innerRadius ?? -arc.center[1] / radial[1];
+  if (!Number.isFinite(joinRadius) || joinRadius <= 0 || joinRadius >= arc.radius) {
+    throw new RangeError("A tangent extension's inner boundary must meet its join inside the outer arc.");
+  }
+  const join = [arc.radius, joinRadius].map(radius => arc.center.map((value, i) => value + radius * radial[i]));
+  const ends = join.map((point, i) => {
+    if (i === 1 && innerRadius === undefined) return [...front.top];
     const length = (front.offset - dot(front.normal, point)) / dot(front.normal, tangent);
     if (!Number.isFinite(length) || length <= EPSILON) {
       throw new RangeError("The tangent extension must reach forward from its join to the front cut.");
