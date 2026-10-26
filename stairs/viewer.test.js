@@ -1957,9 +1957,9 @@ test("Parts subsets preserve visible geometry across content tabs and support em
   const subset = controls.node("#parts-subset");
   module.value = "1";
   module.dispatch("change");
-  subset.value = "framing";
+  subset.value = "step-framing";
   subset.dispatch("change");
-  const expected = inventory.filter({ moduleNumber: 1, subset: "framing" });
+  const expected = inventory.filter({ moduleNumber: 1, subset: "step-framing" });
   assert.deepEqual(controls.geometry, expectedPartsGeometry(model, expected.groups));
   assert.equal(controls.node("#parts-groups").children.length, expected.uniqueCount);
   assert.equal(controls.node("#parts-count").textContent,
@@ -1971,7 +1971,7 @@ test("Parts subsets preserve visible geometry across content tabs and support em
   controls.node("#stairway-tab").dispatch("click");
   assert.deepEqual(controls.geometry, expectedPartsGeometry(model, expected.groups));
   assert.equal(module.value, "1");
-  assert.equal(subset.value, "framing");
+  assert.equal(subset.value, "step-framing");
   type.value = inventory.entries.find(entry => entry.roles.some(role => role.label.startsWith("Side panel"))).stockKey;
   type.dispatch("change");
   assert.equal(controls.node("#parts-groups").children.length, 0);
@@ -2062,7 +2062,7 @@ test("Clear filters restores all Parts while preserving Find and selection", () 
   module.dispatch("change");
   type.value = hardware.key;
   type.dispatch("change");
-  subset.value = "without-cladding";
+  subset.value = "ribs";
   subset.dispatch("change");
   search.value = "caster";
   search.dispatch("input");
@@ -2165,23 +2165,23 @@ test("Home restores URL parameters, filters, visibility, tab, and exact selectio
   controls.node("#stairway-tab").dispatch("click");
   const module = controls.node("#parts-module"), search = controls.node("#parts-search");
   const subset = controls.node("#parts-subset");
-  subset.value = "treads-risers";
+  subset.value = "ribs";
   subset.dispatch("change");
   module.value = "3";
   module.dispatch("change");
-  search.value = "tread";
+  search.value = "rib";
   search.dispatch("input");
   const part = controls.url.searchParams.get("part");
-  controls.restoreURL(`?width=28&module=3&subset=treads-risers&part=${encodeURIComponent(part)}`);
+  controls.restoreURL(`?width=28&module=3&subset=ribs&part=${encodeURIComponent(part)}`);
   assert.equal(module.value, "3");
-  assert.equal(subset.value, "treads-risers");
-  assert.equal(search.value, "tread");
+  assert.equal(subset.value, "ribs");
+  assert.equal(search.value, "rib");
   assert.ok(controls.node("#parts-groups").getAttribute("aria-activedescendant"));
-  controls.restoreURL(`?width=28&modules=2&module=3&subset=treads-risers&part=${encodeURIComponent(part)}`);
+  controls.restoreURL(`?width=28&modules=2&module=3&subset=ribs&part=${encodeURIComponent(part)}`);
   assert.equal(module.children.length, 3);
   assert.equal(module.value, "");
-  assert.equal(subset.value, "treads-risers");
-  assert.equal(search.value, "tread");
+  assert.equal(subset.value, "ribs");
+  assert.equal(search.value, "rib");
   assert.equal(controls.node("#parts-groups").getAttribute("aria-activedescendant"), "");
   assert.equal(controls.url.searchParams.has("module"), false);
   assert.equal(controls.url.searchParams.has("part"), false);
@@ -2201,7 +2201,7 @@ test("viewer URLs hydrate all tabs, Parts visibility, filters, and an exact inst
   for (const tab of ["stairway", "details", "placement"]) {
     const query = new URLSearchParams({
       width: "30", steps: "8", modules: "2", shoulderAscent: "35",
-      tab, parts: "hidden", module: "2", subset: "framing", type: entry.stockKey, part: id,
+      tab, parts: "hidden", module: "2", subset: "step-framing", type: entry.stockKey, part: id,
     });
     const controls = createControls({ search: `?${query}`, buildModel: () => model });
     assert.equal(controls.node(`#${tab}-tab`).getAttribute("aria-selected"), "true");
@@ -2209,7 +2209,7 @@ test("viewer URLs hydrate all tabs, Parts visibility, filters, and an exact inst
     assert.equal(controls.node(".workspace").getAttribute("data-parts-collapsed"), "true");
     assert.equal(controls.node("#toggle-parts").textContent, "Show parts");
     assert.equal(controls.node("#parts-module").value, "2");
-    assert.equal(controls.node("#parts-subset").value, "framing");
+    assert.equal(controls.node("#parts-subset").value, "step-framing");
     assert.equal(controls.node("#parts-type").value, entry.stockKey);
     const selected = controls.node("#parts-groups").children.find(row => row.getAttribute("aria-selected") === "true");
     assert.ok(selected.children[0].textContent.startsWith(entry.title));
@@ -2218,7 +2218,7 @@ test("viewer URLs hydrate all tabs, Parts visibility, filters, and an exact inst
     if (tab === "placement") assert.equal(controls.node("#placement-instance").value, id);
     assert.equal(controls.node("#parameter-notice").hidden, true);
     assert.equal(new URL(controls.node("#page-link").href).search, controls.url.search);
-    const visible = inventory.filter({ moduleNumber: 2, subset: "framing", stockKey: entry.stockKey });
+    const visible = inventory.filter({ moduleNumber: 2, subset: "step-framing", stockKey: entry.stockKey });
     const ids = new Set(visible.occurrences.map(({ location }) => location.id));
     assert.deepEqual(controls.geometry.positions, combineGeometries(model.partTree.getLeaves()
       .filter(node => ids.has(node.id)).map(node => model.createNodeGeometry(node.id))).positions);
@@ -2234,11 +2234,11 @@ test("viewer controls replace the current URL for tabs, Parts visibility, filter
     assert.equal(controls.historyReplacements.length, before + 1);
   };
   change("#parts-module", "change", "2");
-  change("#parts-subset", "change", "framing");
+  change("#parts-subset", "change", "step-framing");
   const type = controls.node("#parts-type").children.find(option => option.value).value;
   change("#parts-type", "change", type);
   assert.equal(controls.url.searchParams.get("module"), "2");
-  assert.equal(controls.url.searchParams.get("subset"), "framing");
+  assert.equal(controls.url.searchParams.get("subset"), "step-framing");
   assert.equal(controls.url.searchParams.get("type"), type);
   const row = controls.node("#parts-groups").children[0], before = controls.historyReplacements.length;
   row.dispatch("click");
@@ -2279,13 +2279,13 @@ test("invalid, duplicate, and filtered-out viewer URL settings show notices and 
   assert.equal(filtered.node("#part-details-empty").hidden, false);
   assert.equal(filtered.url.searchParams.has("part"), false);
   assert.match(filtered.node("#parameter-notice").textContent, /Selected part/);
-  const duplicate = createControls({ search: "?module=1&module=2&subset=framing&subset=banister&parts=hidden&parts=shown&part=a&part=b" });
+  const duplicate = createControls({ search: "?module=1&module=2&subset=step-framing&subset=banister&parts=hidden&parts=shown&part=a&part=b" });
   for (const key of ["module", "subset", "parts", "part"]) assert.equal(duplicate.url.searchParams.has(key), false);
   assert.equal(duplicate.node("#parameter-notice").hidden, false);
 });
 
 test("Parameters links, slider edits, and Reset defaults retain Home viewer URL settings", () => {
-  const state = { tab: "placement", parts: "hidden", module: "2", subset: "framing",
+  const state = { tab: "placement", parts: "hidden", module: "2", subset: "step-framing",
     type: "a stock type", part: "stairway/module-2/step-5-rightUpright", castle: "shown" };
   const controls = createControls({ page: "parameters", search: `?${new URLSearchParams(state)}` });
   for (const action of [
@@ -2421,6 +2421,17 @@ test("part thumbnails mark annotated views and Details captions describe the sel
   open("CWfutureparts");
   assert.equal(controls.node("#part-view-drawing").style.minWidth, "0");
   assert.equal(controls.node("#part-view-drawing").style.minHeight, "0");
+});
+
+test("panel rib Details frame the complete cutting blank even when framing relief removes an end", () => {
+  const model = buildStairway(24), id = "stairway/module-2/sidingRib";
+  const controls = createControls({ search: `?tab=details&part=${id}`, buildModel: () => model });
+  assert.equal(controls.node("#part-details-error").hidden, true);
+  const drawing = controls.partViewers.find(viewer => viewer.canvas.id === "part-view-selected").stockViewer;
+  const { blank } = model.partTree.getNode(id).getDescription();
+  assert.deepEqual(drawing.center, [blank.length / 2, blank.thickness / 2, blank.width / 2]
+    .map(value => Math.fround(value * 2) / 2));
+  assert.deepEqual(drawing.boundsSize, [blank.length, blank.thickness, blank.width].map(Math.fround));
 });
 
 test("arc-cut base rails show construction dimensions and a radius arrow through the blank in Details", () => {
@@ -2847,13 +2858,13 @@ test("Parameters hydrates sliders, links, URL history, and Reset defaults togeth
   assert.equal(controls.node("#stair-count").value, "7");
   assert.equal(models.at(-1).stairWidth, 28.25);
   controls.node("#reset-defaults").dispatch("click");
-  assert.equal(controls.url.search, "?width=24&steps=9&modules=3&shoulderAscent=32");
+  assert.equal(controls.url.search, "?width=20&steps=9&modules=3&shoulderAscent=32");
   assert.equal(controls.node("#page-link").href, `http://localhost/index.html${controls.url.search}`);
-  assert.equal(controls.node("#stair-width").value, "24");
+  assert.equal(controls.node("#stair-width").value, "20");
   assert.equal(controls.node("#stair-count").value, "9");
   assert.equal(controls.node("#module-count").value, "3");
   assert.equal(controls.node("#spindle-shoulder-ascent").value, "32");
-  assert.equal(models.at(-1).stairWidth, 24);
+  assert.equal(models.at(-1).stairWidth, 20);
   assert.equal(models.at(-1).stepCount, 9);
   assert.equal(controls.node("#parameter-notice").hidden, true);
   assert.ok(controls.calls.every(([name]) => name !== "reset"));

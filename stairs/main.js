@@ -60,7 +60,8 @@ try {
   let locatedOccurrenceId = null;
   let renderedDetailsId = null;
   let renderedViewMode = null, placementPlanner = null, placementPlan = null;
-  let selectedPlacementView = "Up", activeDrawingName = "Up", detailsGeometry = null, detailsStockCamera = null;
+  let selectedPlacementView = "Up", activeDrawingName = "Up", detailsGeometry = null, detailsBoundsGeometry = null,
+    detailsStockCamera = null;
   const viewStates = new Map();
   const partDescription = document.querySelector("#part-description");
   const partDetailsError = document.querySelector("#part-details-error");
@@ -550,7 +551,7 @@ try {
     document.querySelector("#part-view-selected-name").textContent = caption;
     selectedPartCanvas.setAttribute("aria-label", `${caption} of selected part`);
     if (selectedPartViewer) {
-      if (detailsGeometry) selectedPartViewer.setGeometry(detailsGeometry, detailsGeometry,
+      if (detailsGeometry) selectedPartViewer.setGeometry(detailsGeometry, detailsBoundsGeometry,
         name === "Up" ? {} : detailsStockCamera);
       selectedPartViewer.setStandardView(selected.standardView);
       resetPartDrawing();
@@ -747,6 +748,7 @@ try {
         throw new Error("Stock-aligned views are not available for this part.");
       }
       const geometry = part.createStockGeometry();
+      const description = node.getDescription();
       const previewGeometry = part.createGeometry();
       const previewCamera = { renderGeometry: combineGeometries([
         previewGeometry, model.createFootprintGeometry(node.id),
@@ -755,6 +757,8 @@ try {
         geometry, model.createFootprintGeometry(node.id, true),
       ]) };
       detailsGeometry = geometry;
+      detailsBoundsGeometry = description.construction ?
+        { positions: new Float32Array(description.blank.vertices.flat()) } : geometry;
       detailsStockCamera = stockCamera;
       if (partPreviewViewer) {
         partPreviewViewer.setGeometry(previewGeometry, previewGeometry, previewCamera);
@@ -762,7 +766,6 @@ try {
       } else partPreviewViewer = new WebGLViewer(partPreviewCanvas, previewGeometry, previewGeometry, previewCamera);
       partPreviewCanvas.setAttribute("aria-label", `Rotatable 3D preview of ${inventory.findOccurrence(node.id).title}`);
       const views = model.partTree.getStockViews(node.id);
-      const description = node.getDescription();
       const singleView = node.kind === "plywood";
       partThumbnails.hidden = singleView;
       partViewsContainer.className = singleView ? "single-stock-view" : "";
@@ -792,8 +795,9 @@ try {
         }
         view.viewer.setStandardView(view.standardView);
       }
-      if (selectedPartViewer) selectedPartViewer.setGeometry(geometry, geometry, stockCamera);
-      else selectedPartViewer = new WebGLViewer(selectedPartCanvas, geometry, geometry, { ...stockCamera, transparent: true });
+      if (selectedPartViewer) selectedPartViewer.setGeometry(geometry, detailsBoundsGeometry, stockCamera);
+      else selectedPartViewer = new WebGLViewer(selectedPartCanvas, geometry, detailsBoundsGeometry,
+        { ...stockCamera, transparent: true });
       partViewsContainer.hidden = false;
       if (singleView) {
         const sheetViews = { riser: "Front", siding: "Right", frontSiding: "Right", backPanel: "Back" };

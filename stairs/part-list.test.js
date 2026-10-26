@@ -192,11 +192,17 @@ test("modeled part names use family-first qualifiers across every supported layo
     frontSpindle: "Spindle - front", rearSpindle: "Spindle - rear", spindleShim: "Spindle shim",
     siding: ["Side panel - curved", "Side panel - right rear section"],
     frontSiding: "Side panel - right front section",
-    sidingStiffener: ["Panel bottom stiffener - curved", "Panel bottom stiffener - rear section"],
-    frontSidingStiffener: "Panel bottom stiffener - front section",
-    sidingStiffenerUpper: ["Panel bottom stiffener - curved", "Panel bottom stiffener - rear section"],
-    frontSidingStiffenerUpper: "Panel bottom stiffener - front section",
+    sidingStiffener: ["Bottom rib - curved", "Bottom rib - rear section"],
+    frontSidingStiffener: "Bottom rib - front section",
+    sidingStiffenerUpper: ["Bottom rib - curved", "Bottom rib - rear section"],
+    frontSidingStiffenerUpper: "Bottom rib - front section",
     frontPanelSupportBlock: "Panel support block - front", rearPanelSupportBlock: "Panel support block - rear",
+    sidingRib: "Panel rib",
+    intermediateSidingRib: "Panel rib - intermediate",
+    frontRibSupportBlock: "Attachment block - panel rib front",
+    rearRibSupportBlock: "Attachment block - panel rib rear",
+    frontIntermediateRibSupportBlock: "Attachment block - panel rib front",
+    rearIntermediateRibSupportBlock: "Attachment block - panel rib rear",
   };
   const seen = new Set();
   for (const steps of [6, 7, 8, 9]) for (const modules of [2, 3]) {
@@ -226,67 +232,64 @@ test("Parts inventory filters intersect module, subset, and stock category", () 
     all.occurrences.map(({ location }) => location.id).sort());
   assert.ok(all.groups.every(group => group.title === group.entry.title));
   const key = all.occurrences.find(({ location }) => location.category === "siding").entry.stockKey;
-  const combined = inventory.filter({ moduleNumber: 1, subset: "cladding", stockKey: key });
+  const combined = inventory.filter({ moduleNumber: 1, stockKey: key });
   assert.ok(combined.occurrences.length);
   assert.ok(combined.occurrences.every(({ entry, location }) =>
     entry.stockKey === key && location.moduleNumber === 1 && location.category === "siding"));
   assert.equal(combined.uniqueCount, new Set(combined.occurrences.map(({ entry }) => entry.key)).size);
-  assert.deepEqual(inventory.filter({ moduleNumber: 1, subset: "framing", stockKey: key }),
+  assert.deepEqual(inventory.filter({ moduleNumber: 1, subset: "step-framing", stockKey: key }),
     { occurrences: [], groups: [], uniqueCount: 0 });
   assert.deepEqual(inventory.filter({ moduleNumber: 4 }), { occurrences: [], groups: [], uniqueCount: 0 });
-  const framing = inventory.filter({ subset: "framing" });
+  const framing = inventory.filter({ subset: "step-framing" });
   assert.ok(framing.occurrences.length);
   assert.ok(framing.occurrences.every(({ entry, location }) =>
-    location.category === "base-rails" ? entry.kind === "plywood" : entry.kind === "lumber" &&
-      !["plywood", "siding", "particle-board", "newel", "spindles"].includes(location.category)));
+    ["lumber", "hardware"].includes(entry.kind) || location.category === "base-rails"));
   assert.throws(() => inventory.filter({ subset: "missing" }), /Unknown part subset/);
 });
 
-test("curated subsets cover every modeled role, overlap deliberately, and distinguish framing from without cladding", () => {
+test("construction subsets are cumulative and add each role at its construction stage", () => {
   assert.deepEqual(PART_SUBSETS.map(subset => subset.label), [
-    "All parts", "Framing", "Foundation", "Step framing", "Treads and risers", "Cladding", "Banister", "Without cladding",
+    "Foundation", "Uprights", "Step framing", "Banister", "Ribs", "All parts",
   ]);
+  const stages = {
+    foundation: ["leftCaster", "rightCaster", "leftRearCaster", "rightRearCaster",
+      "innerBaseRail", "outerBaseRail", "leftSupportBeam", "rightSupportBeam",
+      "supportCrossPiece", "rearSupportCrossPiece", "frontStepSupport", "rearStepSupport",
+      "frontStepRightSupport", "frontStepLeftSupport"],
+    uprights: ["leftUpright", "rightUpright", "leftRearUpright", "rightRearUpright"],
+    "step-framing": ["southCrossPiece", "northCrossPiece", "leftStepSupport", "rightStepSupport",
+      "leftSupportBlock", "rightSupportBlock", "leftBackSupportBlock", "rightBackSupportBlock"],
+    banister: ["newel", "frontSpindle", "rearSpindle", "spindleShim", "newelInnerBlock", "newelRearBlock"],
+    ribs: ["sidingRib", "sidingStiffener", "sidingStiffenerUpper", "frontSidingStiffener",
+      "frontSidingStiffenerUpper", "frontPanelSupportBlock", "rearPanelSupportBlock",
+      "frontRibSupportBlock", "rearRibSupportBlock", "intermediateSidingRib",
+      "frontIntermediateRibSupportBlock", "rearIntermediateRibSupportBlock"],
+    "": ["tread", "riser", "siding", "frontSiding", "backPanel"],
+  };
+  const keys = PART_SUBSETS.map(({ key }) => key);
   for (const steps of [6, 7, 8, 9]) for (const modules of [2, 3]) {
     const model = buildStairway(24, steps, modules), inventory = new PartInventory(model.partTree);
     const locations = new Map(inventory.filter().occurrences.map(({ location }) => [location.id, location]));
     const ids = subset => new Set(inventory.filter({ subset }).occurrences.map(({ location }) => location.id));
-    const framing = ids("framing"), foundation = ids("foundation"), stepFraming = ids("step-framing");
-    const cladding = ids("cladding"), banister = ids("banister"), surfaces = ids("treads-risers");
-    const withoutCladding = ids("without-cladding");
+    let previous = new Set();
+    for (const key of keys) {
+      const current = ids(key);
+      assert.ok([...previous].every(id => current.has(id)), key);
+      assert.ok(current.size > previous.size, key);
+      previous = current;
+    }
     for (const node of model.partTree.getLeaves()) {
       const { id, key } = node;
-      assert.ok([foundation, stepFraming, cladding, banister, surfaces].some(group => group.has(id)),
-        `Unclassified part role: ${key}`);
-      assert.equal(framing.has(id), (node.kind === "lumber" || node.category === "base-rails") &&
-        (foundation.has(id) || stepFraming.has(id)));
-      assert.equal(withoutCladding.has(id), !cladding.has(id));
-      assert.equal(cladding.has(id), ["siding", "frontSiding", "backPanel", "sidingStiffener", "frontSidingStiffener",
-        "sidingStiffenerUpper", "frontSidingStiffenerUpper"].includes(key));
-      assert.equal(surfaces.has(id), ["tread", "riser"].includes(key));
-      assert.equal(banister.has(id), ["newel", "frontSpindle", "rearSpindle", "spindleShim",
-        "newelInnerBlock", "newelRearBlock", "rightUpright", "rightRearUpright"].includes(key) ||
-        (key === "southCrossPiece" && node.stepNumber === 1));
-      if (node.kind === "hardware") {
-        assert.ok(foundation.has(id));
-        assert.ok(withoutCladding.has(id));
-        assert.ok(!framing.has(id));
+      const stage = key === "southCrossPiece" && node.stepNumber === 1 ? "foundation"
+        : Object.keys(stages).find(stage => stages[stage].includes(key));
+      assert.notEqual(stage, undefined, `Unclassified part role: ${key}`);
+      const location = locations.get(id);
+      assert.deepEqual(location.subsets, keys.slice(keys.indexOf(stage)).filter(Boolean), id);
+      assert.equal(node.category === "ribs", stages.ribs.includes(key), id);
+      if (["frontPanelSupportBlock", "rearPanelSupportBlock"].includes(key)) {
+        assert.equal(node.visibilityKey, "supportBeams");
       }
-      if (node.category === "base-rails") {
-        assert.ok(foundation.has(id) && framing.has(id) && !cladding.has(id) && !banister.has(id));
-      }
-      if (["newelInnerBlock", "newelRearBlock"].includes(key)) {
-        assert.ok(framing.has(id) && stepFraming.has(id) && banister.has(id));
-      }
-      if (["rightUpright", "rightRearUpright"].includes(key)) {
-        assert.ok(framing.has(id) && stepFraming.has(id) && banister.has(id));
-      }
-      if (["leftUpright", "leftRearUpright"].includes(key)) assert.ok(!banister.has(id));
-      if (key === "southCrossPiece") assert.equal(foundation.has(id), node.stepNumber === 1);
-      if (["frontStepSupport", "rearStepSupport"].includes(key)) assert.ok(foundation.has(id) && stepFraming.has(id));
-      if (["newel", "frontSpindle", "rearSpindle", "spindleShim", "tread", "riser"].includes(key)) {
-        assert.ok(withoutCladding.has(id) && !framing.has(id));
-      }
-      assert.ok(Object.isFrozen(locations.get(id).subsets));
+      assert.ok(Object.isFrozen(location.subsets));
     }
     assert.equal(inventory.filter().occurrences.length, model.partTree.getLeaves().length);
   }
@@ -299,8 +302,7 @@ test("base rails retain analytic boundaries and three-quarter-inch plywood speci
     assert.equal(rails.reduce((sum, entry) => sum + entry.quantity, 0), modules * 2);
     for (const entry of rails) for (const location of entry.locations) {
       assert.equal(entry.kind, "plywood");
-      assert.ok(location.subsets.includes("foundation") && location.subsets.includes("framing") &&
-        location.subsets.includes("without-cladding"));
+      assert.deepEqual(location.subsets, ["foundation", "uprights", "step-framing", "banister", "ribs"]);
     }
     for (const node of model.partTree.getLeaves().filter(node => node.category === "base-rails")) {
       const description = node.getDescription();
@@ -398,12 +400,12 @@ test("role-specific visibility categories override the plywood category without 
   assert.equal(newel.name, "Newel post");
   assert.equal(newel.getDescription().stock.nominalSize, "4x4");
   const inventory = new PartInventory(tree);
-  const sidingGroup = inventory.filter({ subset: "cladding" }).groups
+  const sidingGroup = inventory.filter().groups
     .find(group => group.locations.some(location => location.id === siding.id));
   assert.equal(sidingGroup.entry.quantity, 3);
-  assert.equal(sidingGroup.locations.length, 2);
-  assert.equal(sidingGroup.title, "Side panel - right rear section / Side panel - right front section");
-  assert.ok(sidingGroup.locations.every(location => location.category === "siding"));
+  assert.deepEqual(sidingGroup.locations.filter(location => location.category === "siding")
+    .map(location => location.name).sort(), ["Side panel - right front section", "Side panel - right rear section"]);
+  assert.equal(inventory.filter({ subset: "ribs" }).occurrences.some(({ location }) => location.id === siding.id), false);
 });
 
 test("particle board has independent visibility and inventory identity while remaining sheet stock", () => {

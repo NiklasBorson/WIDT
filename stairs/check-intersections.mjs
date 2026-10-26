@@ -18,7 +18,7 @@ export async function checkConfigurations(directory = join(root, ".clash-results
   let passed = 0, failed = 0, errors = 0;
   for (const stairCount of [7, 8, 9]) {
     for (const moduleCount of [2, 3]) {
-      const label = `${stairCount} steps / ${moduleCount} modules / width 24 in`;
+      const label = `${stairCount} steps / ${moduleCount} modules / width 20 in`;
       const file = join(directory, `${stairCount}-steps-${moduleCount}-modules.xml`);
       console.log(`\nChecking ${label}`);
       try {

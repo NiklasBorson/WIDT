@@ -65,7 +65,7 @@ test("XML names are escaped and malformed meshes are rejected with the part ID",
 });
 
 test("explicit piece exclusions omit only selected panels, reject unknown IDs, and leave full exports unchanged", async context => {
-  const model = buildStairway(24, 7, 2), ids = model.modules.map((_, i) => `stairway/module-${i + 1}/siding`);
+  const model = buildStairway(undefined, 7, 2), ids = model.modules.map((_, i) => `stairway/module-${i + 1}/siding`);
   const full = serializeScene(model), filtered = serializeScene(model, { excludePieceIds: ids });
   for (const id of ids) {
     assert.ok(full.includes(`<part id="${id}"`));
@@ -93,7 +93,7 @@ test("explicit piece exclusions omit only selected panels, reject unknown IDs, a
 test("export CLI uses default width and rejects invalid configurations without writing a scene", async context => {
   const directory = await temporaryDirectory(context), file = join(directory, "scene.xml");
   await exportStairway(file, 8, 2);
-  assert.match(await readFile(file, "utf8"), /stairWidth="24" stairCount="8" moduleCount="2"/);
+  assert.match(await readFile(file, "utf8"), /stairWidth="20" stairCount="8" moduleCount="2"/);
   const invalid = join(directory, "invalid.xml");
   const result = spawnSync(process.execPath, [join(root, "export-meshes.mjs"), invalid, "7", "4"], { encoding: "utf8" });
   assert.equal(result.status, 2);
@@ -115,7 +115,7 @@ test("matrix builds once, runs all six configurations and retains only failures 
     ["7-steps-3-modules.xml", "8-steps-2-modules.xml", "9-steps-2-modules.xml"]);
   for (const file of await readdir(directory)) {
     const scene = await readFile(join(directory, file), "utf8");
-    assert.match(scene, /stairWidth="24"/);
+    assert.match(scene, /stairWidth="20"/);
     assert.match(scene, /id="stairway\/module-\d+\/siding"/);
     assert.match(scene, /id="stairway\/module-1\/step-1-siding"/);
     assert.match(scene, /id="stairway\/module-1\/step-1-frontSiding"/);
@@ -141,7 +141,7 @@ test("installed curved treads and siding clear spindles and base rails across su
     if (count < modules * 2) continue;
     const model = buildStairway(width, count, modules);
     const leaves = model.partTree.getLeaves(), selected = leaves.filter(node =>
-      node.category === "siding" || ["frontSpindle", "rearSpindle"].includes(node.key) ||
+      ["siding", "ribs"].includes(node.category) || ["frontSpindle", "rearSpindle"].includes(node.key) ||
       node.category === "base-rails" || node.key === "tread");
     assert.equal(selected.filter(node => node.part.bend).length, modules);
     assert.ok(selected.some(node => node.key === "frontSpindle"));

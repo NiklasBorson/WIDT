@@ -6,53 +6,39 @@ const kindOrder = { lumber: 0, plywood: 1, hardware: 2 };
 const materialOrder = { pine: 0, oak: 1 };
 
 export const PART_SUBSETS = Object.freeze([
-  { key: "", label: "All parts" },
-  { key: "framing", label: "Framing" },
   { key: "foundation", label: "Foundation" },
+  { key: "uprights", label: "Uprights" },
   { key: "step-framing", label: "Step framing" },
-  { key: "treads-risers", label: "Treads and risers" },
-  { key: "cladding", label: "Cladding" },
   { key: "banister", label: "Banister" },
-  { key: "without-cladding", label: "Without cladding" },
+  { key: "ribs", label: "Ribs" },
+  { key: "", label: "All parts" },
 ].map(Object.freeze));
 
 const foundationRoles = new Set([
   "leftCaster", "rightCaster", "leftRearCaster", "rightRearCaster",
   "innerBaseRail", "outerBaseRail",
   "leftSupportBeam", "rightSupportBeam", "supportCrossPiece", "rearSupportCrossPiece",
-  "frontPanelSupportBlock", "rearPanelSupportBlock",
   "frontStepSupport", "rearStepSupport", "frontStepRightSupport", "frontStepLeftSupport",
 ]);
-const stepFramingRoles = new Set([
+const uprightRoles = new Set([
   "leftUpright", "rightUpright", "leftRearUpright", "rightRearUpright",
+]);
+const stepFramingRoles = new Set([
   "southCrossPiece", "northCrossPiece", "leftStepSupport", "rightStepSupport",
   "leftSupportBlock", "rightSupportBlock", "leftBackSupportBlock", "rightBackSupportBlock",
   "frontStepSupport", "rearStepSupport", "frontStepRightSupport", "frontStepLeftSupport",
-  "newelInnerBlock", "newelRearBlock",
 ]);
 const banisterRoles = new Set([
   "newel", "frontSpindle", "rearSpindle", "spindleShim", "newelInnerBlock", "newelRearBlock",
-  "rightUpright", "rightRearUpright",
-]);
-const claddingRoles = new Set([
-  "siding", "frontSiding", "backPanel", "sidingStiffener", "frontSidingStiffener",
-  "sidingStiffenerUpper", "frontSidingStiffenerUpper",
 ]);
 
 function partSubsets(node) {
   const foundation = foundationRoles.has(node.key) || (node.key === "southCrossPiece" && node.stepNumber === 1);
-  const stepFraming = stepFramingRoles.has(node.key);
-  const cladding = claddingRoles.has(node.key);
-  const subsets = [];
-  if ((node.kind === "lumber" || node.category === "base-rails") &&
-    (foundation || stepFraming)) subsets.push("framing");
-  if (foundation) subsets.push("foundation");
-  if (stepFraming) subsets.push("step-framing");
-  if (node.key === "tread" || node.key === "riser") subsets.push("treads-risers");
-  if (cladding) subsets.push("cladding");
-  if (banisterRoles.has(node.key) || (node.key === "southCrossPiece" && node.stepNumber === 1)) subsets.push("banister");
-  if (!cladding) subsets.push("without-cladding");
-  return subsets;
+  const stage = foundation ? "foundation" : uprightRoles.has(node.key) ? "uprights"
+    : stepFramingRoles.has(node.key) ? "step-framing" : banisterRoles.has(node.key) ? "banister"
+      : node.category === "ribs" ? "ribs" : "";
+  return PART_SUBSETS.slice(PART_SUBSETS.findIndex(({ key }) => key === stage))
+    .map(({ key }) => key).filter(Boolean);
 }
 
 function numberSet(numbers, singular, plural) {
@@ -80,6 +66,7 @@ function partTitle(entry, locations, variants) {
   let labels = roles.map(role => role.label);
   for (const [title, ...aliases] of [
     ["Attachment block - rear support", "Attachment block - rear support left", "Attachment block - rear support right"],
+    ["Attachment block - panel rib", "Attachment block - panel rib front", "Attachment block - panel rib rear"],
     ["Spindle", "Spindle - front", "Spindle - rear"],
   ]) {
     if (aliases.every(alias => names.has(alias))) {

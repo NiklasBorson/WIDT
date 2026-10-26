@@ -24,6 +24,10 @@ export const UPRIGHT_THICKNESS = 1.5;
 export const SUPPORT_BEAM_THICKNESS = 1.5;
 export const BASE_RAIL_BOTTOM_HEIGHT = SUPPORT_BEAM_BOTTOM_HEIGHT + SUPPORT_BEAM_THICKNESS;
 export const BASE_RAIL_TOP_HEIGHT = BASE_RAIL_BOTTOM_HEIGHT + BASE_RAIL_THICKNESS;
+export const SIDING_RIB_THICKNESS = 1 / 2;
+export const SIDING_RIB_WIDTH = 4;
+export const SIDING_RIB_BLOCK_LENGTH = 3.5;
+export const SIDING_RIB_MAX_GAP = 48;
 export const PANEL_SUPPORT_BLOCK_LENGTH = 4;
 export const PANEL_SUPPORT_BLOCK_BOTTOM_HEIGHT = BASE_RAIL_BOTTOM_HEIGHT - FRAME_WIDTH;
 export const PANEL_STIFFENER_BOTTOM_HEIGHT = PANEL_SUPPORT_BLOCK_BOTTOM_HEIGHT - 2 * PANEL_STIFFENER_THICKNESS;
@@ -1368,44 +1372,39 @@ function addSupportBlocks(step, moduleFront = false, previous = null) {
 
 function addBackSupportBlocks(step, previous) {
   const back = previous.parts.topFrame.boards.northCrossPiece;
-  const length = 6, center = back.bottomHeight + back.width / 2;
-  const preferredBottom = center - length / 2;
-  // The tread's underside is already the upper placement limit.
-  const obstacles = Object.values(step.parts).filter(part => part !== step.parts.tread)
-    .flatMap(part => Object.values(part.boards ?? { sheet: part }));
+  const length = 6, bottomHeight = back.bottomHeight;
   for (const side of ["left", "right"]) {
     const left = side === "left", upright = step.parts.uprights.boards[`${side}Upright`];
     const [front, rear] = (left ? [1, 2] : [0, 3]).map(index => upright.footprint[index]);
     const block = new UprightBoard(front, rear, left ? 1 : -1,
-      preferredBottom + length + TREAD_THICKNESS, {
-        bottomHeight: preferredBottom,
+      bottomHeight + length + TREAD_THICKNESS, {
+        bottomHeight,
         frontSetback: RISER_THICKNESS, frontBevel: true,
       });
     block.name = `Attachment block - rear support ${left ? "left" : "right"}`;
     const footprint = finishedFootprint(block);
-    const occupied = obstacles.filter(board => footprintsOverlap(footprint, finishedFootprint(board)))
-      .map(board => {
-        const { positions } = board.createGeometry();
-        let bottom = Infinity, top = -Infinity;
-        for (let i = 1; i < positions.length; i += 3) {
-          bottom = Math.min(bottom, positions[i]);
-          top = Math.max(top, positions[i]);
-        }
-        return [bottom, top];
-      });
-    const maximum = step.parts.tread.bottomHeight - length;
-    const candidates = [preferredBottom, FLOOR_CLEARANCE, maximum,
-      ...occupied.flatMap(([bottom, top]) => [bottom - length, top])]
-      .filter(bottom => bottom >= FLOOR_CLEARANCE - 1e-8 && bottom <= maximum + 1e-8)
-      .sort((a, b) => Math.abs(a - preferredBottom) - Math.abs(b - preferredBottom) || b - a);
-    const bottom = candidates.find(value => occupied.every(([low, high]) =>
-      value + length <= low + 1e-8 || value >= high - 1e-8));
-    if (bottom === undefined) {
-      throw new RangeError(`${block.name} has no unobstructed six-inch vertical position.`);
-    }
-    block.bottomHeight = bottom;
     validateFootprints(block.name, [footprint], step.footprint);
     step.parts.topFrame.boards[`${side}BackSupportBlock`] = block;
+  }
+}
+
+function addPanelRibSupportBlocks(step, bottomHeight, intermediate = false) {
+  for (const [uprightKey, position] of [
+    ["rightUpright", "front"], ["rightRearUpright", "rear"],
+  ]) {
+    const upright = step.parts.uprights.boards[uprightKey];
+    if (!upright) continue;
+    const [front, rear] = [upright.footprint[0], upright.footprint[3]];
+    const block = new UprightBoard(front, rear, -1,
+      bottomHeight + SIDING_RIB_BLOCK_LENGTH + TREAD_THICKNESS, {
+        bottomHeight,
+        frontSetback: RISER_THICKNESS,
+        frontBevel: position === "front",
+        rearBoundary: position === "rear" ? [step.footprint[3], step.footprint[2]] : null,
+      });
+    block.name = `Attachment block - panel rib ${position}`;
+    validateFootprints(block.name, [finishedFootprint(block)], step.footprint);
+    step.parts.topFrame.boards[`${position}${intermediate ? "Intermediate" : ""}RibSupportBlock`] = block;
   }
 }
 
@@ -2012,28 +2011,23 @@ export class ProfiledPlywood extends Board {
   }
 
   createStockGeometry(sag = 0.001) {
-    if (this.holes.length) {
-      const profile = bridgeProfile(this, sag), faces = [], endFaces = [];
-      for (const triangle of triangulateProfile(profile, true)) {
-        for (const surface of [0, this.thickness]) {
-          const corners = triangle.map(i => [profile[i][0], surface, profile[i][1]]);
-          faces.push(surface === 0 ? corners : corners.reverse());
-        }
+    const profile = bridgeProfile(this, sag), faces = [], endFaces = [];
+    for (const triangle of triangulateProfile(profile, true)) {
+      for (const surface of [0, this.thickness]) {
+        const corners = triangle.map(i => [profile[i][0], surface, profile[i][1]]);
+        faces.push(surface === 0 ? corners : corners.reverse());
       }
-      for (const loop of [this.outline, ...this.holes]) {
-        const points = tessellateOutline(loop, sag);
-        for (const [i, a] of points.entries()) {
-          const b = points[(i + 1) % points.length];
-          endFaces.push(faces.length);
-          faces.push([[a[0], 0, a[1]], [a[0], this.thickness, a[1]],
-            [b[0], this.thickness, b[1]], [b[0], 0, b[1]]]);
-        }
-      }
-      return geometryFromFaces(faces, this.color, { ...this.grain, endFaces });
     }
-    const profile = tessellateOutline(this.outline, sag);
-    return geometryFromProfiles([profile, profile], [0, this.thickness], this.color,
-      this.grain, profile.map((_, i) => i));
+    for (const loop of [this.outline, ...this.holes]) {
+      const points = tessellateOutline(loop, sag);
+      for (const [i, a] of points.entries()) {
+        const b = points[(i + 1) % points.length];
+        endFaces.push(faces.length);
+        faces.push([[a[0], 0, a[1]], [a[0], this.thickness, a[1]],
+          [b[0], this.thickness, b[1]], [b[0], 0, b[1]]]);
+      }
+    }
+    return geometryFromFaces(faces, this.color, { ...this.grain, endFaces });
   }
 
   createGeometry() {
@@ -2251,7 +2245,8 @@ function moduleSidingRadius(module) {
 }
 
 function createModulePlywoodBand(module, innerRadius, radius, name,
-  { thickness = BASE_RAIL_THICKNESS, panel = null, bottomHeight = panel?.bottomHeight ?? BASE_RAIL_BOTTOM_HEIGHT } = {}) {
+  { thickness = BASE_RAIL_THICKNESS, panel = null, bottomHeight = panel?.bottomHeight ?? BASE_RAIL_BOTTOM_HEIGHT,
+    clearanceParts = [] } = {}) {
   const { angle } = module.steps[0];
   const halfAngle = module.steps.length * angle / 2, c = Math.cos(halfAngle), s = Math.sin(halfAngle);
   const radial = [c, s], tangent = [-s, c], end = module.steps.length * angle;
@@ -2277,8 +2272,23 @@ function createModulePlywoodBand(module, innerRadius, radius, name,
     right: { angleRadians: halfAngle + Math.PI / 2 - end, inset: 0 },
   };
   const arc = { center, radius }, notches = [];
-  const rectangle = (points, name, clearance = 1 / 32) => {
+  const rectangle = (points, name, { bound = false, openToOutside = false } = {}) => {
+    const clearance = 1 / 32;
     points = points.map(project);
+    if (bound) {
+      const edge = points[openToOutside ? 3 : 1].map((value, i) => value - points[0][i]);
+      let u = edge.map(value => value / Math.hypot(...edge)), v = [-u[1], u[0]];
+      if (openToOutside && v.reduce((sum, value, i) => sum + value * (points[0][i] - arc.center[i]), 0) < 0) {
+        u = u.map(value => -value);
+        v = v.map(value => -value);
+      }
+      const xs = points.map(point => point[0] * u[0] + point[1] * u[1]);
+      const ys = points.map(point => point[0] * v[0] + point[1] * v[1]);
+      if (openToOutside) ys.push(arc.center[0] * v[0] + arc.center[1] * v[1] + arc.radius);
+      points = [[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.min(...ys)],
+        [Math.max(...xs), Math.max(...ys)], [Math.min(...xs), Math.max(...ys)]]
+        .map(([x, y]) => [x * u[0] + y * v[0], x * u[1] + y * v[1]]);
+    }
     const cross = (points[1][0] - points[0][0]) * (points[2][1] - points[1][1]) -
       (points[1][1] - points[0][1]) * (points[2][0] - points[1][0]);
     if (cross < 0) points = [points[0], points[3], points[2], points[1]];
@@ -2305,6 +2315,14 @@ function createModulePlywoodBand(module, innerRadius, radius, name,
       if (newel.bottomHeight < bottomHeight + thickness) notches.push(
         rectangle(newel.footprint.map(rotate), "Newel post clearance"));
     }
+  }
+  for (const { board, stepIndex, name, openToOutside } of clearanceParts) {
+    const heights = Array.from(board.createGeometry().positions).filter((_, i) => i % 3 === 1);
+    if (Math.min(...heights) >= bottomHeight + thickness || Math.max(...heights) <= bottomHeight) continue;
+    const c = Math.cos(stepIndex * angle), s = Math.sin(stepIndex * angle);
+    notches.push(rectangle(board.footprint.map(([east, north]) => [
+      c * (east + INNER_RADIUS) - s * north, s * (east + INNER_RADIUS) + c * north,
+    ]), name, { bound: true, openToOutside }));
   }
   const construction = { blank, trapezoid, arc, ...(!straightInnerEdge ? { innerRadius } : {}), notches: [], openings: [],
     ...(straightInnerEdge
@@ -2719,7 +2737,7 @@ export class Step {
   }
 }
 
-export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math.min(3, Math.floor(stepCount / 2)),
+export function buildStairway(stairWidth = 20, stepCount = 9, moduleCount = Math.min(3, Math.floor(stepCount / 2)),
   spindleShoulderAscent = DEFAULT_SPINDLE_SHOULDER_ASCENT) {
   validateDimensions("Stairway", { stairWidth });
   if (!Number.isSafeInteger(stepCount) || stepCount < 4) {
@@ -2816,9 +2834,40 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
   for (const module of modules) {
     module.boards.siding = createModuleSiding(module, spindles);
     const panel = module.boards.siding;
+    if (module.startIndex > 0) {
+      const radius = moduleSidingRadius(module);
+      const topHeight = module.steps[0].parts.topFrame.boards.southCrossPiece.bottomHeight;
+      const railTop = module.boards.outerBaseRail.bottomHeight + module.boards.outerBaseRail.thickness;
+      const gap = topHeight - SIDING_RIB_THICKNESS - railTop;
+      const levels = [{ key: "sidingRib", name: "Panel rib", topHeight, intermediate: false }];
+      if (gap > SIDING_RIB_MAX_GAP) {
+        const center = railTop + gap / 2;
+        levels.push({ key: "intermediateSidingRib", name: "Panel rib - intermediate",
+          topHeight: center + SIDING_RIB_THICKNESS / 2, intermediate: true });
+      }
+      for (const level of levels) for (const step of module.steps.slice(level.intermediate ? 0 : 2)) {
+        addPanelRibSupportBlocks(step, level.topHeight, level.intermediate);
+      }
+      const clearanceParts = module.steps.flatMap((step, stepIndex) => [
+        ...Object.entries(step.parts.uprights.boards), ...Object.entries(step.parts.topFrame.boards),
+        ["riser", step.parts.riser], ["backPanel", step.parts.backPanel], ["rearSpindle", step.parts.rearSpindle],
+      ].filter(([, board]) => board).map(([key, board]) => ({ board, stepIndex,
+        openToOutside: ["rightUpright", "rightRearUpright"].includes(key),
+        name: `Step ${module.startIndex + stepIndex + 1} ${key.replace(/[A-Z]/g, letter =>
+          ` ${letter.toLowerCase()}`)} clearance` })));
+      clearanceParts.push({ board: steps[module.startIndex - 1].parts.backPanel, stepIndex: -1,
+        name: "Previous module rear panel clearance" });
+      for (const level of levels) {
+        module.boards[level.key] = createModulePlywoodBand(module,
+          radius - SIDING_RIB_WIDTH, radius, level.name, {
+            thickness: SIDING_RIB_THICKNESS,
+            bottomHeight: level.topHeight - SIDING_RIB_THICKNESS, clearanceParts,
+          });
+      }
+    }
     for (const [key, layer] of [["sidingStiffener", 0], ["sidingStiffenerUpper", 1]]) {
       module.boards[key] = createModulePlywoodBand(module,
-        panel.bend.innerRadius - PANEL_STIFFENER_WIDTH, panel.bend.innerRadius, "Panel bottom stiffener - curved",
+        panel.bend.innerRadius - PANEL_STIFFENER_WIDTH, panel.bend.innerRadius, "Bottom rib - curved",
         { thickness: PANEL_STIFFENER_THICKNESS, panel,
           bottomHeight: PANEL_STIFFENER_BOTTOM_HEIGHT + layer * PANEL_STIFFENER_THICKNESS });
     }
@@ -2833,11 +2882,11 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
   for (const [suffix, layer] of [["", 0], ["Upper", 1]]) {
     const bottomHeight = PANEL_STIFFENER_BOTTOM_HEIGHT + layer * PANEL_STIFFENER_THICKNESS;
     first.parts[`sidingStiffener${suffix}`] = createFlatPanelStiffener(first.parts.siding,
-      "Panel bottom stiffener - rear section", bottomHeight);
+      "Bottom rib - rear section", bottomHeight);
     if (frontSupport.bottomHeight >= bottomHeight + PANEL_STIFFENER_THICKNESS ||
       frontSupport.bottomHeight + frontSupport.width <= bottomHeight) {
       first.parts[`frontSidingStiffener${suffix}`] = createFlatPanelStiffener(frontPanel,
-        "Panel bottom stiffener - front section", bottomHeight, RISER_THICKNESS);
+        "Bottom rib - front section", bottomHeight, RISER_THICKNESS);
     }
   }
   const footprints = new Map();

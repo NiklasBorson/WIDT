@@ -54,7 +54,7 @@ export function serializeScene(model, { excludePieceIds = [] } = {}) {
 }
 
 export async function exportStairway(output, stairCount = 9, moduleCount = 3, { excludePieceIds = [] } = {}) {
-  const model = buildStairway(24, stairCount, moduleCount);
+  const model = buildStairway(undefined, stairCount, moduleCount);
   const excluded = excludedPieces(model, excludePieceIds);
   const xml = serializeScene(model, { excludePieceIds });
   await mkdir(dirname(resolve(output)), { recursive: true });

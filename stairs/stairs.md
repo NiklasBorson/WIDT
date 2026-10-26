@@ -142,32 +142,70 @@ sloped bottom, rather than a complex milled curved notch floor. These openings
 are included in the flat outline, cutting drawings, inventory identity, and
 wood-volume estimates. Installed cylinder facets have at most `0.001 in` sag.
 
-### Panel bottom stiffeners
+### Bottom ribs
 
-Each curved side panel has two stacked horizontal **Panel bottom stiffener - curved**
+Each curved side panel has two stacked horizontal **Bottom rib - curved**
 Pieces cut from `1/2 in` plywood, sharing a single Part design. Their outer arcs
 follow the panel's inside face; their inner arcs are exactly `1 in` inward radially.
 The stack runs from `1 1/4 in` to `2 1/4 in` above the floor; the upper Piece's
 top meets the bottoms of the panel support blocks. Their radial ends match the
-panel's angular span. Module 1's curved stiffeners start behind step 1, just like its
+panel's angular span. Module 1's curved bottom ribs start behind step 1, just like its
 curved side panel; unlike that module's outer base rail, they keep concentric inner arcs.
 
-Step 1's two flat side-panel sections use matching doubled straight bottom stiffeners
+Step 1's two flat side-panel sections use matching doubled straight bottom ribs
 at the same stack elevation where space permits, also `1 in` wide per layer.
 Their ends fit around
 the newel post, and the front strip stops behind the front riser. In the 8- and
 9-step designs, the deep front tread support already occupies and reinforces
 the front strip's position, so no redundant front strip is added.
 
-Stiffeners are ordinary shared plywood Parts with module-owned or step-owned
+Bottom ribs are ordinary shared plywood Parts with module-owned or step-owned
 Pieces. They participate in inventory, Details, Placement, wood-weight estimates,
-and clash checks. They belong to Cladding and follow their panels' siding visibility.
+and clash checks. They share the **Ribs** category with the elevated panel ribs
+and their dedicated support blocks, appearing at the **Ribs** construction stage.
+Their legacy siding visibility is retained.
+
+### Elevated panel ribs
+
+Modules 2 and 3 each have a horizontal **Panel rib** cut from `1/2 in` plywood.
+Module 1 has no elevated rib; a two-module layout has just module 2's rib.
+The outer arc matches the outer base rail and the panel's inside face, with the
+inner arc `4 in` inward radially. Each rib's top aligns with the underside of
+the tread supports for its module's first step. In the default nine-step,
+three-module layout, module 2's rib spans `26 1/2–27 in` above the floor and
+module 3's spans `49 3/4–50 1/4 in`.
+
+When the clear gap from a module's outer base rail top to the upper rib's
+bottom exceeds `48 in`, a second **Panel rib - intermediate** is centered
+halfway through that gap. It uses the same plywood thickness, radial width,
+and upright clearances. Every front and rear right upright in that module,
+including those on its first two steps, has a dedicated vertical attachment
+block above the intermediate rib. Module 1 remains excluded.
+For the eight-step, three-module layout, module 3's clear gap is `48 1/2 in`;
+its intermediate rib spans `30 1/2–31 in` above the floor.
+
+For the upper rib, steps after the first two in each rib-bearing module have vertical pine 2x4
+**Attachment block - panel rib** parts on the inside faces of their front and,
+where present, rear right uprights. These blocks are `3 1/2 in`
+long, with their bottom ends flush with the rib's top. They belong to the
+**Ribs** category and construction stage; module 1 has no rib attachment blocks.
+Blocks that also support step framing appear earlier, at **Step framing**.
+
+Through-cut notches allow `1/32 in` clearance around the right uprights and any
+spindles, tread framing, risers, or rear panels crossing the rib's elevation.
+The front end also clears the preceding module's rear panel. These cuts vary
+with the layout; existing framing, panels, and tread geometry are unchanged.
+Ribs retain analytic arcs and cut geometry in their shared Part definitions;
+module-owned Pieces supply the installation and join/split transforms.
+They share the Ribs category and construction stage with the bottom ribs,
+retain legacy siding visibility, and participate in
+inventory, Details, Placement, wood-weight estimates, and clash checks.
 
 ### Panel support blocks
 
 Square-cut pine 2x4 blocks (`4 in` long, `1 1/2 in` thick and `3 1/2 in` tall)
 stand edge-on beneath each module's outer base rail. Their tops meet the rail
-underside at `5 3/4 in`; their bottoms meet the doubled stiffeners at `2 1/4 in`.
+underside at `5 3/4 in`; their bottoms meet the doubled bottom ribs at `2 1/4 in`.
 One sits behind the front caster and one ahead of the rear caster, outside the
 same conservative plate-diagonal envelope used for caster placement.
 Module 1 omits its front block because the rear newel block already reinforces
@@ -176,7 +214,7 @@ that area.
 Each block follows a straight chord: both outside end corners meet the rail's
 outer arc, leaving approximately `1/32 in` between the middle of the straight
 outside face and the curved panel. All blocks share a square-cut Part; they
-belong to Foundation and Framing and follow support-beam visibility.
+belong to the Ribs category and construction stage and follow support-beam visibility.
 
 ### Base rails
 
@@ -261,8 +299,8 @@ Small drawing stages retain readable annotation
 scale; pan or zoom to inspect the full drawing. Placement uses the broad faces
 and authored straight edges as planar references, never artificial arc facets.
 
-Ribs have their own **Ribs** category and belong to Foundation, Framing, and
-Without cladding, not Cladding. They remain included in clash checks.
+Base rails have their own **Base rails** category and appear at Foundation
+and every later construction stage. They remain included in clash checks.
 
 ### Banister spindles
 
@@ -517,10 +555,7 @@ Each non-first step of a module except global step 2 has vertical pine 2x4
 **Attachment block - rear support left** and **Attachment block - rear support right** parts on its
 front uprights' inward faces. These separate six-inch-long blocks have
 matching front bevels and bear against the preceding step's shifted back
-support. They are centered vertically on that support unless existing
-woodwork requires the smallest upward or downward adjustment. In the default
-nine-step layout, step 3's blocks move up `1.25 in` to clear the horizontal
-attachment blocks; the others stay centered. They belong to **Top frames**,
+support. Their bottoms align with the bottom of that support. They belong to **Top frames**,
 not **Uprights**, for visibility control. There are no blocks behind step 1's
 absent back support or across module boundaries.
 All front and rear uprights
@@ -712,34 +747,29 @@ The Parts panel starts with an always-visible **Filter parts** section containin
 
 - **Module:** All modules, then Module 1 through the current module count.
   A two-module model does not offer Module 3.
-- **Subset:** All parts, Framing, Foundation, Step framing, Treads and risers,
-  Cladding, Banister, or Without cladding.
+- **Subset:** Foundation, Uprights, Step framing, Banister, Ribs, or All parts.
+  All parts remains the default.
 - **Material:** All materials, or a stock/material category such as pine 2x4, oak 4x4,
   a particular plywood thickness, or a hardware category. These are not
   manufacturing-specification groups.
 
-Subsets are curated by each physical occurrence's functional role, independently
-of its manufacturing specification or material:
+Subsets follow construction order. Each stage includes everything in the
+stage above it, independently of manufacturing specification or material:
 
 | Subset | Included parts |
 |---|---|
-| All parts | Everything in the module/material scope. |
-| Framing | Structural wood: foundation beams and cross-pieces, plywood base rails, uprights, step supports, and blocking. No other sheet goods, newel post, spindles, shims, or casters. |
 | Foundation | Caster beams, front/rear support cross-pieces, base rails, casters, and the special first-step front cross-piece and flat tread supports. |
-| Step framing | Uprights, upper cross-pieces, tread supports, and associated support and newel blocks. |
-| Treads and risers | The plywood walking surfaces and riser panels. |
-| Cladding | Curved module siding, both flat first-step pieces, and particle-board back panels. |
-| Banister | Newel post, spindles, spindle shims, newel inner/rear blocks, the step-1 front cross-piece supporting the newel, and front/rear right uprights supporting the spindles. |
-| Without cladding | Everything except siding and back panels; retains treads, risers, banister, and casters. |
+| Uprights | Foundation plus all front and rear uprights. |
+| Step framing | Uprights plus upper cross-pieces, tread supports, and their attachment blocks, including blocks that also support ribs. |
+| Banister | Step framing plus the newel post, spindles, spindle shims, and newel blocks. |
+| Ribs | Banister plus the upper and bottom ribs and their dedicated attachment/support blocks. |
+| All parts | Ribs plus treads, risers, siding, and back panels: everything in the module/material scope. |
 
-Membership can overlap: newel blocks belong to both Framing and Banister, and
-the first-step flat supports belong to both Foundation and Step framing.
-Banister also includes the supporting right uprights and step-1 front cross-piece
-without removing them from their framing subsets; other front cross-pieces and
-all left uprights remain excluded from Banister.
-Foundation's wooden pieces also belong to Framing, but its casters do not.
-These are inspection subsets, not an assembly hierarchy. The former Hide plywood
-and Hide siding controls are replaced by the Subset dropdown.
+Classification belongs to installed Pieces, not shared manufacturing Parts:
+identical blocks can appear at different stages when their installed roles differ.
+Dedicated rib blocks do not appear before Ribs; blocks shared with step framing
+appear at Step framing and remain visible in all later stages.
+The former independent inspection presets are replaced by these cumulative stages.
 
 **Clear filters** resets Module, Subset, and Material to All,
 updating the list, model, quantities, and weight. It preserves Find
@@ -1953,6 +1983,9 @@ const SUPPORT_BEAM_THICKNESS = 1.5;
 const BASE_RAIL_THICKNESS = 3 / 4;
 const BASE_RAIL_BOTTOM_HEIGHT = SUPPORT_BEAM_BOTTOM_HEIGHT + SUPPORT_BEAM_THICKNESS;
 const BASE_RAIL_TOP_HEIGHT = BASE_RAIL_BOTTOM_HEIGHT + BASE_RAIL_THICKNESS;
+const SIDING_RIB_THICKNESS = 1 / 2;
+const SIDING_RIB_WIDTH = 4;
+const SIDING_RIB_BLOCK_LENGTH = 3.5;
 ```
 
 The stairway turns exactly 90 degrees. Its reference inside edge is a
@@ -1985,7 +2018,7 @@ buildStairway(stairWidth, stepCount, moduleCount, spindleShoulderAscent)
 
 | Parameter | Meaning | Default | Slider range |
 |---|---|---|---|
-| `stairWidth` | Constant radial width of every step | `24` | `20` to `36`, in `0.25`-inch increments |
+| `stairWidth` | Constant radial width of every step | `20` | `20` to `36`, in `0.25`-inch increments |
 | `stepCount` | Number of modeled steps, an integer of at least four | `9` | Integers `7` to `9` |
 | `moduleCount` | Number of modules; normal group size is derived and the bottom module takes any remainder | `3` | Integers `2` to `3` |
 | `spindleShoulderAscent` | Vertical ascent of spindle notch shoulders above the step-support baseline; spindle tops are 2 inches higher, and level shim tops meet the lower adjoining shoulder with bottoms 4 inches below | `32` | `25` to `37`, in `1`-inch increments |
@@ -2279,7 +2312,7 @@ at the existing spindle slots. Tread notches fit the actual spindle footprints.
 
 Step 1 substitutes the tangent to the outer circle at $O_1$ for its outer arc.
 Its front-right corner lies at radius $(R+w)/\cos(\Delta\theta)$ on the front
-radius. The default front width is approximately `24.9644 in` rather than `24 in`.
+radius. The default front width is approximately `20.9027 in` rather than `20 in`.
 Its inner edge remains curved, and its newel cutout remains exact.
 
 The combined inner tread arcs have length exactly `60.5`. Straight framing does
@@ -2440,8 +2473,8 @@ weight estimates, and full-assembly framing.
 
 ## Named part: riser
 
-`Step.parts.riser` is a separate board included in **Treads and risers** and
-**Without cladding** in Parts.
+`Step.parts.riser` is a separate board added at the **All parts**
+construction stage in Parts.
 It is edge-on, `RISER_THICKNESS` deep in local North. Its front face is
 on the front radial boundary, local North `0`, and its back face is on local
 North `RISER_THICKNESS`. It spans the complete front width, from the inside
@@ -2582,8 +2615,8 @@ them. No former full-length lower side boards are restored.
 
 ## Named part: tread
 
-`Step.parts.tread` is a separate `Tread` board included in **Treads and risers**
-and **Without cladding** in Parts.
+`Step.parts.tread` is a separate `Tread` board added at the **All parts**
+construction stage in Parts.
 It is `TREAD_THICKNESS` thick vertically, with its underside at
 `height - TREAD_THICKNESS` and its top at `height`. It rests on the
 top-frame members, including the right step support above the lowest
@@ -2657,7 +2690,7 @@ npm run check:intersections
 ```
 
 This builds the Rust checker once in release mode, exports the six supported
-combinations of 7-9 steps and 2-3 modules at the default 24-inch width, and checks
+combinations of 7-9 steps and 2-3 modules at the default 20-inch width, and checks
 every configuration even if an earlier one fails. Passing XML files are deleted;
 failed/error cases remain in `.clash-results` for investigation. An optional
 results directory can be supplied with `npm run check:intersections -- DIRECTORY`.

@@ -1,5 +1,5 @@
 export const PARAMETER_FIELDS = Object.freeze([
-  { key: "width", id: "stair-width", label: "Stair width", default: 24, min: 20, max: 36, step: 0.25 },
+  { key: "width", id: "stair-width", label: "Stair width", default: 20, min: 20, max: 36, step: 0.25 },
   { key: "steps", id: "stair-count", label: "Steps", default: 9, min: 7, max: 9, step: 1 },
   { key: "modules", id: "module-count", label: "Modules", default: 3, min: 2, max: 3, step: 1 },
   { key: "shoulderAscent", id: "spindle-shoulder-ascent", label: "Railing bottom ascent", default: 32,

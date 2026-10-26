@@ -189,8 +189,12 @@ const BOARD_NAMES = {
 const PART_CATEGORIES = {
   frontSpindle: "spindles", rearSpindle: "spindles", spindleShim: "spindles",
   siding: "siding", frontSiding: "siding", newel: "newel",
-  sidingStiffener: "siding", frontSidingStiffener: "siding",
-  sidingStiffenerUpper: "siding", frontSidingStiffenerUpper: "siding",
+  sidingStiffener: "ribs", frontSidingStiffener: "ribs",
+  sidingStiffenerUpper: "ribs", frontSidingStiffenerUpper: "ribs",
+  sidingRib: "ribs", intermediateSidingRib: "ribs",
+  frontPanelSupportBlock: "ribs", rearPanelSupportBlock: "ribs",
+  frontRibSupportBlock: "ribs", rearRibSupportBlock: "ribs",
+  frontIntermediateRibSupportBlock: "ribs", rearIntermediateRibSupportBlock: "ribs",
   innerBaseRail: "base-rails", outerBaseRail: "base-rails",
   leftUpright: "uprights", rightUpright: "uprights",
   leftRearUpright: "uprights", rightRearUpright: "uprights",
@@ -271,7 +275,9 @@ export function createPieces(model) {
       });
     });
     pieces.push(...Object.entries(module.boards).map(([key, board]) =>
-      leaf(board, key, board.name, null, key, PART_CATEGORIES[key] === "siding" ? "siding" : "supportBeams")));
+      leaf(board, key, board.name, null, key,
+        ["siding", "sidingStiffener", "sidingStiffenerUpper", "sidingRib", "intermediateSidingRib"].includes(key)
+          ? "siding" : "supportBeams")));
     pieces.sort((a, b) =>
       (modulePartOrder.get(a.key) ?? modulePartOrder.size) -
       (modulePartOrder.get(b.key) ?? modulePartOrder.size));
