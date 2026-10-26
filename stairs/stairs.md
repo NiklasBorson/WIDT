@@ -146,7 +146,7 @@ wood-volume estimates. Installed cylinder facets have at most `0.001 in` sag.
 
 Each module has two separate flat `3/4 in` plywood parts, **Base rail - inner**
 and **Base rail - outer**, immediately below the caster beams from `4.25 in`
-to `5 in` above the floor. Each rail is exactly `6 in` wide radially:
+to `5 in` above the floor. Each curved rail section is exactly `6 in` wide radially:
 the inner rail runs from `INNER_RADIUS` to `INNER_RADIUS + 6`; the outer
 rail runs from `moduleSidingRadius - 6` to the curved siding's inner surface.
 All arcs are centered at C, leaving the middle of the former panel open.
@@ -156,8 +156,15 @@ Newel, adjoining newel blocks, and low spindles have `1/32 in` clearance cuts
 where they intersect each rail; spindles are not shortened.
 The back follows the module's rear radial boundary. The front is set back
 `1/4 in` from its radial boundary to clear the preceding module's rear panel.
-Module 1 instead extends to the rear edge of step 1's front tread support
-(the south cross-piece in layouts without the separate flat support).
+Module 1 instead extends to the rear face of step 1's vertical front
+cross-piece (`southCrossPiece`), `1 3/4 in` behind the tread front.
+The deeper upper flat support is not the rail-front datum.
+Its outer rail follows the arcs only behind step 1, then continues along
+parallel tangents from step 1's rear radius to that front-support plane.
+This straight extension is `6 in` wide perpendicular to the tangents and
+follows step 1's straight outer edge. It and the curved section form one
+plywood part, with the same newel/block clearances; the inner rail stays
+curved all the way forward. Caster placement follows the rail and beam clearances.
 Caster beams remain at `5-6.5 in`, cross-pieces at `6.5-8 in`, and both left
 and right uprights start at beam-top height, `6.5 in`. Attachment blocks on
 both sides start at `8 in`. No upright notches are needed in the rails.
@@ -167,6 +174,8 @@ The new role keys are `innerBaseRail` and `outerBaseRail`, in category
 Unlike `BentPlywood`, `ProfiledPlywood` stays flat. Rails are authored as a
 construction recipe: start with a rectangular blank, trim the two upper corners
 to form a trapezoid, cut the concentric arcs, then the rectangular clearances.
+For module 1's outer rail, stop both arcs at the specified join radius and
+continue along the parallel tangents to the front cut before cutting clearances.
 Cuts entirely outside the retained rail are omitted.
 Each trapezoid side is authored as a radial guideline through C and a signed
 perpendicular inset toward the retained material. The front inset is `1/4 in`;
@@ -176,6 +185,7 @@ The original blank and trapezoid can extend beyond the finished outline's
 tight bounds. The recipe generates the analytic line/arc perimeter, cutting
 annotations, manufacturing identity, and exact material volume; these do not
 depend on display tessellation. Arc facets have at most `0.001 in` sag.
+The hybrid outer rail also has a `T1` callout giving its join angle and straight width.
 
 Details shows the entire original blank with a dotted outline and overall
 dimensions above and left. Callouts locate the two upper triangle-cut vertices

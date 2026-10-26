@@ -1,7 +1,7 @@
 import { formatLength, getSimpleEdgeBevel } from "./part-description.js";
 import { assessPlaneAngle, STOCK_VIEWS } from "./part-angles.js";
 import { partViewLabel } from "./parts.js";
-import { outlinePoint, outlineExtrema, constructionOutline, constructionTrapezoid, notchRectangle, tessellateOutline } from "./plywood-outline.js";
+import { outlinePoint, outlineExtrema, constructionOutline, constructionTrapezoid, constructionTangentExtension, notchRectangle, tessellateOutline } from "./plywood-outline.js";
 
 const EPSILON = 1e-8;
 const dot = (a, b) => a.reduce((sum, value, axis) => sum + value * b[axis], 0);
@@ -364,6 +364,17 @@ export function getPartFeatures(description, view, suppliedViews = []) {
         }
       }
       unnotched = constructionOutline({ ...construction, notches: [], openings: [] });
+      if (construction.tangentExtension) {
+        const extension = constructionTangentExtension(construction);
+        const entry = feature("T1", "tangent-extension", "Straight tangent extension", point3(extension.join[0]));
+        entry.lines = ["T1: Straight tangent extension",
+          `${formatLength(construction.arc.radius - construction.innerRadius)} in wide`,
+          `Join radius at ${angleText(construction.tangentExtension.angleRadians * 180 / Math.PI)} from blank X`];
+        entry.outline = extension.outline.map(edge => point3(edge.from));
+        entry.closed = entry.outlineHidden = true;
+        entry.outlineDotted = true;
+        features.push(entry);
+      }
     }
     const arcs = [];
     for (const edge of description.outline.filter(edge => edge.type === "arc")) {

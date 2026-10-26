@@ -5,7 +5,7 @@ import {
   buildStairway, combineGeometries, OAK, PLYWOOD, PARTICLE_BOARD, TOTAL_HEIGHT,
 } from "./model.js";
 import { PartNode } from "./parts.js";
-import { outlinePoint, outlineArea, outlineBounds, tessellateOutline, clipOutline, constructionTrapezoid, notchRectangle, constructionProfile, profileContains, reverseOutline } from "./plywood-outline.js";
+import { outlinePoint, outlineArea, outlineBounds, tessellateOutline, clipOutline, constructionTrapezoid, constructionTangentExtension, notchRectangle, constructionProfile, profileContains, reverseOutline } from "./plywood-outline.js";
 
 function close(actual, expected, tolerance = 1e-5) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} differs from ${expected}`);
@@ -158,8 +158,7 @@ test("two six-inch-wide three-quarter-inch base rails replace the panel and spac
         assert.ok(bounds.min.every(value => value >= -1e-8));
         assert.ok(bounds.max[0] <= rib.length + 1e-8 && bounds.max[1] <= rib.width + 1e-8);
         assert.deepEqual(rib.construction.blank, { length: rib.length, width: rib.width });
-        const support = module.steps[0].parts.topFrame.boards.frontStepSupport ??
-          module.steps[0].parts.topFrame.boards.southCrossPiece;
+        const support = module.steps[0].parts.topFrame.boards.southCrossPiece;
         const frontOffset = module.startIndex === 0 ? Math.max(...support.footprint.map(point => point[1])) : 0.25;
         close(rib.construction.trapezoid.left.inset, frontOffset);
         assert.equal(rib.construction.trapezoid.right.inset, 0);
@@ -235,6 +234,60 @@ test("rectangular notch references retain outside-looking-in handedness when rot
   assert.notDeepEqual(changed.outline, rib.outline);
   assert.ok(changed.getMaterialVolume() < rib.getMaterialVolume());
   assert.throws(() => new ProfiledPlywood({ construction, outline: rib.outline, thickness: rib.thickness }), /not both/);
+});
+
+test("module 1 rails reach the vertical front cross-piece and the outer rail has a six-inch tangent extension", () => {
+  for (const width of [20, 24, 36]) for (const count of [7, 8, 9]) for (const modules of [2, 3]) {
+    const model = buildStairway(width, count, modules), module = model.modules[0];
+    const rail = module.boards.outerBaseRail, construction = rail.construction;
+    for (const other of [module.boards.innerBaseRail, ...model.modules.slice(1).flatMap(module =>
+      [module.boards.innerBaseRail, module.boards.outerBaseRail])]) {
+      assert.equal(other.construction.tangentExtension, undefined);
+    }
+    const extension = constructionTangentExtension(construction);
+    const plan = ([x, z]) => [
+      rail.origin[0] + INNER_RADIUS + Math.cos(rail.heading) * x + Math.sin(rail.heading) * z,
+      rail.origin[1] + Math.sin(rail.heading) * x - Math.cos(rail.heading) * z,
+    ];
+    const [outerJoin, outerFront, innerFront, innerJoin] = extension.outline.map(edge => plan(edge.from));
+    const angle = model.steps[0].angle, radial = [Math.cos(angle), Math.sin(angle)];
+    for (const [point, radius] of [[outerJoin, model.outerRadius], [innerJoin, model.outerRadius - 6]]) {
+      point.forEach((value, i) => close(value, radius * radial[i]));
+    }
+    const support = model.steps[0].parts.topFrame.boards.southCrossPiece;
+    const frontOffset = Math.max(...support.footprint.map(point => point[1]));
+    close(outerFront[1], frontOffset);
+    close(innerFront[1], frontOffset);
+    const supportBack = support.footprint.filter(point => Math.abs(point[1] - frontOffset) < 1e-8);
+    const supportMin = Math.min(...supportBack.map(point => point[0]));
+    const supportMax = Math.max(...supportBack.map(point => point[0]));
+    for (const rail of [module.boards.innerBaseRail, module.boards.outerBaseRail]) {
+      const frontEdges = rail.outline.filter(edge => edge.type === "line").map(edge =>
+        [edge.from, edge.to].map(([x, z]) => [
+          rail.origin[0] + Math.cos(rail.heading) * x + Math.sin(rail.heading) * z,
+          rail.origin[1] + Math.sin(rail.heading) * x - Math.cos(rail.heading) * z,
+        ])).filter(edge => edge.every(point => Math.abs(point[1] - frontOffset) < 1e-8));
+      assert.ok(frontEdges.some(([a, b]) =>
+        Math.min(Math.max(a[0], b[0]), supportMax) - Math.max(Math.min(a[0], b[0]), supportMin) > 1),
+        "Each installed rail must actually reach the vertical front cross-piece, not just its unnotched construction.");
+    }
+    for (const [from, to] of [[outerJoin, outerFront], [innerJoin, innerFront]]) {
+      close(to.reduce((sum, value, i) => sum + (value - from[i]) * radial[i], 0), 0);
+    }
+    close(outerFront.reduce((sum, value, i) => sum + (value - innerFront[i]) * radial[i], 0), 6);
+    const unnotched = constructionProfile({ ...construction, notches: [] });
+    for (const join of extension.join) assert.ok(unnotched.outline.some(edge => edge.type === "arc" &&
+      [0, 1].some(t => Math.hypot(...outlinePoint(edge, t).map((value, i) => value - join[i])) < 1e-8)));
+    for (const across of [0.1, 0.5, 0.9]) for (const along of [0.1, 0.5, 0.9]) {
+      const [a, b, c, d] = extension.outline.map(edge => edge.from);
+      const point = a.map((value, i) => (value + (b[i] - value) * along) * (1 - across) +
+        (d[i] + (c[i] - d[i]) * along) * across);
+      assert.equal(profileContains(unnotched, point), true);
+    }
+    assert.ok(Math.hypot(...outerFront) > model.outerRadius + 0.01,
+      "The straight extension fills the gap beyond the old circular boundary.");
+    assert.deepEqual(constructionProfile(construction), { outline: rail.outline, holes: rail.holes });
+  }
 });
 
 test("curved treads follow the castle and siding while straight framing clears the entire castle cylinder", () => {

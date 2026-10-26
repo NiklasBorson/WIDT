@@ -370,8 +370,20 @@ test("base rail construction annotations locate each authored cut corner and cha
   for (const parameters of [[20, 4, 2], [24, 9, 3], [36, 9, 2]]) {
     for (const module of buildStairway(...parameters).modules) for (const rib of [module.boards.innerBaseRail, module.boards.outerBaseRail]) {
       const description = rib.getManufacturingDescription();
+      const tangent = rib.construction.tangentExtension;
+      const instructions = formatPartDescription(description).cuts.join(" ");
+      if (tangent) assert.match(instructions, /Stop both arcs at the join radius .*parallel tangents, 6 in apart.*one piece/);
+      else assert.doesNotMatch(instructions, /join radius|parallel tangents/);
       for (const direction of [[0, 1, 0], [0, -1, 0]]) {
         const features = getPartFeatures(description, { direction, up: [1, 0, 0] });
+        const extensions = features.filter(feature => feature.kind === "tangent-extension");
+        assert.equal(extensions.length, tangent ? 1 : 0);
+        if (tangent) {
+          assert.equal(extensions[0].id, "T1");
+          assert.ok(extensions[0].lines.includes("6 in wide"));
+          assert.match(extensions[0].lines.join(" "), /Join radius at .* from blank X/);
+          assert.equal(extensions[0].outline.length, 4);
+        }
         const surface = direction[1] > 0 ? rib.thickness : 0;
         const notches = features.filter(feature => feature.kind === "rectangular-notch");
         const cuts = [...rib.construction.notches, ...rib.construction.openings];
@@ -408,7 +420,7 @@ test("base rail construction annotations locate each authored cut corner and cha
           [rib.length, surface, rib.width], [0, surface, rib.width]]);
       }
       assert.equal(getPartFeatures(description, { direction: [1, 0, 0], up: [0, 1, 0] })
-        .filter(feature => ["construction-blank", "rectangular-notch", "corner-cut", "arc"].includes(feature.kind)).length, 0);
+        .filter(feature => ["construction-blank", "rectangular-notch", "corner-cut", "arc", "tangent-extension"].includes(feature.kind)).length, 0);
     }
   }
 });

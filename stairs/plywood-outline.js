@@ -159,11 +159,13 @@ export function profileContains(profile, point) {
   return winding !== 0;
 }
 
-export function subtractProfile(profile, cutter) {
+function combineProfile(profile, cutter, union = false) {
   const boundaries = [profile.outline, ...profile.holes].flat();
   const pieces = [];
-  const retained = point => profileContains(profile, point) &&
-    !profileContains({ outline: cutter, holes: [] }, point);
+  const retained = point => {
+    const inside = profileContains(profile, point), other = profileContains({ outline: cutter, holes: [] }, point);
+    return union ? inside || other : inside && !other;
+  };
   for (const [edges, others] of [[boundaries, cutter], [cutter, boundaries]]) {
     for (const edge of edges) {
       const stops = [0, 1, ...others.flatMap(other => intersections(edge, other).map(pair => pair[0]))]
@@ -201,9 +203,35 @@ export function subtractProfile(profile, cutter) {
     profileContains({ outline, holes: [] }, outlinePoint(loop[0], 0.5))) };
 }
 
+export function subtractProfile(profile, cutter) {
+  return combineProfile(profile, cutter);
+}
+
+export function constructionTangentExtension(construction) {
+  const { arc, innerRadius, tangentExtension } = construction;
+  const angle = tangentExtension.angleRadians;
+  if (!Number.isFinite(angle) || angle <= 0 || angle >= Math.PI ||
+    !Number.isFinite(innerRadius) || innerRadius <= 0 || innerRadius >= arc.radius) {
+    throw new RangeError("A tangent extension requires an upper-half-circle join and concentric inner radius.");
+  }
+  const radial = [Math.cos(angle), Math.sin(angle)], tangent = [-radial[1], radial[0]];
+  const front = constructionTrapezoid(construction).sides[0];
+  const join = [arc.radius, innerRadius].map(radius => arc.center.map((value, i) => value + radius * radial[i]));
+  const ends = join.map(point => {
+    const length = (front.offset - dot(front.normal, point)) / dot(front.normal, tangent);
+    if (!Number.isFinite(length) || length <= EPSILON) {
+      throw new RangeError("The tangent extension must reach forward from its join to the front cut.");
+    }
+    return point.map((value, i) => value + length * tangent[i]);
+  });
+  const points = [join[0], ends[0], ends[1], join[1]];
+  return { join, outline: points.map((from, i) => ({ type: "line", from, to: points[(i + 1) % points.length] })),
+    normal: tangent.map(value => -value), offset: -dot(tangent, arc.center) };
+}
+
 export function constructionProfile(construction) {
   const { innerRadius, openings = [], notches = [] } = construction;
-  if (innerRadius === undefined && !openings.length) {
+  if (innerRadius === undefined && !openings.length && !construction.tangentExtension) {
     return { outline: outerConstructionOutline(construction), holes: [] };
   }
   let profile = { outline: outerConstructionOutline({ ...construction, notches: [] }), holes: [] };
@@ -214,6 +242,11 @@ export function constructionProfile(construction) {
     profile = subtractProfile(profile, [0, Math.PI].map(startAngle => ({
       type: "arc", center: [...construction.arc.center], radius: innerRadius, startAngle, sweepRadians: Math.PI,
     })));
+  }
+  if (construction.tangentExtension) {
+    const extension = constructionTangentExtension(construction);
+    profile.outline = clipOutline(profile.outline, extension.normal, extension.offset);
+    profile = combineProfile(profile, extension.outline, true);
   }
   for (const cut of [...notches, ...openings]) {
     const points = notchRectangle(cut);

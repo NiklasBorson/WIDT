@@ -2202,8 +2202,7 @@ function createModuleBaseRail(module, innerRadius, radius, name) {
   const radial = [c, s], tangent = [-s, c], end = module.steps.length * angle;
   const frontAngle = 0;
   const frontNormal = [-Math.sin(frontAngle), Math.cos(frontAngle)];
-  const firstSupport = module.steps[0].parts.topFrame.boards.frontStepSupport ??
-    module.steps[0].parts.topFrame.boards.southCrossPiece;
+  const firstSupport = module.steps[0].parts.topFrame.boards.southCrossPiece;
   const frontOffset = module.startIndex === 0 ? Math.max(...firstSupport.footprint.map(point => point[1])) : RISER_THICKNESS;
   const backNormal = [Math.sin(end), -Math.cos(end)];
   const left = innerRadius * c;
@@ -2249,7 +2248,9 @@ function createModuleBaseRail(module, innerRadius, radius, name) {
       }
     }
   }
-  const construction = { blank, trapezoid, arc, innerRadius, notches: [], openings: [] };
+  const construction = { blank, trapezoid, arc, innerRadius, notches: [], openings: [],
+    ...(module.startIndex === 0 && radius === moduleSidingRadius(module)
+      ? { tangentExtension: { angleRadians: Math.PI / 2 + halfAngle - angle } } : {}) };
   const area = profile => [profile.outline, ...profile.holes].reduce((sum, loop) => sum + outlineArea(loop), 0);
   let remainingArea = area(constructionProfile(construction));
   for (const cut of notches) {
