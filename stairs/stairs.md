@@ -706,7 +706,7 @@ including separated-module positions. Empty space leaves selection unchanged.
 Orbit drags, multi-touch gestures, and cancelled touches do not select parts;
 picking is inactive in Parameters.
 
-The Parts panel has a bordered **Filters** disclosure, collapsed by default, containing:
+The Parts panel starts with an always-visible **Filter parts** section containing:
 
 - **Module:** All modules, then Module 1 through the current module count.
   A two-module model does not offer Module 3.
@@ -741,19 +741,18 @@ and Hide siding controls are replaced by the Subset dropdown.
 
 **Clear filters** resets Module, Subset, and Type to All,
 updating the list, model, quantities, and weight. It preserves Find
-text, valid part selection, camera framing, and the disclosure's open state.
+text, valid part selection, and camera framing. **Clear selection** sits beside
+it on the same action row.
 
-All visibility filters combine. The collapsed disclosure shows a brief summary,
-such as **Show all parts** or **Showing module 1, framing**.
-An active Type filter is included in that description.
-The fixed summary reads **N unique parts (M total)**
+All visibility filters combine. Below the actions, the fixed summary reads **N unique parts (M total)**
 and **Weight ~N lb (wood only)** for the matching occurrences. Unique parts
 means distinct manufacturing specifications, including stock, finished cut
 geometry, and joinery; total counts individual physical pieces, including
 hardware. Wood weight excludes hardware and unmodeled items.
 All three filters affect these quantities and the wood-weight summary.
 
-**Find** stays outside the disclosure and searches within the filtered list,
+The filter section has a bottom divider rather than a surrounding border.
+Below it, **Find** searches within the filtered list,
 without removing rows, changing their quantities, or hiding model geometry.
 Matching is case-insensitive against scoped titles and functional role names,
 with surrounding whitespace ignored. Typing a query selects and scrolls to the
@@ -781,7 +780,7 @@ When filtering leaves only one role, its positional name is shown.
 Searching for either "front" or "spindle" matches the shared **Spindle x 11**
 row; selecting it highlights all 11 within the unfiltered
 scope, not just the occurrences whose role names matched Find.
-The Filters disclosure, Find controls, and summary stay fixed; only the results
+The filters, actions, summary, and Find controls stay fixed; only the results
 area scrolls. Empty results show
 **No matching parts**. Manufacturing issues remain explicit rather than
 inventing descriptions.

@@ -1946,14 +1946,12 @@ test("Parts Filters module, subset, and type filters update list, geometry, coun
   assert.deepEqual(controls.geometry, expectedPartsGeometry(model, expected.groups, expected.groups[0].entry.key));
   assert.deepEqual(controls.bounds, model.createGeometry());
   assert.equal(search.value, "SWIVEL");
-  assert.match(controls.node("#parts-visibility-summary").textContent, /^Showing module 2, foundation, Hardware/);
   assert.ok(controls.calls.every(([name]) => name !== "reset"));
 });
 
 test("Parts subsets preserve visible geometry across content tabs and support empty intersections", () => {
   const model = buildStairway(), inventory = new PartInventory(model.partTree);
   const controls = createControls({ buildModel: () => model });
-  assert.equal(controls.node("#parts-visibility-summary").textContent, "Show all parts");
   controls.node("#stairway-tab").dispatch("click");
   const module = controls.node("#parts-module"), type = controls.node("#parts-type");
   const subset = controls.node("#parts-subset");
@@ -1961,7 +1959,6 @@ test("Parts subsets preserve visible geometry across content tabs and support em
   module.dispatch("change");
   subset.value = "framing";
   subset.dispatch("change");
-  assert.equal(controls.node("#parts-visibility-summary").textContent, "Showing module 1, framing");
   const expected = inventory.filter({ moduleNumber: 1, subset: "framing" });
   assert.deepEqual(controls.geometry, expectedPartsGeometry(model, expected.groups));
   assert.equal(controls.node("#parts-groups").children.length, expected.uniqueCount);
@@ -2048,22 +2045,19 @@ test("each Parts subset updates actual geometry, counts, weight, and Find withou
       `${expected.uniqueCount} unique parts (${expected.occurrences.length} total)`);
     const weight = expected.occurrences.reduce((sum, { location }) => sum + model.estimateNodeWeightLb(location.id), 0);
     assert.equal(controls.node("#parts-weight").textContent, `Weight ~${Math.round(weight)} lb (wood only)`);
-    assert.equal(controls.node("#parts-visibility-summary").textContent,
-      key ? `Showing all modules, ${label.toLocaleLowerCase()}` : "Show all parts");
     assert.equal(search.value, "no such part");
     assert.equal(controls.node("#parts-find-status").textContent, "No matches");
     assert.deepEqual(controls.mainViewer.getCameraMatrices(), camera);
   }
 });
 
-test("Clear filters restores all Parts while preserving Find, selection, and disclosure state", () => {
+test("Clear filters restores all Parts while preserving Find and selection", () => {
   const model = buildStairway(), inventory = new PartInventory(model.partTree);
   const controls = createControls({ buildModel: () => model });
   const module = controls.node("#parts-module"), type = controls.node("#parts-type");
   const subset = controls.node("#parts-subset");
-  const search = controls.node("#parts-search"), section = controls.node("#parts-visibility");
+  const search = controls.node("#parts-search");
   const hardware = inventory.sections.find(stock => stock.kind === "hardware");
-  section.open = true;
   module.value = "2";
   module.dispatch("change");
   type.value = hardware.key;
@@ -2081,9 +2075,7 @@ test("Clear filters restores all Parts while preserving Find, selection, and dis
   assert.equal(type.value, "");
   assert.equal(subset.value, "");
   assert.equal(search.value, "caster");
-  assert.equal(section.open, true);
   assert.equal(controls.node("#parts-results").scrollTop, 0);
-  assert.equal(controls.node("#parts-visibility-summary").textContent, "Show all parts");
   assert.equal(controls.node("#parts-count").textContent,
     `${inventory.entries.length} unique parts (${inventory.quantity} total)`);
   assert.equal(controls.node("#parts-weight").textContent,

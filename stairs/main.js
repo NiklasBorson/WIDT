@@ -342,18 +342,6 @@ try {
       (current + direction + findMatches.length) % findMatches.length;
     selectPart(findMatches[index].locations[0].id, true);
   }
-  function renderVisibilitySummary() {
-    const descriptions = [];
-    if (moduleFilter.value) descriptions.push(`module ${moduleFilter.value}`);
-    if (subsetFilter.value) {
-      descriptions.push(PART_SUBSETS.find(subset => subset.key === subsetFilter.value).label.toLocaleLowerCase());
-    }
-    if (typeFilter.value) {
-      descriptions.push(stockLabel(inventory.sections.find(section => section.key === typeFilter.value)));
-    }
-    document.querySelector("#parts-visibility-summary").textContent = descriptions.length
-      ? `Showing ${moduleFilter.value ? "" : "all modules, "}${descriptions.join(", ")}` : "Show all parts";
-  }
   function selectPart(id, reveal = false) {
     const key = inventory.findOccurrence(id)?.key;
     if (id !== null && !filteredParts.some(({ locations }) => locations.some(location => location.id === id))) {
@@ -378,7 +366,6 @@ try {
       stockKey: typeFilter.value,
     });
     filteredParts = results.groups;
-    renderVisibilitySummary();
     const selectedKey = inventory.findOccurrence(locatedOccurrenceId)?.key;
     const selected = filteredParts.find(({ entry }) => entry.key === selectedKey);
     if (!selected?.locations.some(location => location.id === locatedOccurrenceId)) {

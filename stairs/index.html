@@ -247,13 +247,9 @@
   </section>
     </div>
     <aside id="parts-sidebar" class="sidebar" aria-label="Parts">
-      <div class="parts-heading">
-        <h2>Parts</h2>
-        <button id="parts-clear-selection" type="button" disabled>Clear selection</button>
-      </div>
       <div id="parts-panel" class="tab-panel">
-        <details id="parts-visibility">
-          <summary>Filters <span id="parts-visibility-summary">Show all parts</span></summary>
+        <section id="parts-visibility" aria-labelledby="parts-filter-heading">
+          <h2 id="parts-filter-heading">Filter parts</h2>
           <div class="parts-filters">
             <label for="parts-module">Module</label>
             <select id="parts-module"><option value="">All modules</option></select>
@@ -261,9 +257,16 @@
             <select id="parts-subset"><option value="">All parts</option></select>
             <label for="parts-type">Type</label>
             <select id="parts-type"><option value="">All types</option></select>
-            <button id="parts-clear-filters" type="button">Clear filters</button>
           </div>
-        </details>
+          <div class="parts-filter-actions">
+            <button id="parts-clear-filters" type="button">Clear filters</button>
+            <button id="parts-clear-selection" type="button" disabled>Clear selection</button>
+          </div>
+          <div class="parts-summary" role="status" aria-live="polite" aria-atomic="true">
+            <p id="parts-count"></p>
+            <p id="parts-weight" title="Estimated weight of matching modeled wooden pieces only; excludes hardware and unmodeled items."></p>
+          </div>
+        </section>
         <div class="parts-find">
           <label for="parts-search">Find</label>
           <input id="parts-search" type="search" placeholder="Find parts by name..." autocomplete="off"
@@ -275,10 +278,6 @@
             <button id="parts-find-next" type="button" aria-label="Next matching part"
               title="Next match (Enter)" disabled>Next</button>
           </div>
-        </div>
-        <div class="parts-summary" role="status" aria-live="polite" aria-atomic="true">
-          <p id="parts-count"></p>
-          <p id="parts-weight" title="Estimated weight of matching modeled wooden pieces only; excludes hardware and unmodeled items."></p>
         </div>
         <div id="parts-results">
           <p id="parts-issues" role="alert" hidden></p>
