@@ -2268,7 +2268,7 @@ test("invalid, duplicate, and filtered-out viewer URL settings show notices and 
   assert.equal(invalid.node("#stairway-tab").getAttribute("aria-selected"), "true");
   assert.equal(invalid.node("#parts-sidebar").hidden, false);
   for (const selector of ["#parts-module", "#parts-subset", "#parts-type"]) assert.equal(invalid.node(selector).value, "");
-  for (const label of ["Stair width", "Selected tab", "Parts visibility", "Module filter", "Subset filter", "Type filter", "Selected part"]) {
+  for (const label of ["Stair width", "Selected tab", "Parts visibility", "Module filter", "Subset filter", "Material filter", "Selected part"]) {
     assert.ok(invalid.node("#parameter-notice").textContent.includes(label));
   }
   for (const key of ["tab", "parts", "module", "subset", "type", "part"]) assert.equal(invalid.url.searchParams.has(key), false);

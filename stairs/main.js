@@ -152,7 +152,7 @@ try {
       model.partTree.root.children.some((_, index) => value === String(index + 1)), "Module filter");
     subsetFilter.value = read("subset", "", value => PART_SUBSETS.some(subset => subset.key === value), "Subset filter");
     typeFilter.value = read("type", "", value => value === "" ||
-      inventory.sections.some(section => section.key === value), "Type filter");
+      inventory.sections.some(section => section.key === value), "Material filter");
     locatedOccurrenceId = null;
     renderInventory();
     locatedOccurrenceId = read("part", "", value => value === "" ||
@@ -307,7 +307,7 @@ try {
     moduleFilter.replaceChildren(option("", "All modules"),
       ...model.partTree.root.children.map((module, index) => option(String(index + 1), module.name)));
     subsetFilter.replaceChildren(...PART_SUBSETS.map(subset => option(subset.key, subset.label)));
-    typeFilter.replaceChildren(option("", "All types"),
+    typeFilter.replaceChildren(option("", "All materials"),
       ...inventory.sections.map(section => option(section.key, stockLabel(section))));
     moduleFilter.value = Number(selectedModule) <= model.moduleCount ? selectedModule : "";
     subsetFilter.value = selectedSubset;

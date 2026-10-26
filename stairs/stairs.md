@@ -71,7 +71,7 @@ Both pages read and retain the four model parameters in the URL query:
 `width`, `steps`, `modules`, and `shoulderAscent`. Home also encodes the selected
 content `tab` (`stairway`, `details`, or `placement`), Parts sidebar visibility
 (`parts=hidden` or `parts=shown`), and the Module (`module`), Subset (`subset`),
-and stock-Type (`type`) filters. `castle=shown` enables the optional castle;
+and Material (`type`) filters. `castle=shown` enables the optional castle;
 hidden is the default and is omitted from the URL. `part` identifies the exact installed occurrence,
 including its module and step, rather than just its unique manufacturing group.
 Default viewer settings are omitted: Stairway, Parts shown, all filters cleared,
@@ -93,15 +93,15 @@ different instance. This validation also runs when returning from Parameters.
 and URL values while retaining the Home view settings; it is independent of
 **Reset view**.
 
-The Parts sidebar's collapsed **Filters** section combines independent Module,
-Subset, and stock-Type filters, initially showing all parts.
+The Parts sidebar's **Filter parts** section combines independent Module,
+Subset, and Material filters, initially showing all parts.
 These filters narrow both the Parts list and visible model geometry. Parameters
 always shows the complete model, without applying Parts visibility or selection.
 Visibility changes preserve the framing scale based on the complete assembly,
 so filtering does not rescale the remaining parts.
 The Module filter also limits the footprint to that module and makes it the
 orbit center. Changing the Module filter clears the pan offset; orientation and
-zoom are retained. Subset and Type filters do not change the orbit center.
+zoom are retained. Subset and Material filters do not change the orbit center.
 
 **Clear selection** beside the Parts heading removes the part highlight and
 restores normal model brightness without changing the filters, Find text, camera,
@@ -714,7 +714,7 @@ The Parts panel starts with an always-visible **Filter parts** section containin
   A two-module model does not offer Module 3.
 - **Subset:** All parts, Framing, Foundation, Step framing, Treads and risers,
   Cladding, Banister, or Without cladding.
-- **Type:** All types, or a stock/material category such as pine 2x4, oak 4x4,
+- **Material:** All materials, or a stock/material category such as pine 2x4, oak 4x4,
   a particular plywood thickness, or a hardware category. These are not
   manufacturing-specification groups.
 
@@ -723,7 +723,7 @@ of its manufacturing specification or material:
 
 | Subset | Included parts |
 |---|---|
-| All parts | Everything in the module/type scope. |
+| All parts | Everything in the module/material scope. |
 | Framing | Structural wood: foundation beams and cross-pieces, plywood base rails, uprights, step supports, and blocking. No other sheet goods, newel post, spindles, shims, or casters. |
 | Foundation | Caster beams, front/rear support cross-pieces, base rails, casters, and the special first-step front cross-piece and flat tread supports. |
 | Step framing | Uprights, upper cross-pieces, tread supports, and associated support and newel blocks. |
@@ -741,7 +741,7 @@ Foundation's wooden pieces also belong to Framing, but its casters do not.
 These are inspection subsets, not an assembly hierarchy. The former Hide plywood
 and Hide siding controls are replaced by the Subset dropdown.
 
-**Clear filters** resets Module, Subset, and Type to All,
+**Clear filters** resets Module, Subset, and Material to All,
 updating the list, model, quantities, and weight. It preserves Find
 text, valid part selection, and camera framing. **Clear selection** sits beside
 it on the same action row.
@@ -2123,7 +2123,7 @@ The bottom frame keeps `hardware.leftCaster`, `hardware.rightCaster`,
 `hardware.leftRearCaster`, and `hardware.rightRearCaster`
 separate from `boards`, so wood-volume weight estimates remain unchanged.
 Casters are selectable hardware leaves alongside the mounting woodwork and
-follow all step/module transforms and the Parts module/type filters.
+follow all step/module transforms and the Parts module/material filters.
 They do not offer woodworking stock views or manufacturing annotations.
 Their part-details page instead shows the reference product's specifications,
 an Amazon link, and an isolated interactive 3D view. Drag or use arrow keys to
@@ -2434,7 +2434,7 @@ seat for the right step support. Their full-width placement and conditional
 left-pair combination are described in the rear-upright section.
 
 There is no dedicated Uprights hide checkbox. In Parts, upright visibility
-follows the module/type filters; Parameters always shows them.
+follows the module/material filters; Parameters always shows them.
 Visibility changes preserve joints, material assignments, full-model wood
 weight estimates, and full-assembly framing.
 
