@@ -608,7 +608,7 @@ try {
       updatePartAnnotations();
     }
     const drawingWidth = partDrawing.clientWidth, drawingHeight = partDrawing.clientHeight;
-    const part = detailsNode().component;
+    const part = detailsNode().part;
     const preserveAnnotationScale = !placementActive() && part?.outline;
     defaultDrawingScale = drawingScale = preserveAnnotationScale ? 1 :
       Math.min(1, width / drawingWidth, height / drawingHeight);
@@ -725,7 +725,7 @@ try {
     try {
       const node = detailsNode();
       if (!node) throw new Error("Select a physical part before opening details.");
-      const part = node.component;
+      const part = node.part;
       const hardware = node.kind === "hardware";
       placementDetailsToggle.hidden = true;
       placementMetadata.hidden = true;

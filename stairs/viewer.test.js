@@ -428,7 +428,7 @@ test("base rail construction annotations locate each authored cut corner and cha
 test("actual block end chains measure short face and setback without inventing recessed edges", () => {
   const model = buildStairway();
   const block = model.partTree.getNode("stairway/module-1/step-3-leftBackSupportBlock");
-  const geometry = block.component.createStockGeometry();
+  const geometry = block.part.createStockGeometry();
   for (const view of STANDARD_VIEWS) {
     const chains = getProfileChains(geometry, view);
     if (!view.direction[0]) {
@@ -445,7 +445,7 @@ test("actual block end chains measure short face and setback without inventing r
   }
   const upright = model.partTree.getNode("stairway/module-1/step-2-leftUpright");
   const down = STANDARD_VIEWS.find(view => view.direction[0] === -1);
-  for (const { stops } of getProfileChains(upright.component.createStockGeometry(), down)) {
+  for (const { stops } of getProfileChains(upright.part.createStockGeometry(), down)) {
     assert.ok(stops.every(point => point[1] < 1.5 - 1e-6 || point[0] >= 1.5 - 1e-6),
       "No extension line starts at the removed Right-face edge of the Down end");
   }
@@ -553,7 +553,7 @@ test("short upright depth dimensions use external arrows and keep adjacent label
   const views = model.partTree.getStockViews(node.id), left = views.find(view => view.name === "Left");
   const { viewer } = createViewer();
   viewer.canvas = { clientWidth: 800, clientHeight: 1000 };
-  viewer.setGeometry(node.component.createStockGeometry());
+  viewer.setGeometry(node.part.createStockGeometry());
   viewer.setStandardView(STANDARD_VIEWS.find(view =>
     view.direction.every((value, axis) => value === left.direction[axis])).name);
   const document = { createElementNS(namespace, name) { return svgElement(this, name); } };
@@ -705,7 +705,7 @@ test("upright face notes omit redundant notches but retain dimensions, outlines,
   const description = node.getDescription(), views = model.partTree.getStockViews(node.id);
   const { viewer } = createViewer();
   viewer.canvas = { clientWidth: 800, clientHeight: 1000 };
-  viewer.setGeometry(node.component.createStockGeometry());
+  viewer.setGeometry(node.part.createStockGeometry());
   const document = { createElementNS(namespace, name) { return svgElement(this, name); } };
   const render = name => {
     const view = views.find(view => view.name === name);
@@ -756,7 +756,7 @@ test("dimension lanes and reference-angle notes stay finite and outside the part
   const description = board.getManufacturingDescription();
   const document = { createElementNS(namespace, name) { return svgElement(this, name); } };
   const model = buildStairway();
-  const spindle = model.partTree.getNode("stairway/module-1/step-2-frontSpindle").component;
+  const spindle = model.steps[1].parts.frontSpindle;
   const spindleBevel = Number((Math.atan(spindle.topRise / spindle.thickness) * 180 / Math.PI).toFixed(2));
   const cases = [{ description, geometry: board.createStockGeometry(), views: [] },
     ...["stairway/module-1/step-3-rightUpright", "stairway/module-1/step-3-spindleShim",
@@ -767,7 +767,7 @@ test("dimension lanes and reference-angle notes stay finite and outside the part
       "stairway/module-1/step-3-leftBackSupportBlock",
       "stairway/module-1/step-1-newelInnerBlock"].map(id => {
       const node = model.partTree.getNode(id);
-      return { description: node.getDescription(), geometry: node.component.createStockGeometry(),
+      return { description: node.getDescription(), geometry: node.part.createStockGeometry(),
         views: model.partTree.getStockViews(id) };
     })];
   const descendants = node => [node, ...node.children.flatMap(descendants)];
@@ -2372,8 +2372,8 @@ test("part thumbnails mark annotated views and Details captions describe the sel
     item.dispatch("click");
     controls.node("#details-tab").dispatch("click");
   };
-  const check = part => {
-    const node = model.partTree.getLeaves().find(node => node.component === part);
+  const check = id => {
+    const node = model.partTree.getNode(id);
     const views = model.partTree.getStockViews(node.id);
     const description = node.getDescription();
     const markers = views.map(view => getPartFeatures(description, view, views).some(feature =>
@@ -2402,16 +2402,16 @@ test("part thumbnails mark annotated views and Details captions describe the sel
     return markers;
   };
   open("Newel post");
-  const marked = check(model.steps[0].parts.newel);
+  const marked = check("stairway/module-1/step-1-newel");
   assert.ok(marked.some(Boolean));
   controls.node("#stairway-tab").dispatch("click");
   open("Newel block - rear");
-  const unmarked = check(model.steps[0].parts.topFrame.boards.newelRearBlock);
+  const unmarked = check("stairway/module-1/step-1-newelRearBlock");
   assert.ok(unmarked.every(value => !value));
   assert.match(controls.node("#part-view-drawing").style.minWidth, /px$/);
   controls.node("#stairway-tab").dispatch("click");
   open("Newel block - inner");
-  assert.deepEqual(check(model.steps[0].parts.topFrame.boards.newelInnerBlock),
+  assert.deepEqual(check("stairway/module-1/step-1-newelInnerBlock"),
     [true, true, false, false, false, false]);
   controls.node("#part-view-choice-back").dispatch("click");
   assert.doesNotMatch(controls.node("#part-view-annotations").textContent, /B1|Bevel: see/);
@@ -2537,7 +2537,7 @@ test("arc-cut base rails show construction dimensions and a radius arrow through
 
 test("curved plywood Details keeps all stock views flat and its independent preview bent", () => {
   const model = buildStairway(), controls = createControls({ buildModel: () => model });
-  const panel = model.partTree.getLeaves().find(node => node.component.bend);
+  const panel = model.partTree.getLeaves().find(node => node.part.bend);
   controls.node("#stairway-tab").dispatch("click");
   const item = controls.node("#parts-groups").children.find(item =>
     item.children[0].textContent.startsWith("Side panel - curved"));
@@ -2547,7 +2547,7 @@ test("curved plywood Details keeps all stock views flat and its independent prev
   assert.match(controls.node("#part-description").textContent, /inner radius.*flat cutting pattern/);
   const drawing = controls.partViewers.find(viewer => viewer.canvas.id === "part-view-selected");
   const preview = controls.partViewers.find(viewer => viewer.canvas.id === "part-view-preview");
-  const stock = panel.component.createStockGeometry(), installed = panel.component.createGeometry();
+  const stock = panel.part.createStockGeometry(), installed = panel.part.createGeometry();
   for (const name of PART_VIEW_NAMES) {
     controls.node(`#part-view-choice-${name.toLowerCase()}`).dispatch("click");
     assert.deepEqual(drawing.geometry.positions, stock.positions);

@@ -1608,18 +1608,41 @@ position/orientation using the finished part and the displayed instructions.
 It should also be clear which fits need no measurement, which context has been
 elided, and which relationships the available views cannot yet explain.
 
-## Retained part-model API
+## Part and Piece model
 
-`model.js` retains the physical geometry classes; `parts.js` provides tree
-nodes, manufacturing-description helpers, and a headless `PartBrowser`.
+`model.js` retains the construction helpers that calculate blanks, cuts, and
+installation positions. Once those cuts are final, `createPieces()` creates or
+reuses each canonical **Part** before creating the **Piece** that references it.
+These construction helpers are not the installed objects used for rendering.
+`part-design.js` owns manufacturing identity, the `PartCatalog`, shared Part
+geometry, and rigid-transform helpers. `parts.js` provides `Piece`, `PieceTree`,
+manufacturing-description helpers, and a headless `PartBrowser`.
 `main.js` connects it to the tabs and occurrence selection, while `part-description.js`
 formats manufacturing data independently of the DOM.
 
-`part-list.js` retains manufacturing-based inventory identity internally.
+Each Part owns an immutable manufacturing specification and description, material,
+optional curvature, flat cutting geometry, and finished local geometry. Straight
+Parts share the same flat and finished mesh; bent Parts have both representations.
+Mesh buffers are shared and treated as read-only; applying a transform allocates
+new positions and normals rather than modifying the shared mesh.
+`model.parts` is the canonical Part list. Every `module.pieces` entry references
+one of these existing Parts and owns its module-relative installation transform,
+occurrence ID, role, visibility category, and optional step metadata.
+
+The rendering hierarchy is **Stairway -> Modules -> Pieces**. There are no
+step/frame assembly nodes. Rendering composes a module's installed orientation
+and join/split transform with each Piece's installation transform, then applies
+that result to the Part's finished geometry. The optional step-explosion angle
+is also applied during this composition; it never changes Part identity or meshes.
+
+`part-list.js` lists the existing Parts and counts Pieces referencing each Part;
+it does not infer or coalesce manufacturing definitions from installed Pieces.
+Each inventory entry's `part` is the actual shared Part, not a representative
+component. Occurrence metadata supplies quantities, location names, and role aliases.
 `inventory.filter({ moduleNumber = null, subset = "", stockKey = "" })`
 returns sorted `{ entry, location }` occurrences, `{ entry, locations, title }`
 groups, and a `uniqueCount`. Module, subset, and stock filtering happens
-at occurrence level before counting unique specifications;
+at occurrence level before counting referenced Parts;
 it does not mutate the inventory. Each group retains only the matching
 occurrences and a scoped title, which drive row quantities, model visibility,
 selection highlighting, and Details. `group.entry.quantity` retains the
@@ -1629,20 +1652,19 @@ retains its immutable `subsets` memberships. Unknown subset keys are rejected.
 The controller sums `model.estimateNodeWeightLb(location.id)` for the matching
 occurrences to produce the filtered wood-weight summary.
 
-Wooden components expose `createStockGeometry()` for finished geometry in their
-manufacturing coordinate system. Positions are normalized to the cutting blank's
-origin; normals are rotated with the geometry, while material, grain, and physical
-shape remain unchanged. Footprint boards use their own length edge to undo step
-placement. Uprights use their original notched/dadoed stock before its assembly
-transform. This API does not change assembled geometry, bounds, or weights.
-`getStockAxes()` returns the stock X/Y/Z unit axes expressed in the owning
-step's local renderer coordinates, before any world placement or explosion.
-The same footprint basis is used to normalize stock geometry and name its views.
+Parts expose `createStockGeometry()` for the shared flat cutting mesh and
+`createGeometry()` for the shared finished mesh. Flat coordinates are normalized
+to the cutting blank's origin. Details uses these Part meshes directly; Placement
+and clash exports use transformed Piece geometry. Curvature belongs to the Part:
+a different bend radius or sweep produces a different manufacturing definition.
+Stock-view names retain the selected Piece's installation context, but are
+computed from its transform rather than a placed component's geometry.
 
-Every `buildStairway()` result has a `partTree`. Each `PartNode` exposes
-`id`, `key`, `name`, `kind`, `component`, `parentId`, and ordered `children`.
-Nodes and child arrays are immutable views, but `component` refers to the
-actual modeled object rather than a copied part. IDs are deterministic paths
+Every `buildStairway()` result retains the `partTree` navigation property, now a
+`PieceTree`. Its physical leaves are immutable `Piece` objects exposing
+`id`, `key`, `name`, `kind`, `part`, `transform`, `parentId`, `stepNumber`, and empty
+`children`. Module navigation nodes reference their `module`; the root and modules
+are not manufacturing Parts. IDs remain deterministic paths
 of role keys, for example:
 
 ```text
@@ -1687,7 +1709,7 @@ named **Upright - full left**. Generated step/module context follows the name;
 role keys, occurrence IDs, and manufacturing grouping are independent of names.
 
 The outline shows the default three-step first module. Every module directly
-owns all its physical parts, with no foundation or step-assembly nodes.
+owns all its installed Pieces, with no foundation or step-assembly nodes.
 Geometry and step numbering are unchanged. Step-owned leaves retain their step
 number in their occurrence keys, while module beams have no step number.
 Front and rear casters belong to the module's first and last steps.
@@ -1696,8 +1718,10 @@ per module; front support cross-pieces occur on every step except step 1. The fu
 slash-separated path, not the indentation or the display name. IDs identify
 roles in a particular topology; they are not permanent inventory identifiers
 across redesigns.
-The flat hierarchy includes `Step.parts.uprights.boards` without changing the
-model's separate upright geometry and visibility grouping.
+The construction helpers still organize their cut calculations under
+`Step.parts.uprights.boards`; these groups only supply Piece roles and legacy
+visibility keys during construction. Installed rendering does not traverse them
+or call their geometry methods.
 Modules above the first also own `leftSupportBeam` and `rightSupportBeam`
 lumber leaves, for example `stairway/module-2/leftSupportBeam`.
 

@@ -388,11 +388,11 @@ function planLocations(selectedMesh, selectedFaces, contexts, relationships, vie
   const planarRow = (normal, point) => [normal[0], normal[2],
     cross(sub(point, origin), normal)[1] / radius];
   const implicitRows = [];
-  if (node.kind === "hardware" || node.component?.bend) {
+  if (node.kind === "hardware" || node.part?.bend) {
     view.planar = { rank: 0, implicitRank: 0, required: 3, complete: false };
     return [];
   }
-  const selectedEdges = planOutline(selectedMesh, node.component?.outline ? selectedFaces : null), contacts = [];
+  const selectedEdges = planOutline(selectedMesh, node.part?.outline ? selectedFaces : null), contacts = [];
   const selectedTop = selectedMesh.filter(triangle => triangle.normal[1] > ANGULAR);
   const approachesFromOutside = (from, to) => !insidePlan(average([from, to]), selectedTop) &&
     !insidePlan(add(to, mul(unit(sub(from, to)), EPS * 4)), selectedTop);
@@ -401,7 +401,7 @@ function planLocations(selectedMesh, selectedFaces, contexts, relationships, vie
     if (context.node.kind === "hardware") continue;
     const contact = relationships.filter(r => r.contact && r.neighbor === id && Math.abs(r.normal[1]) < ANGULAR);
     if (!contact.length) continue;
-    for (const datum of planOutline(context.mesh, context.node.component?.outline ? context.faces : null)) for (const edge of selectedEdges) {
+    for (const datum of planOutline(context.mesh, context.node.part?.outline ? context.faces : null)) for (const edge of selectedEdges) {
       const direction = unit(sub(datum[1], datum[0])), extent = length(sub(datum[1], datum[0]));
       if (!contact.some(r => edge.every(p => Math.abs(dot(r.normal, sub(p, planPoint(r.from)))) < EPS)) ||
         edge.some(p => length(cross(direction, sub(p, datum[0]))) > EPS)) continue;
@@ -634,9 +634,9 @@ export class PlacementPlanner {
     this.occurrences = model.partTree.getLeaves().map(node => {
       const geometry = model.createNodeGeometry(node.id, 0, 0);
       let planarTriangles = null;
-      if (node.component?.outline) {
-        const lines = [node.component.outline, ...(node.component.holes ?? [])].flat().filter(edge => edge.type === "line");
-        planarTriangles = new Set(triangles(node.component.createStockGeometry()).filter(triangle =>
+      if (node.part?.outline) {
+        const lines = [node.part.outline, ...(node.part.holes ?? [])].flat().filter(edge => edge.type === "line");
+        planarTriangles = new Set(triangles(node.part.createStockGeometry()).filter(triangle =>
           Math.abs(triangle.normal[1]) > 1 - ANGULAR || lines.some(edge => {
             const direction = sub([edge.to[0], 0, edge.to[1]], [edge.from[0], 0, edge.from[1]]);
             const normal = unit([direction[2], 0, -direction[0]]), d = dot(normal, [edge.from[0], 0, edge.from[1]]);
@@ -656,7 +656,7 @@ export class PlacementPlanner {
     if (!selected) throw new RangeError(`Placement requires a physical occurrence: ${occurrenceId}`);
     const node = selected.node, ancestors = this.model.partTree.getAncestors(node.id);
     const moduleNode = ancestors.find(ancestor => ancestor.kind === "module");
-    const module = moduleNode?.component;
+    const module = moduleNode?.module;
     const stepAngle = this.model.steps?.[0]?.angle ?? (Math.PI / (2 * this.model.stepCount));
     const midpoint = node.stepNumber != null ? node.stepNumber - 0.5
       : module ? module.startIndex + module.steps.length / 2 : 0;
@@ -664,7 +664,7 @@ export class PlacementPlanner {
     const geometry = rotate(selected.geometry, angle);
     const footprint = rotate(this.footprint, angle);
     const templateGeometry = rotate(this.template, angle);
-    const curved = Boolean(node.component?.bend);
+    const curved = Boolean(node.part?.bend);
     const selectedMesh = triangles(geometry), selectedFaces = curved ? [] :
       surfaces(selectedMesh.filter(triangle => selected.planarTriangles === null || selected.planarTriangles.has(triangle.index)));
     const selectedBounds = bounds(geometry);
@@ -676,10 +676,10 @@ export class PlacementPlanner {
     const contexts = new Map(), relationships = [];
     for (const candidate of candidates) {
       const contextGeometry = rotate(candidate.geometry, angle), mesh = triangles(contextGeometry);
-      const faces = candidate.node.component?.bend ? [] : surfaces(mesh.filter(triangle =>
+      const faces = candidate.node.part?.bend ? [] : surfaces(mesh.filter(triangle =>
         candidate.planarTriangles === null || candidate.planarTriangles.has(triangle.index)));
       contexts.set(candidate.node.id, { ...candidate, geometry: dimmed(contextGeometry), mesh, faces });
-      if (curved || candidate.node.component?.bend) continue;
+      if (curved || candidate.node.part?.bend) continue;
       for (const a of selectedFaces) for (const b of faces) {
         if (length(add(a.normal, b.normal)) > ANGULAR) continue;
         const gap = -b.d - a.d;

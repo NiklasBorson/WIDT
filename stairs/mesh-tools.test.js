@@ -46,6 +46,7 @@ test("XML names are escaped and malformed meshes are rejected with the part ID",
   const model = buildStairway(), node = model.partTree.getLeaves()[0];
   const scene = {
     ...model,
+    createNodeGeometry: model.createNodeGeometry.bind(model),
     partTree: {
       getLeaves: () => [{ ...node, name: 'Board & <cut> "A" \'B\'' }],
       getNode: () => ({ name: "Module 1" }),
@@ -142,7 +143,7 @@ test("installed curved treads and siding clear spindles and base rails across su
     const leaves = model.partTree.getLeaves(), selected = leaves.filter(node =>
       node.category === "siding" || ["frontSpindle", "rearSpindle"].includes(node.key) ||
       node.category === "base-rails" || node.key === "tread");
-    assert.equal(selected.filter(node => node.component.bend).length, modules);
+    assert.equal(selected.filter(node => node.part.bend).length, modules);
     assert.ok(selected.some(node => node.key === "frontSpindle"));
     assert.ok(selected.some(node => node.key === "rearSpindle"));
     await writeFile(file, serializeScene(model, {
@@ -162,7 +163,7 @@ test("base rails, flat siding and raised blocks clear framing across supported l
   for (const width of [20, 24, 36]) for (const count of [4, 5, 6, 7, 8, 9]) for (const modules of [2, 3]) {
     if (count < modules * 2) continue;
     const model = buildStairway(width, count, modules), leaves = model.partTree.getLeaves();
-    const selected = count >= 7 ? leaves : leaves.filter(node => !node.component.bend);
+    const selected = count >= 7 ? leaves : leaves.filter(node => !node.part.bend);
     assert.equal(selected.filter(node => node.category === "base-rails").length, modules * 2);
     await writeFile(file, serializeScene(model, {
       excludePieceIds: leaves.filter(node => !selected.includes(node)).map(node => node.id),

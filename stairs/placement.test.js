@@ -36,7 +36,7 @@ function fixture(geometries, angle = 0) {
   return {
     calls, steps: [{ angle }], stepCount: 1,
     partTree: { getLeaves: () => nodes, getAncestors: () => [
-      { kind: "module", name: "Module 1", component: { startIndex: 0, steps: [{ angle }] } },
+      { kind: "module", name: "Module 1", module: { startIndex: 0, steps: [{ angle }] } },
     ] },
     createNodeGeometry(id) { calls.push(id); return geometries[id]; },
     createFootprintGeometry: () => combineGeometries([]),
@@ -81,7 +81,7 @@ test("arc-cut plywood retains its flat seat datum without treating arc facets as
   assert.ok(facet);
   const model = fixture({ rib: geometry, facet: mesh([facet]), support: box(-1, -1, -1, 11, 0, 11) });
   const node = model.partTree.getLeaves()[0];
-  node.component = rib;
+  node.part = rib;
   node.kind = "plywood";
   const plan = new PlacementPlanner(model).plan("rib");
   assert.ok(plan.evidence.relationships.some(relationship => relationship.neighbor === "support" && relationship.contact));
@@ -230,7 +230,7 @@ test("actual assembled model retains measured surfaces and parameter-dependent p
       assert.ok(dimension.to.every(Number.isFinite));
       assert.ok(view.neighbors.length > 0);
     }
-    const siding = model.partTree.getLeaves().find(node => node.component.bend);
+    const siding = model.partTree.getLeaves().find(node => node.part.bend);
     const sidingPlan = planner.plan(siding.id);
     const top = sidingPlan.views.find(view => view.name === "Up");
     assert.equal(top.planar.complete, false);

@@ -181,10 +181,13 @@ test("an internal dado separates opening location, width and face-normal depth",
     "positiveY original broad face");
 });
 
-test("default model is exhaustively inventoried without invoking render-mesh generation or modifying descriptions", () => {
+test("default model is exhaustively inventoried without invoking render-mesh generation or modifying descriptions", t => {
   const model = buildStairway(), leaves = model.partTree.getLeaves();
   const snapshot = JSON.stringify(leaves.map(node => node.getDescription()));
-  for (const leaf of leaves) leaf.component.createGeometry = () => assert.fail("Render geometry must not be read.");
+  t.mock.method(Object.getPrototypeOf(leaves[0].part), "createGeometry",
+    () => assert.fail("Render geometry must not be read."));
+  t.mock.method(Object.getPrototypeOf(leaves[0].part), "createStockGeometry",
+    () => assert.fail("Cutting geometry must not be read."));
   const inventory = new PartInventory(model.partTree), actual = assessModel(model);
   assert.equal(actual.summary.occurrences, leaves.length);
   assert.equal(actual.summary.woodenPatterns, 65);

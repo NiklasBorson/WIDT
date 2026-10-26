@@ -4,12 +4,51 @@ import {
   Board, OneByFour, NotchedBoard, Siding, Tread, BentPlywood, ProfiledPlywood, BASE_RAIL_THICKNESS, SpindleShim, Caster, CASTER_DIMENSIONS, INNER_RADIUS,
   buildStairway, combineGeometries, OAK, PLYWOOD, PARTICLE_BOARD, TOTAL_HEIGHT,
 } from "./model.js";
-import { PartNode } from "./parts.js";
+import { Piece } from "./parts.js";
+import { PartInventory } from "./part-list.js";
 import { outlinePoint, outlineArea, outlineBounds, tessellateOutline, clipOutline, constructionTrapezoid, constructionTangentExtension, notchRectangle, constructionProfile, profileContains, reverseOutline } from "./plywood-outline.js";
 
 function close(actual, expected, tolerance = 1e-5) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} differs from ${expected}`);
 }
+
+function constructionBoard(model, piece) {
+  const module = model.partTree.getNode(piece.parentId).module;
+  if (piece.stepNumber === null) return module.boards[piece.key];
+  const groups = Object.entries(model.steps[piece.stepNumber - 1].parts);
+  return groups.flatMap(([key, component]) => component.boards
+    ? Object.entries({ ...component.boards, ...component.hardware }) : [[key, component]])
+    .find(([key]) => key === piece.key)?.[1];
+}
+
+test("installed rendering, Details, inventory and footprints use shared Parts without reading construction meshes", () => {
+  const model = buildStairway(), pieces = model.partTree.getLeaves();
+  const expected = model.createGeometry(), snapshot = expected.positions.slice();
+  const sources = new Set(pieces.map(piece => constructionBoard(model, piece)));
+  for (const source of sources) {
+    source.createGeometry = source.createStockGeometry = source.getManufacturingDescription =
+      () => assert.fail("Installed Pieces must not render or describe construction builders.");
+  }
+  assert.equal(model.parts.length, new Set(pieces.map(piece => piece.part)).size);
+  for (const module of model.modules) {
+    assert.ok(module.pieces.every(piece => piece instanceof Piece && model.parts.includes(piece.part)));
+    assert.ok(module.pieces.every(piece => !("component" in piece)));
+  }
+  assert.deepEqual(model.createGeometry().positions, snapshot);
+  assert.ok(model.createGeometry({}, 0.5, 1).indices.length);
+  for (const amount of [-1, 2, NaN, Infinity]) {
+    assert.throws(() => model.getPieceTransform(pieces[0].id, amount), /explosion/);
+    assert.throws(() => model.getPieceTransform(pieces[0].id, 0, amount), /moduleExplosion/);
+  }
+  assert.ok(model.createFootprintGeometry().indices.length);
+  assert.ok(model.createFootprintGeometry(pieces[0].id).indices.length);
+  assert.equal(new PartInventory(model.partTree).quantity, pieces.length);
+  assert.ok(model.estimateNodeWeightLb() > 0);
+  const wooden = pieces.find(piece => piece.kind === "lumber");
+  assert.equal(model.partTree.getStockViews(wooden.id).length, 6);
+  assert.equal(wooden.getDescription().blank, wooden.part.description.blank);
+  assert.ok(wooden.part.createStockGeometry().indices.length);
+});
 
 test("castle is a closed gray cylinder at the origin, separate from the part tree and stairway geometry", () => {
   const model = buildStairway(), stairway = model.createGeometry(), castle = model.createCastleGeometry();
@@ -328,7 +367,7 @@ test("curved treads follow the castle and siding while straight framing clears t
       }
     }
     for (const node of model.partTree.getLeaves()) {
-      const board = node.component;
+      const board = constructionBoard(model, node);
       if (!board.footprint) continue;
       const footprint = board.footprint.map(([east, north]) => [east + INNER_RADIUS, north]);
       for (const [i, a] of footprint.entries()) {
@@ -395,7 +434,7 @@ test("module matrices reproduce split piece positions and normals for even and u
 test("split footprints follow actual module tread positions without changing assembled or part footprints", () => {
   for (const [steps, modules] of [[7, 2], [8, 2], [9, 3]]) {
     const model = buildStairway(24, steps, modules);
-    const leaves = new Map(model.partTree.getLeaves().map(node => [node.component, node.id]));
+    const leaves = new Map(model.partTree.getLeaves().map(node => [constructionBoard(model, node), node.id]));
     const id = leaves.get(model.steps[1].parts.tread);
     const assembled = model.createFootprintGeometry();
     const original = assembled.positions.slice();
@@ -631,12 +670,12 @@ test("curved module siding has a flat cutting pattern, midpoint bend, closed mes
   for (const width of [20, 24, 36]) for (const steps of [4, 5, 6, 7, 8, 9]) for (const modules of [2, 3]) {
     if (steps < modules * 2) continue;
     const model = buildStairway(width, steps, modules);
-    const leaves = model.partTree.getLeaves(), panels = leaves.filter(node => node.component instanceof BentPlywood);
+    const leaves = model.partTree.getLeaves(), panels = leaves.filter(node => node.part.bend);
     assert.equal(panels.length, modules);
     assert.equal(leaves.filter(node => node.category === "siding").length, modules + 2);
     assert.ok(model.steps.slice(1).every(step => !step.parts.siding));
     for (const node of panels) {
-      const board = node.component, module = model.modules.find(module => module.boards.siding === board);
+      const board = constructionBoard(model, node), module = model.partTree.getNode(node.parentId).module;
       const rear = module.steps.at(-1).parts.uprights.boards.rightRearUpright.createGeometry();
       const radius = model.outerRadius;
       for (let i = 0; i < rear.positions.length; i += 3) {
@@ -718,7 +757,7 @@ test("invalid stock and manufacturing shapes fail explicitly", () => {
   const board = new Board(dimensions);
   board.getBlankShape = () => ({ vertices: [[NaN, 0, 0]], faces: [] });
   assert.throws(() => board.getManufacturingDescription(), /finite stock-coordinate vertices/);
-  assert.throws(() => new PartNode({ id: "part", key: "part", name: "", kind: "lumber" }), TypeError);
+  assert.throws(() => new Piece({ id: "part", key: "part", name: "" }), TypeError);
 });
 
 function meshVolume({ positions: p, indices }) {

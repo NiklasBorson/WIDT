@@ -1,4 +1,5 @@
-import { PartTree, describeBoard, rectangularBlank, prismaticBlank } from "./parts.js";
+import { PieceTree, createPieces, describeBoard, rectangularBlank, prismaticBlank } from "./parts.js";
+import { placementMatrix, composeTransforms, inverseTransform, transformGeometry } from "./part-design.js";
 import { outlineBounds, outlineArea, validateProfile, tessellateOutline, constructionProfile, bridgeProfile, subtractProfile } from "./plywood-outline.js";
 
 export const TOTAL_HEIGHT = 77;
@@ -38,27 +39,6 @@ const TWO_BY_FOUR_STOCK = { kind: "lumber", nominalSize: "2x4", thickness: UPRIG
 const TWO_BY_SIX_STOCK = { kind: "lumber", nominalSize: "2x6", thickness: UPRIGHT_THICKNESS, width: 5.5 };
 const TWO_BY_TWO_STOCK = { kind: "lumber", nominalSize: "2x2", thickness: 1.5, width: 1.5 };
 const FOUR_BY_FOUR_STOCK = { kind: "lumber", nominalSize: "4x4", thickness: 3.5, width: 3.5 };
-
-function estimateWoodWeightLb(boards) {
-  let weight = 0;
-  for (const board of boards) {
-    if (typeof board.getMaterialVolume === "function") {
-      weight += board.getMaterialVolume() / 1728 * board.material.density;
-      continue;
-    }
-    const { positions: p, indices } = board.createGeometry();
-    let volume = 0;
-    // Sum signed tetrahedra for the closed board meshes, in cubic inches.
-    for (let i = 0; i < indices.length; i += 3) {
-      const a = indices[i] * 3, b = indices[i + 1] * 3, c = indices[i + 2] * 3;
-      volume += p[a] * (p[b + 1] * p[c + 2] - p[b + 2] * p[c + 1])
-        + p[a + 1] * (p[b + 2] * p[c] - p[b] * p[c + 2])
-        + p[a + 2] * (p[b] * p[c + 1] - p[b + 1] * p[c]);
-    }
-    weight += Math.abs(volume / 6) / 1728 * board.material.density;
-  }
-  return weight;
-}
 
 function validateDimensions(component, dimensions) {
   for (const [name, value] of Object.entries(dimensions)) {
@@ -201,8 +181,18 @@ function placeStockGeometry(board, geometry) {
         sum + vector[axis] * (position[j] + minimum[j]), 0);
       geometry.normals[i + axis] = axes.reduce((sum, vector, j) => sum + vector[axis] * normal[j], 0);
     }
+
   }
   return geometry;
+}
+
+function footprintPlacement(board) {
+  const axes = board.getStockAxes(), start = board.footprint[board.lengthEdge ?? 0];
+  const blank = board.getBlankShape();
+  const minimum = axes.map((_, axis) => Math.min(...blank.vertices.map(point => point[axis])));
+  const origin = [start[0], board.bottomHeight, -start[1]].map((value, i) =>
+    value + axes.reduce((sum, axis, j) => sum + axis[i] * minimum[j], 0));
+  return placementMatrix(axes, origin);
 }
 
 export function combineGeometries(geometries) {
@@ -334,6 +324,13 @@ export class Caster {
       colors: mesh.colors.slice(), grain: mesh.grain.slice(), indices: mesh.indices.slice(),
     };
   }
+
+  getPlacement() {
+    const c = Math.cos(this.heading), s = Math.sin(this.heading);
+    return placementMatrix([[c, 0, -s], [0, 1, 0], [s, 0, c]], [this.east, 0, -this.north]);
+  }
+
+  createDesign() { return { geometry: casterGeometry ??= createCasterGeometry() }; }
 }
 
 export class Board {
@@ -363,6 +360,15 @@ export class Board {
   getManufacturingDescription() { return describeBoard(this); }
 
   getStockAxes() { return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]; }
+
+  getPlacement() {
+    return placementMatrix(this.getStockAxes(), [-this.length / 2, -this.thickness / 2, -this.width / 2]);
+  }
+
+  createDesign() {
+    return { flatGeometry: this.createStockGeometry(), material: this.material,
+      volume: this.getMaterialVolume?.() };
+  }
 
   createStockGeometry() {
     const geometry = this.createGeometry();
@@ -637,6 +643,11 @@ export class NotchedBoard extends Board {
     return { ...geometry, positions: geometry.positions.map((value, i) => value + offset[i % 3]) };
   }
 
+  getPlacement() {
+    return placementMatrix(this.getStockAxes(), [-this.length / 2, -this.thickness / 2,
+      Math.min(...this.widthBounds.map(bounds => bounds[0]))]);
+  }
+
   createGeometry() {
     if (this.dados.length > 0 || this.rebates.length > 0) return this.createCutGeometry();
     if (Object.keys(this.notches).length === 0 &&
@@ -764,6 +775,8 @@ class FrameBoard extends Board {
   getBlankShape() { return prismaticBlank(this.footprint, this.width, this.lengthEdge); }
 
   getStockAxes() { return footprintStockAxes(this, false); }
+
+  getPlacement() { return footprintPlacement(this); }
 
   createStockGeometry() { return stockAlignedGeometry(this); }
 
@@ -1011,6 +1024,8 @@ class FlatFrameBoard extends Board {
   getBlankShape() { return prismaticBlank(this.footprint, this.thickness, 0, true); }
 
   getStockAxes() { return footprintStockAxes(this, true); }
+
+  getPlacement() { return footprintPlacement(this); }
 
   createStockGeometry() { return stockAlignedGeometry(this); }
 
@@ -1629,6 +1644,14 @@ class UprightBoard extends Board {
     return (this.notchedStock ?? new NotchedBoard(this)).createStockGeometry();
   }
 
+  getPlacement() {
+    const axes = this.getStockAxes();
+    const near = this.width / 2 + Math.min(...(this.notchedStock?.widthBounds ?? [[-this.width / 2]])
+      .map(bounds => bounds[0]));
+    return placementMatrix(axes, [this.footprint[0][0], this.bottomHeight, -this.footprint[0][1]]
+      .map((value, axis) => value + axes[2][axis] * near));
+  }
+
   notchBottom(face, shoulderHeight) {
     this.notchedStock = new NotchedBoard(this.notchedStock ?? this, this.notches, [
       ...this.dados, { face, start: 0, width: shoulderHeight - this.bottomHeight, depth: SUPPORT_NOTCH_DEPTH },
@@ -1956,6 +1979,10 @@ export class ProfiledPlywood extends Board {
     return [[c, 0, -s], [0, 1, 0], [s, 0, c]];
   }
 
+  getPlacement() {
+    return placementMatrix(this.getStockAxes(), [this.origin[0], this.bottomHeight, -this.origin[1]]);
+  }
+
   createStockGeometry(sag = 0.001) {
     if (this.holes.length) {
       const profile = bridgeProfile(this, sag), faces = [], endFaces = [];
@@ -2097,6 +2124,18 @@ export class BentPlywood extends Board {
   getStockAxes() {
     const angle = this.startAngle + this.bend.sweepRadians / 2, c = Math.cos(angle), s = Math.sin(angle);
     return [[-s, 0, -c], [-c, 0, s], [0, 1, 0]];
+  }
+
+  getPlacement() {
+    const c = Math.cos(this.startAngle), s = Math.sin(this.startAngle);
+    return placementMatrix([[c, 0, -s], [0, 1, 0], [s, 0, c]],
+      [this.center[0], this.bottomHeight, -this.center[1]]);
+  }
+
+  createDesign() {
+    const local = new BentPlywood({ profile: this.profile, thickness: this.thickness,
+      innerRadius: this.bend.innerRadius });
+    return { ...super.createDesign(), geometry: local.createGeometry() };
   }
 
   createStockGeometry() {
@@ -2402,6 +2441,8 @@ export class Newel extends UprightBoard {
 
   createStockGeometry() { return stockAlignedGeometry(this); }
 
+  getPlacement() { return footprintPlacement(this); }
+
   createGeometry() {
     const [a, b, c, d] = this.footprint;
     const { front, side, bottomHeight, topHeight } = this.cornerBevel;
@@ -2483,6 +2524,11 @@ export class Spindle extends Board {
       [(outer[0] - front[0]) / this.width, 0, -(outer[1] - front[1]) / this.width]];
   }
 
+  getPlacement() {
+    const back = this.footprint[3];
+    return placementMatrix(this.getStockAxes(), [back[0], this.bottomHeight, -back[1]]);
+  }
+
   createStockGeometry() {
     const depth = this.notches.endNear.depth[0], shoulder = this.notches.endNear.length;
     const width = this.width;
@@ -2533,6 +2579,11 @@ export class SpindleShim extends Board {
   }
 
   getStockAxes() { return this.axes; }
+
+  getPlacement() {
+    return placementMatrix(this.axes, this.vertices[0].map((value, axis) =>
+      value - this.axes.reduce((sum, vector, i) => sum + vector[axis] * this.stockVertices[0][i], 0)));
+  }
 
   get faceCuts() {
     return this.faces.map((indices, i) => {
@@ -2718,20 +2769,12 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
       if (step !== first) delete step.parts.siding;
     }
   }
-  for (const module of modules) {
-    module.estimatedWeightLb = module.steps.reduce((sum, step) =>
-      sum + estimateWoodWeightLb(Object.values(step.parts)
-        .flatMap(part => part.boards ? Object.values(part.boards) : [part])), 0)
-      + estimateWoodWeightLb(Object.values(module.boards));
-  }
   const footprints = new Map();
   const moduleSeparationRotation = (module, amount) =>
     ((module.startIndex + module.steps.length / 2) * angle - Math.PI / 4) * amount;
   const model = {
     label: "Curved stairway",
     stairWidth, stepCount, stepRise, landingRise, moduleCount, stepsPerModule, spindleShoulderAscent, steps, modules,
-    estimatedWeightLb: modules.reduce((sum, module) => sum + module.estimatedWeightLb, 0),
-    largestModuleWeightLb: Math.max(...modules.map(module => module.estimatedWeightLb)),
     totalHeight: TOTAL_HEIGHT,
     innerRadius: INNER_RADIUS,
     outerRadius: INNER_RADIUS + stairWidth,
@@ -2784,8 +2827,13 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
               return combineGeometries([]);
             }
           }
-          const tread = step.parts.tread.createGeometry(), faces = [];
+          const piece = this.partTree.getLeaves().find(piece => piece.key === "tread" && piece.stepNumber === index + 1);
+          const faces = [];
           const rotation = index * angle, cosine = Math.cos(rotation), sine = Math.sin(rotation);
+          const frame = placementMatrix([[cosine, 0, -sine], [0, 1, 0], [sine, 0, cosine]],
+            [cosine * INNER_RADIUS, 0, -sine * INNER_RADIUS]);
+          const placement = composeTransforms(inverseTransform(frame), this.getPieceTransform(piece.id));
+          const tread = transformGeometry(piece.part.createGeometry(), placement);
           const placePoint = (east, south, applyInset = true) => {
             let x = east + INNER_RADIUS, z = south;
             if (inset && applyInset && index > 0 && Math.abs(z) < 1e-5) z -= seamInset;
@@ -2795,18 +2843,19 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
             }
             return [cosine * x + sine * z, 0, -sine * x + cosine * z];
           };
-          const part = step.parts.tread, axes = part.getStockAxes();
+          const part = piece.part;
+          const placeOutlinePoint = (x, z, applyInset = true) => placePoint(
+            placement[12] + placement[0] * x + placement[8] * z,
+            placement[14] + placement[2] * x + placement[10] * z, applyInset);
           for (const edge of part.outline.filter(edge => edge.type === "line")) {
             referenceEdges.push({ steps: [index + 1], edge: [edge.from, edge.to].map(([x, z]) =>
-              placePoint(part.origin[0] + axes[0][0] * x + axes[2][0] * z,
-                -part.origin[1] + axes[0][2] * x + axes[2][2] * z)) });
+              placeOutlinePoint(x, z)) });
           }
           for (const arc of part.outline.filter(edge => edge.type === "arc")) {
             const [x, z] = arc.center;
             referenceArcs.push({
-              center: placePoint(part.origin[0] + axes[0][0] * x + axes[2][0] * z,
-                -part.origin[1] + axes[0][2] * x + axes[2][2] * z, false),
-              radius: arc.radius, startAngle: arc.startAngle - part.heading - rotation,
+              center: placeOutlinePoint(x, z, false),
+              radius: arc.radius, startAngle: arc.startAngle - Math.atan2(-placement[2], placement[0]) - rotation,
               sweepRadians: arc.sweepRadians, steps: [index + 1],
             });
           }
@@ -2831,41 +2880,33 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
         footprints.set(key, geometry);
         return geometry;
       }
-      const node = this.partTree.getNode(nodeId), part = node.component;
+      const node = this.partTree.getNode(nodeId), part = node.part;
       if (stockAligned && part.bend) return combineGeometries([]);
-      const module = this.partTree.getAncestors(nodeId).find(node => node.kind === "module").component;
-      const rotation = (node.stepNumber === null ? module.startIndex : node.stepNumber - 1) * angle;
-      const cosine = Math.cos(rotation), sine = Math.sin(rotation);
       const geometry = this.createFootprintGeometry(null, false, inset, 0, moduleNumber);
-      const positions = geometry.positions.map((value, i) => {
-        const axis = i % 3, start = i - axis;
-        return axis === 1 ? 0 : axis === 0
-          ? cosine * value - sine * geometry.positions[start + 2] - INNER_RADIUS
-          : sine * geometry.positions[start] + cosine * value;
-      });
-      let result = { ...geometry, positions };
-      if (stockAligned) {
-        const axes = part.getStockAxes(), local = part.createGeometry(), stock = part.createStockGeometry();
-        const offset = axes.map((vector, axis) => stock.positions[axis] -
-          vector.reduce((sum, value, j) => sum + value * local.positions[j], 0));
-        const transformed = new Float32Array(positions.length), normals = new Float32Array(positions.length);
-        for (let i = 0; i < positions.length; i += 3) for (let axis = 0; axis < 3; axis++) {
-          transformed[i + axis] = offset[axis] + axes[axis].reduce((sum, value, j) =>
-            sum + value * positions[i + j], 0);
-          normals[i + axis] = axes[axis][1];
-        }
-        result = { ...result, positions: transformed, normals };
-      }
+      const result = transformGeometry(geometry, inverseTransform(this.getPieceTransform(nodeId)));
       footprints.set(key, result);
       return result;
     },
     estimateNodeWeightLb(id = this.partTree.root.id) {
-      return estimateWoodWeightLb(this.partTree.getLeaves(id)
-        .filter(node => ["lumber", "plywood"].includes(node.kind)).map(node => node.component));
+      return this.partTree.getLeaves(id)
+        .filter(piece => ["lumber", "plywood"].includes(piece.kind))
+        .reduce((sum, piece) => sum + piece.part.volume / 1728 * piece.part.material.density, 0);
     },
     createNodeGeometry(id, explosion = 0, moduleExplosion = 0, hiddenCategories = []) {
       this.partTree.getNode(id);
       return this.createGeometry({}, explosion, moduleExplosion, id, hiddenCategories);
+    },
+    getPieceTransform(id, explosion = 0, moduleExplosion = 0) {
+      if (![explosion, moduleExplosion].every(value => Number.isFinite(value) && value >= 0 && value <= 1)) {
+        throw new RangeError("Piece explosion and moduleExplosion must be finite numbers between 0 and 1.");
+      }
+      const piece = this.partTree.getNode(id);
+      if (!piece.part) throw new TypeError("An installation transform requires a Piece.");
+      const module = this.partTree.getNode(piece.parentId).module;
+      const rotation = (module.startIndex + piece.stepIndex * explosion) * angle +
+        moduleSeparationRotation(module, moduleExplosion);
+      const c = Math.cos(rotation), s = Math.sin(rotation);
+      return composeTransforms(placementMatrix([[c, 0, -s], [0, 1, 0], [s, 0, c]], [0, 0, 0]), piece.transform);
     },
     createGeometry(visibility = {}, explosion = 0, moduleExplosion = 0, nodeId = null, hiddenCategories = []) {
       if (!Number.isFinite(explosion) || explosion < 0 || explosion > 1) {
@@ -2874,39 +2915,19 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
       if (!Number.isFinite(moduleExplosion) || moduleExplosion < 0 || moduleExplosion > 1) {
         throw new RangeError("Stairway moduleExplosion must be a finite number between 0 and 1.");
       }
-      const includedBoards = nodeId === null && hiddenCategories.length === 0 ? null :
-        new Set(this.partTree.getLeaves(nodeId ?? this.partTree.root.id)
-          .filter(node => !hiddenCategories.includes(node.category)).map(node => node.component));
-      const placeGeometry = (geometry, i, moduleRotation) => {
-        const positions = new Float32Array(geometry.positions.length);
-        const normals = new Float32Array(geometry.normals.length);
-        const rotation = i * (1 + explosion) * angle + moduleRotation;
-        const cosine = Math.cos(rotation), sine = Math.sin(rotation);
-        for (let j = 0; j < geometry.positions.length; j += 3) {
-          const x = geometry.positions[j] + INNER_RADIUS;
-          const z = geometry.positions[j + 2];
-          positions.set([cosine * x + sine * z, geometry.positions[j + 1],
-            -sine * x + cosine * z], j);
-          const nx = geometry.normals[j], nz = geometry.normals[j + 2];
-          normals.set([cosine * nx + sine * nz, geometry.normals[j + 1],
-            -sine * nx + cosine * nz], j);
-        }
-        return { positions, normals, colors: geometry.colors, grain: geometry.grain, indices: geometry.indices };
-      };
-      return combineGeometries(modules.flatMap(module => {
-        const moduleRotation = moduleSeparationRotation(module, moduleExplosion);
-        return [
-          ...module.steps.map((step, index) =>
-            placeGeometry(step.createGeometry(visibility, includedBoards), module.startIndex + index, moduleRotation)),
-          ...Object.entries(module.boards)
-            .filter(([key, board]) => visibility[key === "siding" ? "siding" : "supportBeams"] !== false &&
-              (!includedBoards || includedBoards.has(board)))
-            .map(([, board]) => placeGeometry(board.createGeometry(), module.startIndex, moduleRotation)),
-        ];
-      }));
+      return combineGeometries(this.partTree.getLeaves(nodeId ?? this.partTree.root.id)
+        .filter(piece => !hiddenCategories.includes(piece.category) && visibility[piece.visibilityKey] !== false)
+        .map(piece => transformGeometry(piece.part.createGeometry(),
+          this.getPieceTransform(piece.id, explosion, moduleExplosion))));
     },
   };
-  model.partTree = new PartTree(model);
+  model.parts = createPieces(model);
+  model.partTree = new PieceTree(model);
+  for (const [index, module] of modules.entries()) {
+    module.estimatedWeightLb = model.estimateNodeWeightLb(`stairway/module-${index + 1}`);
+  }
+  model.estimatedWeightLb = modules.reduce((sum, module) => sum + module.estimatedWeightLb, 0);
+  model.largestModuleWeightLb = Math.max(...modules.map(module => module.estimatedWeightLb));
   return model;
 }
 

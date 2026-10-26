@@ -1,3 +1,5 @@
+import { Part, PartCatalog, placementMatrix, composeTransforms } from "./part-design.js";
+
 const EPSILON = 1e-8;
 export const PART_VIEW_NAMES = Object.freeze(["Up", "Down", "Left", "Right", "Front", "Back"]);
 export const partViewLabel = name => ({ Up: "Top", Down: "Bottom" }[name] ?? name);
@@ -192,80 +194,105 @@ const PART_CATEGORIES = {
   leftRearUpright: "uprights", rightRearUpright: "uprights",
 };
 
-export class PartNode {
-  constructor({ id, key, name, kind, component, parentId = null, children = [], stepNumber = null, category = null }) {
+export class Piece {
+  constructor({ id, key, name, part, transform, parentId, stepNumber = null, category = null,
+    visibilityKey, stepIndex }) {
+    const kind = part?.kind;
     if (![id, key, name, kind].every(value => typeof value === "string" && value.length > 0)) {
-      throw new TypeError("A part node requires an ID, role key, name, and kind.");
+      throw new TypeError("A piece requires an ID, role key, name, and Part kind.");
     }
-    if (!component || typeof component !== "object") throw new TypeError("A part node must reference its component.");
-    if (["lumber", "plywood"].includes(kind) && typeof component.getManufacturingDescription !== "function") {
-      throw new TypeError("A wooden part must provide its manufacturing description.");
+    if (!(part instanceof Part)) throw new TypeError("A piece must reference a Part.");
+    if (transform?.length !== 16 || !transform.every(Number.isFinite)) {
+      throw new TypeError("A piece requires a finite installation transform.");
     }
     this.id = id;
     this.key = key;
     this.name = name;
     this.kind = kind;
     this.category = category;
-    this.component = component;
+    this.part = part;
+    this.transform = Object.freeze([...transform]);
     this.parentId = parentId;
-    // Preserve placement context independently of assembly membership.
     this.stepNumber = stepNumber;
-    this.children = Object.freeze([...children]);
+    this.stepIndex = stepIndex;
+    this.visibilityKey = visibilityKey;
+    this.children = Object.freeze([]);
     Object.freeze(this);
   }
 
   getDescription() {
-    if (this.children.length) return null;
-    const describe = this.component.getPartDescription ?? this.component.getManufacturingDescription;
-    if (typeof describe !== "function") return null;
-    return { id: this.id, name: this.name, ...describe.call(this.component) };
+    return this.part.description ? { id: this.id, name: this.name, ...this.part.description } : null;
   }
 }
 
-export class PartTree {
+export function createPieces(model) {
+  const catalog = new PartCatalog();
+  const angle = model.steps?.[0]?.angle ?? model.modules[0].steps[0].angle;
+  const modulePartOrder = new Map([
+    "leftCaster", "rightCaster", "leftRearCaster", "rightRearCaster",
+    "leftSupportBeam", "rightSupportBeam", "supportCrossPiece", "rearSupportCrossPiece",
+    "leftUpright", "leftRearUpright", "rightUpright", "rightRearUpright",
+  ].map((key, index) => [key, index]));
+  for (const [moduleIndex, module] of model.modules.entries()) {
+    const parentId = `stairway/module-${moduleIndex + 1}`;
+    const leaf = (component, key, name, stepNumber, occurrenceKey, visibilityKey) => {
+      const id = `${parentId}/${occurrenceKey}`;
+      const kind = component.partKind ?? component.stock?.kind;
+      const describe = component.getPartDescription ?? component.getManufacturingDescription;
+      const part = catalog.define(describe?.call(component), {
+        kind, unresolvedId: id, createDesign: () => component.createDesign(),
+      });
+      const stepIndex = stepNumber === null ? module.startIndex : stepNumber - 1;
+      const rotation = (stepIndex - module.startIndex) * angle;
+      const c = Math.cos(rotation), s = Math.sin(rotation);
+      const frame = placementMatrix([[c, 0, -s], [0, 1, 0], [s, 0, c]],
+        [c * model.innerRadius, 0, -s * model.innerRadius]);
+      return new Piece({
+        id, key, name, part, parentId, stepNumber, stepIndex, visibilityKey,
+        transform: composeTransforms(frame, component.getPlacement()),
+        category: component.material?.key === "particle-board" ? "particle-board"
+          : PART_CATEGORIES[key] ?? (kind === "plywood" ? "plywood" : null),
+      });
+    };
+    const pieces = module.steps.flatMap((step, index) => {
+      const stepNumber = module.startIndex + index + 1;
+      const stepPart = (component, key, name, visibilityKey) =>
+        leaf(component, key, name, stepNumber, `step-${stepNumber}-${key}`, visibilityKey);
+      return Object.entries(step.parts).flatMap(([partKey, part]) => {
+        if (!part.boards) return [stepPart(part, partKey, part.name ??
+          (partKey === "siding" && stepNumber === 1 ? "Side panel - right rear section" : PART_NAMES[partKey]), partKey)];
+        return Object.entries({ ...part.boards, ...part.hardware }).map(([boardKey, board]) =>
+          stepPart(board, boardKey, board.name ??
+            BOARD_NAMES[partKey]?.[boardKey] ?? BOARD_NAMES.bottomFrame[boardKey], partKey));
+      });
+    });
+    pieces.push(...Object.entries(module.boards).map(([key, board]) =>
+      leaf(board, key, board.name, null, key, key === "siding" ? "siding" : "supportBeams")));
+    pieces.sort((a, b) =>
+      (modulePartOrder.get(a.key) ?? modulePartOrder.size) -
+      (modulePartOrder.get(b.key) ?? modulePartOrder.size));
+    module.pieces = Object.freeze(pieces);
+  }
+  return catalog.parts;
+}
+
+export class PieceTree {
   #nodes = new Map();
 
   constructor(model) {
-    const modulePartOrder = new Map([
-      "leftCaster", "rightCaster", "leftRearCaster", "rightRearCaster",
-      "leftSupportBeam", "rightSupportBeam", "supportCrossPiece", "rearSupportCrossPiece",
-      "leftUpright", "leftRearUpright", "rightUpright", "rightRearUpright",
-    ].map((key, index) => [key, index]));
-    const leaf = (component, key, name, parentId, stepNumber = null, occurrenceKey = key) => new PartNode({
-      id: `${parentId}/${occurrenceKey}`, key, name, component, parentId, stepNumber,
-      kind: component.partKind ?? component.stock?.kind,
-      category: component.material?.key === "particle-board" ? "particle-board"
-        : PART_CATEGORIES[key] ?? (component.stock?.kind === "plywood" ? "plywood" : null),
-    });
     const rootId = "stairway";
     const modules = model.modules.map((module, moduleIndex) => {
       const key = `module-${moduleIndex + 1}`, id = `${rootId}/${key}`;
-      const moduleParts = module.steps.flatMap((step, index) => {
-        const stepNumber = module.startIndex + index + 1;
-        const stepKey = `step-${stepNumber}`;
-        const stepPart = (component, key, name) => leaf(component, key, name,
-          id, stepNumber, `${stepKey}-${key}`);
-        return Object.entries(step.parts).flatMap(([partKey, part]) => {
-          if (!part.boards) return [stepPart(part, partKey, part.name ??
-            (partKey === "siding" && stepNumber === 1 ? "Side panel - right rear section" : PART_NAMES[partKey]))];
-          return Object.entries({ ...part.boards, ...part.hardware }).map(([boardKey, board]) =>
-            stepPart(board, boardKey, board.name ??
-              BOARD_NAMES[partKey]?.[boardKey] ?? BOARD_NAMES.bottomFrame[boardKey]));
-        });
-      });
-      moduleParts.push(...Object.entries(module.boards).map(([key, board]) =>
-        leaf(board, key, board.name, id)));
-      moduleParts.sort((a, b) =>
-        (modulePartOrder.get(a.key) ?? modulePartOrder.size) -
-        (modulePartOrder.get(b.key) ?? modulePartOrder.size));
-      return new PartNode({
+      return Object.freeze({
         id, key, name: `Module ${moduleIndex + 1}`, kind: "module",
-        component: module, parentId: rootId,
-        children: moduleParts,
+        module, parentId: rootId,
+        children: module.pieces, getDescription: () => null,
       });
     });
-    this.root = new PartNode({
-      id: rootId, key: rootId, name: model.label, kind: "stairway", component: model, children: modules,
+    this.parts = model.parts;
+    this.root = Object.freeze({
+      id: rootId, key: rootId, name: model.label, kind: "stairway", parentId: null,
+      children: Object.freeze(modules), getDescription: () => null,
     });
     this.topologyKey = `${model.stepCount}:${model.modules.map(module => module.steps.length).join(",")}`;
     const index = node => {
@@ -299,7 +326,7 @@ export class PartTree {
     const leaves = [];
     const visit = node => {
       if (node.children.length) node.children.forEach(visit);
-      else if (typeof node.component.createGeometry === "function") leaves.push(node);
+      else if (node instanceof Piece) leaves.push(node);
     };
     visit(this.getNode(id));
     return leaves;
@@ -307,20 +334,26 @@ export class PartTree {
 
   getStockViews(id) {
     const node = this.getNode(id);
-    if (node.children.length || typeof node.component.getStockAxes !== "function") {
+    if (node.children.length || node.kind === "hardware") {
       throw new RangeError("Stock views require a physical part with stock axes.");
     }
     const ancestors = this.getAncestors(id);
-    const module = ancestors.find(node => node.kind === "module").component;
+    const module = ancestors.find(node => node.kind === "module").module;
     const step = node.stepNumber === null ? null : module.steps[node.stepNumber - module.startIndex - 1];
-    const angle = step ? step.angle / 2 : module.steps.length * module.steps[0].angle / 2;
+    const relative = step ? (node.stepNumber - module.startIndex - 1) * step.angle : 0;
+    const angle = relative + (step ? step.angle / 2 : module.steps.length * module.steps[0].angle / 2);
     const cosine = Math.cos(angle), sine = Math.sin(angle);
     const frame = [
       { positive: "Right", negative: "Left", direction: [cosine, 0, -sine] },
       { positive: "Up", negative: "Down", direction: [0, 1, 0] },
       { positive: "Back", negative: "Front", direction: [-sine, 0, -cosine] },
     ];
-    const axes = node.component.getStockAxes();
+    const mid = (node.part.bend?.sweepRadians ?? 0) / 2;
+    const localAxes = node.part.bend
+      ? [[-Math.sin(mid), 0, -Math.cos(mid)], [-Math.cos(mid), 0, Math.sin(mid)], [0, 1, 0]]
+      : [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    const axes = localAxes.map(axis => [0, 1, 2].map(row =>
+      axis.reduce((sum, value, column) => sum + node.transform[column * 4 + row] * value, 0)));
     const permutations = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
     let best = permutations[0], bestScore = -Infinity;
     // Match axis pairs together so angled stock never gives two views the same label.

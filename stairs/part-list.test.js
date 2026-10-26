@@ -4,7 +4,8 @@ import { buildStairway, NotchedBoard, Siding, BentPlywood, ProfiledPlywood, Spin
 import { PartInventory, PART_SUBSETS, manufacturingSpecification } from "./part-list.js";
 import { formatLength, formatPartDescription, getSimpleEdgeBevel } from "./part-description.js";
 import { getPartFeatures } from "./part-annotations.js";
-import { PartTree } from "./parts.js";
+import { PieceTree, createPieces } from "./parts.js";
+import { PartCatalog } from "./part-design.js";
 
 const specification = description => JSON.stringify(manufacturingSpecification(description));
 const boardDescription = (length = 10, material = PINE, notches = {}, dados = []) =>
@@ -13,21 +14,81 @@ const boardDescription = (length = 10, material = PINE, notches = {}, dados = []
     .getManufacturingDescription();
 
 function inventoryTree(descriptions) {
+  const catalog = new PartCatalog();
   const module = { id: "module", name: "Module", kind: "module", children: [] };
   const root = { id: "root", name: "Root", kind: "stairway", children: [module] };
   const leaves = descriptions.map((description, index) => ({
     id: `part-${index}`, name: `Role ${index}`, parentId: module.id,
     kind: description?.kind ?? "lumber",
+    part: catalog.define(description, { kind: description?.kind ?? "lumber", unresolvedId: `part-${index}` }),
     getDescription: () => structuredClone(description),
   }));
   module.children = leaves;
-  return { root, getLeaves: () => leaves, getAncestors: () => [root, module] };
+  return { root, parts: catalog.parts, getLeaves: () => leaves, getAncestors: () => [root, module] };
+}
+
+function pieceTree(model) {
+  model.innerRadius ??= 0;
+  for (const module of model.modules) for (const step of module.steps) step.angle ??= 0;
+  model.parts = createPieces(model);
+  return new PieceTree(model);
 }
 
 const hardwareDescription = {
   kind: "hardware", productKey: "fixture-hardware", productName: "Fixture hardware",
   category: "Hardware", summary: "A purchased fixture part.",
 };
+
+test("Part creation reuses geometry and inventory counts existing Part references without reading piece specifications", () => {
+  const catalog = new PartCatalog(), description = boardDescription();
+  let generated = 0;
+  const design = { flatGeometry: new NotchedBoard({ length: 10, thickness: 0.75, width: 3.5 })
+    .createStockGeometry() };
+  const part = catalog.define(description, { createDesign: () => { generated++; return design; } });
+  const reused = catalog.define(structuredClone(description), {
+    createDesign: () => assert.fail("Equivalent Parts must not generate independent geometry."),
+  });
+  assert.equal(reused, part);
+  assert.equal(generated, 1);
+  assert.equal(part.createStockGeometry(), reused.createStockGeometry());
+  assert.equal(part.createGeometry(), part.createStockGeometry());
+  assert.ok(Object.isFrozen(part.description.blank));
+  assert.throws(() => { part.description.blank.length = 20; }, TypeError);
+  assert.notEqual(catalog.define(boardDescription(12)), part);
+  const tree = inventoryTree([description, description, boardDescription(12)]);
+  for (const piece of tree.getLeaves()) {
+    piece.getDescription = () => assert.fail("Inventory must not infer Parts from Piece descriptions.");
+  }
+  const inventory = new PartInventory(tree);
+  assert.equal(inventory.entries.length, tree.parts.length);
+  for (const entry of inventory.entries) {
+    assert.ok(tree.parts.includes(entry.part));
+    assert.equal(entry.description, entry.part.description);
+    assert.equal(entry.quantity, tree.getLeaves().filter(piece => piece.part === entry.part).length);
+  }
+});
+
+test("curved Pieces share finished and flat Part geometry while radius changes create a distinct Part", () => {
+  const profile = [[0, 0], [10, 0], [10, 5], [0, 5]];
+  const original = new BentPlywood({ profile, thickness: 0.125, innerRadius: 20 });
+  const moved = new BentPlywood({ profile, thickness: 0.125, innerRadius: 20,
+    startAngle: 1, center: [10, 15], bottomHeight: 8 });
+  const different = new BentPlywood({ profile, thickness: 0.125, innerRadius: 21 });
+  const model = { label: "Bent fixtures", stepCount: 3, innerRadius: 0,
+    modules: [original, moved, different].map((siding, startIndex) => ({
+      startIndex, boards: {}, steps: [{ angle: 0, parts: { siding } }],
+    })) };
+  const tree = pieceTree(model), [first, second, third] = tree.getLeaves();
+  assert.equal(first.part, second.part);
+  assert.notEqual(first.transform, second.transform);
+  assert.notDeepEqual(first.transform, second.transform);
+  assert.notEqual(first.part, third.part);
+  assert.equal(first.part.geometry, second.part.geometry);
+  assert.equal(first.part.flatGeometry, second.part.flatGeometry);
+  assert.notEqual(first.part.flatGeometry, first.part.geometry);
+  assert.equal(tree.parts.length, 2);
+  assert.equal(new PartInventory(tree).findOccurrence(first.id).quantity, 2);
+});
 
 test("arc-cut manufacturing identity and radius annotations use analytic edges, not mesh facets or placement", () => {
   const rib = buildStairway().modules[0].boards.outerBaseRail, description = rib.getManufacturingDescription();
@@ -312,7 +373,7 @@ test("role-specific visibility categories override the plywood category without 
     stock: { kind: "plywood", thickness: 0.125 } });
   const post = new NotchedBoard({ length: 40, width: 3.5, thickness: 3.5, material: OAK,
     stock: { kind: "lumber", nominalSize: "4x4", thickness: 3.5, width: 3.5 } });
-  const tree = new PartTree({
+  const tree = pieceTree({
     label: "Fixture", stepCount: 1,
     modules: [{ startIndex: 0, boards: {},
       steps: [{ parts: { tread: sheet, siding: sheet, frontSiding: sheet, newel: post } }] }],
@@ -342,7 +403,7 @@ test("particle board has independent visibility and inventory identity while rem
     stock: { kind: "plywood", thickness: 0.25 } };
   const sheet = new NotchedBoard(dimensions);
   const particle = new NotchedBoard({ ...dimensions, material: PARTICLE_BOARD });
-  const tree = new PartTree({
+  const tree = pieceTree({
     label: "Fixture", stepCount: 1,
     modules: [{ startIndex: 0, boards: {},
       steps: [{ parts: { tread: sheet, siding: particle, backPanel: particle } }] }],
@@ -354,7 +415,7 @@ test("particle board has independent visibility and inventory identity while rem
   assert.notEqual(specification(sheet.getManufacturingDescription()), specification(particle.getManufacturingDescription()));
 });
 
-test("the inventory coalesces manufacturing patterns and retains every occurrence exactly once", () => {
+test("the inventory lists existing catalog Parts and counts every Piece exactly once", () => {
   const tree = inventoryTree([
     boardDescription(), boardDescription(), boardDescription(10, OAK),
     hardwareDescription, hardwareDescription,
@@ -718,7 +779,7 @@ test("single-view plywood retains both notch profiles and labels separate true-a
   sheet.edgeNotches.push({ profiles: [0, 1].map(face =>
     [[2, sheet.width - 2 + face / 8], [3.5, sheet.width - 2 + face / 8]]) });
   step.parts.siding = sheet;
-  const tree = new PartTree(model), node = tree.getNode("stairway/module-1/step-2-siding");
+  const tree = pieceTree(model), node = tree.getNode("stairway/module-1/step-2-siding");
   const description = node.getDescription(), views = tree.getStockViews(node.id);
   const view = views.find(view => view.name === "Right");
   const features = getPartFeatures(description, view, views);
@@ -792,7 +853,7 @@ test("missing or invalid specifications remain individually accounted for and vi
   assert.equal(inventory.issues.length, 4);
   assert.equal(inventory.sections.at(-1).kind, "unresolved");
   assert.equal(inventory.sections.at(-1).entries.length, 4);
-  assert.ok(inventory.issues.every(issue => issue.startsWith("Could not group")));
+  assert.ok(inventory.issues.every(issue => issue.startsWith("Unresolved Part")));
   assert.ok(inventory.sections.at(-1).entries.every(entry => entry.quantity === 1 && entry.specification === null));
 });
 
