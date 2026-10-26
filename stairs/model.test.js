@@ -142,10 +142,10 @@ test("three-inch caster mesh and purchased-part details use the new reference ha
   assert.equal(details.productUrl, "https://www.amazon.com/dp/B0GM477Q4M");
   assert.match(details.productName, /3-inch/);
   assert.match(details.specifications.join(" "), /3\.62 x 2\.5.*2\.75 x 1\.75/);
-  assert.match(details.note, /4\.25.*4\.3.*6-inch-wide curved 3\/4-inch plywood base rail/);
+  assert.match(details.note, /4\.25.*4\.3.*flat 2x4 caster beam.*plywood base rail on top/);
 });
 
-test("two six-inch-wide three-quarter-inch base rails replace the panel and spacers below unchanged framing", () => {
+test("six-inch-wide base rails sit on caster beams below unchanged upper framing without spacers", () => {
   for (const width of [20, 24, 36]) for (const count of [4, 5, 6, 7, 8, 9]) for (const modules of [2, 3]) {
     if (count < modules * 2) continue;
     const model = buildStairway(width, count, modules);
@@ -166,9 +166,9 @@ test("two six-inch-wide three-quarter-inch base rails replace the panel and spac
         const angle = module.steps[0].angle, half = module.steps.length * angle / 2;
         assert.equal(rib.thickness, BASE_RAIL_THICKNESS);
         assert.equal(rib.thickness, 0.75);
-        assert.equal(rib.bottomHeight, 4.25);
-        close(rib.bottomHeight + rib.thickness, 5);
-        assert.deepEqual(rib.construction.openings, [], "Casters mount beneath the rails without large openings.");
+        assert.equal(rib.bottomHeight, 5.75);
+        close(rib.bottomHeight + rib.thickness, 6.5);
+        assert.deepEqual(rib.construction.openings, [], "Beam-mounted casters require no large rail openings.");
         close(rib.construction.innerRadius, innerRadius);
         assert.deepEqual([...new Set(rib.outline.filter(edge => edge.type === "arc").map(edge => edge.radius))].sort((a, b) => a - b),
           [innerRadius, innerRadius + 6]);
@@ -193,19 +193,22 @@ test("two six-inch-wide three-quarter-inch base rails replace the panel and spac
       }
       for (const key of ["leftSupportBeam", "rightSupportBeam"]) {
         const heights = Array.from(module.boards[key].createGeometry().positions).filter((_, i) => i % 3 === 1);
-        close(Math.min(...heights), 5);
-        close(Math.max(...heights), 6.5);
+        close(Math.min(...heights), 4.25);
+        close(Math.max(...heights), module.boards.innerBaseRail.bottomHeight);
       }
       for (const step of module.steps) {
         for (const [key, caster] of Object.entries(step.parts.bottomFrame.hardware)) {
           const heights = Array.from(caster.createGeometry().positions).filter((_, i) => i % 3 === 1);
           close(Math.min(...heights), 0);
           close(Math.max(...heights), 4.25);
-          close(module.boards.innerBaseRail.bottomHeight, Math.max(...heights));
+          close(module.boards[key.startsWith("left") ? "leftSupportBeam" : "rightSupportBeam"].bottomHeight,
+            Math.max(...heights));
           assert.equal(step.parts.bottomFrame.boards[`${key}Spacer`], undefined);
         }
         const frame = step.parts.bottomFrame.boards;
+        for (const upright of Object.values(step.parts.uprights.boards)) close(upright.bottomHeight, 6.5);
         if (!frame.supportCrossPiece) continue;
+        close(frame.supportCrossPiece.bottomHeight, 6.5);
         close(frame.supportCrossPiece.bottomHeight + frame.supportCrossPiece.thickness, 8);
         assert.equal(frame.rightSupportBlock.bottomHeight, 8);
         assert.equal(frame.leftSupportBlock.bottomHeight, 8);
@@ -507,7 +510,7 @@ test("front tread is tangent to step 2's outer arc and aligns the newel framing 
   }
 });
 
-test("left and right uprights meet caster beam tops without moving their tops or cross-beam shoulders", () => {
+test("left and right uprights meet base rail tops without moving their tops or cross-beam shoulders", () => {
   for (const width of [20, 24, 36]) for (const count of [4, 5, 6, 7, 8, 9]) for (const modules of [2, 3]) {
     if (count < modules * 2) continue;
     const model = buildStairway(width, count, modules);
@@ -994,12 +997,11 @@ test("plan cutouts preserve closed concave meshes and describe cuts inside the o
   }
 });
 
-test("whole caster plates fit their rails and relief cuts, with tangent headings except at step 1", () => {
+test("whole caster plates fit their beam undersides with edge clearance and tangent headings except at step 1", () => {
   for (const width of [20, 24, 36]) for (const count of [7, 8, 9]) for (const modules of [2, 3]) {
     const model = buildStairway(width, count, modules);
     for (const module of model.modules) for (const side of ["left", "right"]) for (const rear of [false, true]) {
       const beam = module.boards[`${side}SupportBeam`];
-      const rail = module.boards[side === "left" ? "innerBaseRail" : "outerBaseRail"];
       const caster = (rear ? module.steps.at(-1) : module.steps[0])
         .parts.bottomFrame.hardware[`${side}${rear ? "Rear" : ""}Caster`];
       const angle = rear ? (module.steps.length - 1) * module.steps[0].angle : 0;
@@ -1012,43 +1014,21 @@ test("whole caster plates fit their rails and relief cuts, with tangent headings
       } else {
         close(Math.sin(caster.heading - Math.atan2(caster.north, caster.east + INNER_RADIUS)), 0);
       }
-      const centerOffset = [-INNER_RADIUS - caster.east, -caster.north];
-      const nearest = Math.hypot(...[across, along].map((axis, i) =>
-        Math.max(Math.abs(axis.reduce((sum, v, j) => sum + v * centerOffset[j], 0)) -
-          [CASTER_DIMENSIONS.plateWidth, CASTER_DIMENSIONS.plateLength][i] / 2, 0)));
-      assert.ok(nearest >= rail.construction.innerRadius - 1e-8,
-        `${width}/${count}/${modules} ${side}/${rear}: an edge enters the inner opening`);
-      const plate = [];
+      close(beam.bottomHeight, Math.max(...Array.from(caster.createGeometry().positions)
+        .filter((_, i) => i % 3 === 1)));
       for (const lengthSign of [-1, 1]) for (const widthSign of [-1, 1]) {
         const [east, north] = [caster.east, caster.north].map((value, axis) =>
           value + along[axis] * lengthSign * CASTER_DIMENSIONS.plateLength / 2 +
           across[axis] * widthSign * CASTER_DIMENSIONS.plateWidth / 2);
         const corner = [Math.cos(angle) * (east + INNER_RADIUS) - Math.sin(angle) * north - INNER_RADIUS,
           Math.sin(angle) * (east + INNER_RADIUS) + Math.cos(angle) * north];
-        if (!rear) {
-          assert.ok(corner[1] >= rail.construction.trapezoid.left.inset + 0.125 - 1e-8,
-            `${width}/${count}/${modules}: the entire front mounting plate must be behind the rail's front edge.`);
+        for (const [i, start] of beam.footprint.entries()) {
+          const end = beam.footprint[(i + 1) % beam.footprint.length];
+          const distance = ((end[0] - start[0]) * (corner[1] - start[1]) -
+            (end[1] - start[1]) * (corner[0] - start[0])) / Math.hypot(end[0] - start[0], end[1] - start[1]);
+          assert.ok(distance >= 0.125 - 1e-8,
+            `${width}/${count}/${modules} ${side}/${rear}: plate corner has only ${distance} in beam edge clearance`);
         }
-        if (!rear && beam.casterFrontBoundary !== undefined) {
-          assert.ok(corner[1] >= beam.casterFrontBoundary + 0.125 - 1e-8);
-        }
-        assert.ok(Math.hypot(corner[0] + INNER_RADIUS, corner[1]) <= rail.construction.arc.radius + 1e-8);
-        const delta = corner.map((v, i) => v - rail.origin[i]);
-        const stock = [Math.cos(rail.heading) * delta[0] + Math.sin(rail.heading) * delta[1],
-          Math.sin(rail.heading) * delta[0] - Math.cos(rail.heading) * delta[1]];
-        assert.ok(profileContains(rail, stock), `${width}/${count}/${modules} ${side}/${rear}: unsupported corner`);
-        plate.push(stock);
-      }
-      [plate[2], plate[3]] = [plate[3], plate[2]];
-      for (const cut of rail.construction.notches) {
-        const notch = notchRectangle(cut);
-        const separated = [plate, notch].some(polygon => polygon.some((start, i) => {
-          const end = polygon[(i + 1) % polygon.length], axis = [start[1] - end[1], end[0] - start[0]];
-          const project = points => points.map(point => point.reduce((sum, v, j) => sum + v * axis[j], 0));
-          const a = project(plate), b = project(notch);
-          return Math.max(...a) <= Math.min(...b) + 1e-8 || Math.max(...b) <= Math.min(...a) + 1e-8;
-        }));
-        assert.ok(separated, `${width}/${count}/${modules} ${side}/${rear}: plate overlaps ${cut.name}`);
       }
     }
   }

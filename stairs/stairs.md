@@ -145,13 +145,13 @@ wood-volume estimates. Installed cylinder facets have at most `0.001 in` sag.
 ### Base rails
 
 Each module has two separate flat `3/4 in` plywood parts, **Base rail - inner**
-and **Base rail - outer**, immediately below the caster beams from `4.25 in`
-to `5 in` above the floor. Each curved rail section is exactly `6 in` wide radially:
+and **Base rail - outer**, immediately above the caster beams from `5.75 in`
+to `6.5 in` above the floor. Each curved rail section is exactly `6 in` wide radially:
 the inner rail runs from `INNER_RADIUS` to `INNER_RADIUS + 6`; the outer
 rail runs from `moduleSidingRadius - 6` to the curved siding's inner surface.
 All arcs are centered at C, leaving the middle of the former panel open.
-Caster mounting faces meet the rail undersides directly; no spacers or large
-caster openings are required.
+Caster mounting faces meet the beam undersides directly; no spacers or large
+caster openings in the rails are required.
 Newel, adjoining newel blocks, and low spindles have `1/32 in` clearance cuts
 where they intersect each rail; spindles are not shortened.
 The back follows the module's rear radial boundary. The front is set back
@@ -164,9 +164,9 @@ parallel tangents from step 1's rear radius to that front-support plane.
 This straight extension is `6 in` wide perpendicular to the tangents and
 follows step 1's straight outer edge. It and the curved section form one
 plywood part, with the same newel/block clearances; the inner rail stays
-curved all the way forward. Caster placement follows the rail and beam clearances.
-Caster beams remain at `5-6.5 in`, cross-pieces at `6.5-8 in`, and both left
-and right uprights start at beam-top height, `6.5 in`. Attachment blocks on
+curved all the way forward. Caster placement follows the beam centerlines and edge clearances.
+Caster beams occupy `4.25-5.75 in`, cross-pieces remain at `6.5-8 in`, and both left
+and right uprights start at rail-top height, `6.5 in`. Attachment blocks on
 both sides start at `8 in`. No upright notches are needed in the rails.
 The new role keys are `innerBaseRail` and `outerBaseRail`, in category
 `base-rails`; the former `rib` and caster-spacer parts no longer exist.
@@ -366,8 +366,9 @@ Step 1's back step support remains temporarily omitted; its low framing still
 needs a separate support solution.
 
 Casters mount directly beneath both ends of each beam. The beam bottoms remain
-at the modeled caster mounting-face elevation, `5 in`, and their tops are at
-`6.5 in`. Left and right front/rear uprights all start at that elevation.
+at the modeled caster mounting-face elevation, `4.25 in`, and their tops are at
+`5.75 in`. The plywood rails sit on these beams and finish at `6.5 in`.
+Left and right front/rear uprights all start at that rail-top elevation.
 Right support beams are inset an additional `3/4 in` toward
 the inside of the curve to give their casters more clearance from the siding,
 except in module 1 where the newel inner block determines the right beam position.
@@ -389,7 +390,7 @@ rigidly with their module when modules are split.
 ### Support cross-pieces
 
 Every step except step 1 has a pine 2x4 support cross-piece
-lying flat across both support beams. Its lower face rests at the beam tops,
+lying flat across both base rails. Its lower face rests at the rail tops,
 `6.5 in` above the floor; its upper face is at `8 in`.
 Its front edge follows the upper front step support's front face.
 If it would intersect the upper frame's front cross-piece, only that support
@@ -398,7 +399,7 @@ as well as the upper modules.
 This includes the module fronts and step 2, where caster platforms formerly sat.
 The lowest front support cross-piece remains deliberately omitted for now.
 With quarter-inch rises and nine steps, a lower 2x4 cross-piece would extend
-above the first tread's underside at `7.25 in`; the beams themselves clear
+above the first tread's underside at `7.25 in`; the rails themselves clear
 that tread by `0.75 in`.
 
 Each end extends `1/2 in` into the corresponding front upright, with a matching
@@ -411,7 +412,7 @@ the upright faces. Where the front board reaches the left-rear upright, its
 existing through corner clearance notch is retained.
 
 Each module also has a **Beam - cross rear** between its rear uprights.
-This is another flat pine 2x4, resting at the same beam-top elevation. Its rear
+This is another flat pine 2x4, resting at the same rail-top elevation. Its rear
 edge follows the module's rear boundary, with the board extending forward.
 Both ends seat `1/2 in` into bottom-open face notches matching those of the
 front cross-pieces. A combined left front/rear upright shares its existing notch;
@@ -1880,10 +1881,13 @@ const RISER_THICKNESS = 1 / 4;
 const TREAD_THICKNESS = 1 / 2;
 const FLOOR_CLEARANCE = 1;
 const CASTER_HEIGHT = 4.25;
-const SUPPORT_BEAM_BOTTOM_HEIGHT = 5;
+const SUPPORT_BEAM_BOTTOM_HEIGHT = CASTER_HEIGHT;
 const SUPPORT_NOTCH_DEPTH = 1 / 2;
 const UPRIGHT_THICKNESS = 1.5;
 const SUPPORT_BEAM_THICKNESS = 1.5;
+const BASE_RAIL_THICKNESS = 3 / 4;
+const BASE_RAIL_BOTTOM_HEIGHT = SUPPORT_BEAM_BOTTOM_HEIGHT + SUPPORT_BEAM_THICKNESS;
+const BASE_RAIL_TOP_HEIGHT = BASE_RAIL_BOTTOM_HEIGHT + BASE_RAIL_THICKNESS;
 ```
 
 The stairway turns exactly 90 degrees. Its reference inside edge is a
@@ -1930,11 +1934,12 @@ minimum-size restriction.
 ## Casters and mounting woodwork
 
 The stairway is a movable stage prop. Each module has four casters mounted
-directly beneath two curved `6 in`-radial-width, `3/4 in` plywood base rails.
-These replace the thin full-width panel and individual caster spacers.
-Two casters support each rail, with centers on its radial centerline.
-The full plate, including its edges, remains within the wood and clear of
-newel/block/spindle relief cuts in all supported `7-9`-step layouts.
+directly beneath two flat pine 2x4 caster beams. The curved `6 in`-radial-width,
+`3/4 in` plywood base rails sit on top of those beams.
+The rails replace the thin full-width panel and individual caster spacers.
+Two casters support each beam, with centers on its longitudinal centerline.
+The full plate remains at least `1/8 in` inside every beam edge
+in all supported `7-9`-step layouts.
 Flat pine 2x4
 support cross-pieces transfer front-upright loads onto those beams, except at
 the unresolved lowest step. The pine rear uprights follow the side boundaries,
@@ -1976,10 +1981,12 @@ load when choosing caster capacity.
 ### Mounting elevations and estimated clearances
 
 For planning, `CASTER_HEIGHT` is deliberately rounded to **4.25 inches**, rather
-than the reference hardware's 4.3 inches. Beam bottoms remain independently fixed
-at `SUPPORT_BEAM_BOTTOM_HEIGHT = 5`, preserving all tread and framing elevations.
-The three-quarter-inch base rails account for the remaining height.
-Installing 4.3-inch casters with the same rails raises the
+than the reference hardware's 4.3 inches. Beam bottoms meet the caster mounting
+faces at `SUPPORT_BEAM_BOTTOM_HEIGHT = CASTER_HEIGHT`; the flat beams finish at
+`5.75 in`, and the three-quarter-inch base rails finish at `BASE_RAIL_TOP_HEIGHT = 6.5`.
+Cross-pieces, uprights, and newel blocking use that rail-top datum, preserving
+all tread and upper-framing elevations.
+Installing 4.3-inch casters with the same beams and rails raises the
 entire assembly by 0.05 inch, making the bottom rise slightly greater and
 the final rise to the castle slightly smaller.
 
@@ -1991,19 +1998,19 @@ and siding bottoms.
 |---|---|
 | Caster mounting face above floor | `4.25 in` |
 | Plywood base rail radial width x thickness | `6 x 0.75 in` |
-| Underside of flat support beam above floor | `5 in` |
-| Top of flat support beam above floor | `6.5 in` |
+| Underside of flat support beam above floor | `4.25 in` |
+| Top of flat support beam above floor | `5.75 in` |
 | Top of support cross-piece / bottom-notch shoulder above floor | `8 in` |
 | Bottom of left uprights above floor | `6.5 in` |
 | Bottom of right front/rear uprights above floor | `6.5 in` |
-| Base rail underside / top above floor | `4.25 in` / `5 in` |
+| Base rail underside / top above floor | `5.75 in` / `6.5 in` |
 | Bottom of left uprights above caster mounting face | `2.25 in` |
 | Wheel axle above floor, estimated as half the wheel diameter | `1.5 in` |
 | Top of wheel above floor | `3 in` |
 | Mounting face above top of wheel | `1.25 in` |
 
-The flat support beam sits above the modeled `4.25 in` mounting face, with
-the base rail occupying the intervening height. The modeled `1.25 in` above
+The flat support beam sits directly on the modeled `4.25 in` mounting face,
+with the plywood base rail on top of the beam. The modeled `1.25 in` above
 the wheel is occupied in part by the fork and swivel head; it is not free
 clearance for framing. The wheel also overlaps the base framing's vertical
 height range, so horizontal clearance from the framing must be provided.
@@ -2033,18 +2040,17 @@ The unknown plate thickness (`0.12 in`), swivel height (`0.30 in`), fork thickne
 not fabrication or swept-clearance dimensions. Cached local meshes are copied,
 rotated by the heading in radians, and translated for each caster.
 
-Each module has four casters, two beneath each curved base rail.
-The original beam-end positions supply preferred angles, but the rails, not
-the beam footprints, now determine mounting support. Each center sits halfway
-between its rail's inner and outer radii. The plate's long axis follows the
+Each module has four casters, two beneath each straight caster beam.
+Each center lies on its beam's longitudinal centerline. The plate's long axis follows the
 local arc tangent, except the two front casters assigned to step 1 retain
 their original headings. Rear casters face backward along that tangent.
-A circumscribed disk around each plate keeps its entire rectangle clear of
-the rail ends and angular shadows of intersecting relief cuts. Positions move
-along the arc as needed; front plates remain at least `1/8 in` behind the
-front cut and the front cross-piece boundary. The two plates on each rail
-remain separated. The wheels touch elevation zero, while
-the plate tops meet the rail undersides at `4.25 in`. These positions are
+A circumscribed disk around each plate provides conservative clearance from
+the beam's actual front/rear cut planes. Tangent plates move inward along
+the beam until their projected width fits the beam's `3.5 in` width with
+`1/8 in` clearance on both sides. The step-1 right-front caster retains its
+additional one-inch end setback. The two plates on each beam remain separated.
+The wheels touch elevation zero, while
+the plate tops meet the beam undersides at `4.25 in`. These positions are
 illustrative, not approved fastening locations or edge distances. Regrouping
 modules relocates all four module-end casters; there is no extra step-2 pair.
 
@@ -2073,7 +2079,7 @@ the first tread, extending to both side edges. Its front edge butts against the 
 back face at local North `RISER_THICKNESS = 0.25` inch; its back edge is at
 `3.75` inches. Its angled left end follows the tread's side plane without dados.
 Its angled right end follows the tread's right-edge plane and is notched around the newel.
-It rests on both beam tops at `6.5` inches and meets the tread underside:
+It rests on both rail tops at `6.5` inches and meets the tread underside:
 
 | Step count | Pine source stock | Thickness | Upper face |
 |---|---|---|---|
@@ -2081,7 +2087,7 @@ It rests on both beam tops at `6.5` inches and meets the tread underside:
 | 8 | 2x4 | `1.5 in` | `8 in` |
 
 Both sizes have an actual face width of `3.5` inches. A matching pine
-**Tread support - first-step rear** lies flat across the same beams, parallel to the
+**Tread support - first-step rear** lies flat across the same rails, parallel to the
 front support. Its front edge is immediately behind the newel's rearmost
 corner, and its back edge is `3.5 in` farther North. In the default layout
 these are approximately `5.6484` and `9.1484 in`.
@@ -2113,9 +2119,9 @@ Step 2's riser ends at step 1's tread underside, giving `1/2` inch of overlap
 measured from the tread top. Its uprights
 sit behind the riser without riser rebates. Rounded regular rises make both
 heights quarter-inch measurements. In the default nine-step layout its lower
-edge is at `7.25` inches, clearing the flat beams by `0.75` inch. The step slider remains capped
+edge is at `7.25` inches, clearing the base rails by `0.75` inch. The step slider remains capped
 at nine; a tenth step would leave no clearance between the first tread and
-the beam tops.
+the rail tops.
 
 The support cross-pieces and overall load transfer still need structural review.
 This is an incomplete structural model, not construction approval.
@@ -2262,7 +2268,7 @@ To place step $i$:
 The rotation changes both position and orientation. It is not a rotation about
 the step's translated local origin. The local vertical origin remains floor
 level; the lower support cross-pieces and all left/right uprights start at the `6.5 in`
-beam tops.
+rail tops.
 
 The implementation maps East to `+X`, Up to `+Y`, and North to `-Z`. The camera
 orbits the assembled model's bounding-box center; the geometry retains its
@@ -2323,7 +2329,7 @@ slightly forward so its beveled uprights still fit 2x4 stock; adjoining
 side supports are refitted to their new rear planes. The uncut stock
 outline remains rectangular.
 
-All uprights start at the beam tops, `SUPPORT_BEAM_BOTTOM_HEIGHT + SUPPORT_BEAM_THICKNESS`,
+All uprights start at the rail tops, `BASE_RAIL_TOP_HEIGHT`,
 or `6.5` inches above the floor. Their
 tops are at `height - TREAD_THICKNESS`, level with the tread's underside.
 Each upright's vertical length is therefore:
@@ -2392,7 +2398,7 @@ riserHeight = stepRise;
 
 Its bottom meets the preceding tread's underside, giving exactly `1/2 in`
 of overlap with that tread. Its back face meets its own step's front cross-piece.
-No panel extends down over the preceding back step support or to the beam tops.
+No panel extends down over the preceding back step support or to the rail tops.
 Module-last front uprights retain their fitted front-edge bevels; the
 vertical 2x2 riser cleats remain absent. Separate stiffening is deferred.
 
@@ -2500,7 +2506,7 @@ that upright provides the rear bearing seat. Neither step support needs
 a half-lap there; the back step support retains its original rear-upright
 joint. No new left support is added at module backs.
 
-Step 2's pine support cross-piece remains at beam-top elevation. Its right step
+Step 2's pine support cross-piece remains at rail-top elevation. Its right step
 support therefore needs no bottom-front clearance notch, and the upright's
 front bearing seat remains at the normal support elevation.
 

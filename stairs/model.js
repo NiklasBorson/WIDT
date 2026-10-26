@@ -1,5 +1,5 @@
 import { PartTree, describeBoard, rectangularBlank, prismaticBlank } from "./parts.js";
-import { outlineBounds, outlineArea, validateProfile, tessellateOutline, constructionProfile, bridgeProfile, notchRectangle, subtractProfile } from "./plywood-outline.js";
+import { outlineBounds, outlineArea, validateProfile, tessellateOutline, constructionProfile, bridgeProfile, subtractProfile } from "./plywood-outline.js";
 
 export const TOTAL_HEIGHT = 77;
 export const INNER_ARC_LENGTH = 60.5;
@@ -15,10 +15,12 @@ export const BASE_RAIL_WIDTH = 6;
 export const DEFAULT_SPINDLE_SHOULDER_ASCENT = 32;
 export const FLOOR_CLEARANCE = 1;
 export const CASTER_HEIGHT = 4.25;
-export const SUPPORT_BEAM_BOTTOM_HEIGHT = 5;
+export const SUPPORT_BEAM_BOTTOM_HEIGHT = CASTER_HEIGHT;
 export const SUPPORT_NOTCH_DEPTH = 1 / 2;
 export const UPRIGHT_THICKNESS = 1.5;
 export const SUPPORT_BEAM_THICKNESS = 1.5;
+export const BASE_RAIL_BOTTOM_HEIGHT = SUPPORT_BEAM_BOTTOM_HEIGHT + SUPPORT_BEAM_THICKNESS;
+export const BASE_RAIL_TOP_HEIGHT = BASE_RAIL_BOTTOM_HEIGHT + BASE_RAIL_THICKNESS;
 export const CASTER_DIMENSIONS = Object.freeze({
   height: CASTER_HEIGHT, wheelDiameter: 3, wheelWidth: 1.25, plateLength: 3.62, plateWidth: 2.5,
 });
@@ -314,7 +316,7 @@ export class Caster {
         `Mounting plate: ${plateLength} x ${plateWidth} in. Bolt-hole center spacing: 2.75 x 1.75 in. Slots: 0.44 x 0.33 in.`,
         "Advertised capacity: 350 lb per caster; 1,400 lb per four-caster set.",
       ],
-      note: `Installed height is rounded to ${height} inches for planning; the reference size guide gives 4.3 inches. Each mounting plate sits directly beneath a 6-inch-wide curved 3/4-inch plywood base rail. Other dimensions follow the size guide. The 3D model is approximate; bolt holes and brake details are omitted.`,
+      note: `Installed height is rounded to ${height} inches for planning; the reference size guide gives 4.3 inches. Each mounting plate sits directly beneath a flat 2x4 caster beam, with the 3/4-inch plywood base rail on top of the beam. Other dimensions follow the size guide. The 3D model is approximate; bolt holes and brake details are omitted.`,
     };
   }
 
@@ -1105,9 +1107,9 @@ class UprightCrossPiece extends FlatFrameBoard {
 }
 
 class SupportCrossPiece extends UprightCrossPiece {
-  constructor(step, beam) {
+  constructor(step) {
     const { leftUpright, rightUpright, leftRearUpright } = step.parts.uprights.boards;
-    const bottomHeight = beam.bottomHeight + beam.thickness;
+    const bottomHeight = BASE_RAIL_TOP_HEIGHT;
     const frontFrame = step.parts.topFrame.boards.southCrossPiece;
     const interferes = bottomHeight < frontFrame.bottomHeight + frontFrame.width - 1e-8 &&
       bottomHeight + TWO_BY_FOUR_STOCK.thickness > frontFrame.bottomHeight + 1e-8;
@@ -1145,27 +1147,16 @@ class SupportCrossPiece extends UprightCrossPiece {
   }
 }
 
-function footprintRadiusRange(points) {
-  const minimum = Math.min(...points.map((point, i) => {
-    const next = points[(i + 1) % points.length], delta = next.map((v, j) => v - point[j]);
-    const t = Math.max(0, Math.min(1, -point.reduce((sum, v, j) => sum + v * delta[j], 0) /
-      delta.reduce((sum, v) => sum + v * v, 0)));
-    return Math.hypot(...point.map((v, j) => v + t * delta[j]));
-  }));
-  return [minimum, Math.max(...points.map(point => Math.hypot(...point)))];
-}
-
 function addModuleCasters({ steps, boards: beams, startIndex }) {
   const rearAngle = (steps.length - 1) * steps[0].angle;
   const cosine = Math.cos(rearAngle), sine = Math.sin(rearAngle);
-  const inset = CASTER_DIMENSIONS.plateLength / 2 + 0.125;
   const clearance = 0.125;
-  const plateRadius = Math.hypot(CASTER_DIMENSIONS.plateLength, CASTER_DIMENSIONS.plateWidth) / 2;
+  const { plateLength, plateWidth } = CASTER_DIMENSIONS;
+  const plateDiagonal = Math.hypot(plateLength, plateWidth);
+  const dot = (a, b) => a.reduce((sum, value, i) => sum + value * b[i], 0);
   for (const side of ["left", "right"]) {
     const beam = beams[`${side}SupportBeam`], footprint = beam.footprint;
-    const rail = beams[side === "left" ? "innerBaseRail" : "outerBaseRail"];
-    const panelFrontBoundary = rail.construction.trapezoid.left.inset;
-    if (beam.width < CASTER_DIMENSIONS.plateWidth || beam.length < inset * 4) {
+    if (beam.width < plateWidth + 2 * clearance) {
       throw new RangeError("Caster plates do not fit beneath their support beam.");
     }
     const front = footprint[0].map((value, axis) => (value + footprint[3][axis]) / 2);
@@ -1173,55 +1164,53 @@ function addModuleCasters({ steps, boards: beams, startIndex }) {
     const sideLength = Math.hypot(...footprint[1].map((value, axis) => value - footprint[0][axis]));
     const along = footprint[1].map((value, axis) => (value - footprint[0][axis]) / sideLength);
     const heading = Math.atan2(-along[0], along[1]);
-    const insetToBoundary = boundary => CASTER_DIMENSIONS.plateLength / 2 +
-      (boundary + 0.125 - front[1] + Math.abs(along[0]) * CASTER_DIMENSIONS.plateWidth / 2) / along[1];
-    const frontInset = Math.max(
-      (beam.casterFrontBoundary === undefined ? inset : insetToBoundary(beam.casterFrontBoundary)) +
-        (beam.casterFrontSetback ?? 0),
-      insetToBoundary(panelFrontBoundary));
-    const available = back.reduce((sum, value, axis) => sum + (value - front[axis]) * along[axis], 0);
-    if (frontInset + inset + CASTER_DIMENSIONS.plateLength > available) {
+    const available = dot(back.map((value, i) => value - front[i]), along);
+    // The projected plate width is W*cos(delta) + L*sin(abs(delta)).
+    const maxAngle = Math.asin((beam.width - 2 * clearance) / plateDiagonal) -
+      Math.atan2(plateWidth, plateLength);
+    const range = tangent => {
+      let lower = 0, upper = available;
+      const limit = (normal, offset) => {
+        const slope = dot(normal, along), distance = offset - dot(normal, front);
+        if (Math.abs(slope) < 1e-8) {
+          if (distance > 1e-8) throw new RangeError("Caster placement constraints do not meet the beam centerline.");
+        } else if (slope > 0) lower = Math.max(lower, distance / slope);
+        else upper = Math.min(upper, distance / slope);
+      };
+      for (const i of [1, 3]) {
+        const start = footprint[i], end = footprint[(i + 1) % footprint.length];
+        const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
+        const normal = [(start[1] - end[1]) / length, (end[0] - start[0]) / length];
+        limit(normal, dot(normal, start) + plateDiagonal / 2 + clearance);
+      }
+      if (tangent) for (const sign of [-1, 1]) {
+        const angle = heading + sign * maxAngle;
+        const normal = [sign * Math.sin(angle), -sign * Math.cos(angle)];
+        limit(normal, -INNER_RADIUS * normal[0]);
+      }
+      if (!Number.isFinite(lower) || !Number.isFinite(upper) || lower > upper) {
+        throw new RangeError(`Caster plates do not fit beneath the ${side} support beam.`);
+      }
+      return [lower, upper];
+    };
+    const frontDistance = Math.max(range(startIndex !== 0)[0], range(false)[0] + (beam.casterFrontSetback ?? 0));
+    const rearDistance = range(true)[1];
+    if (rearDistance - frontDistance < plateDiagonal + clearance) {
       throw new RangeError("Caster plates do not fit between the support beam's end clearances.");
     }
-    const preferredFront = front.map((value, axis) => value + along[axis] * frontInset);
-    const rear = back.map((value, axis) => value - along[axis] * inset);
-    const radius = (rail.construction.arc.radius + rail.construction.innerRadius) / 2;
-    // A circumscribed disk keeps the entire plate clear, including the fixed-heading step-1 plates.
-    const angularMargin = Math.asin((plateRadius + clearance) / radius);
-    const lower = Math.asin((Math.max(panelFrontBoundary, beam.casterFrontBoundary ?? panelFrontBoundary) +
-      plateRadius + clearance) / radius);
-    const upper = steps.length * steps[0].angle - angularMargin;
-    const blocked = rail.construction.notches.flatMap(cut => {
-      const points = notchRectangle(cut).map(([x, z]) => [
-        rail.origin[0] + INNER_RADIUS + Math.cos(rail.heading) * x + Math.sin(rail.heading) * z,
-        rail.origin[1] + Math.sin(rail.heading) * x - Math.cos(rail.heading) * z,
-      ]);
-      const [min, max] = footprintRadiusRange(points);
-      if (min >= radius + plateRadius || max <= radius - plateRadius) return [];
-      const angles = points.map(([x, y]) => Math.atan2(y, x));
-      return [[Math.min(...angles) - angularMargin, Math.max(...angles) + angularMargin]];
-    }).sort((a, b) => a[0] - b[0]);
-    let frontAngle = Math.max(lower, Math.atan2(preferredFront[1], preferredFront[0] + INNER_RADIUS));
-    for (const [left, right] of blocked) if (frontAngle >= left && frontAngle < right) frontAngle = right;
-    const separation = 2 * Math.asin((plateRadius + clearance / 2) / radius);
-    let backAngle = Math.min(upper, Math.atan2(rear[1], rear[0] + INNER_RADIUS));
-    for (const [left, right] of [...blocked].reverse()) if (backAngle > left && backAngle <= right) backAngle = left;
-    if (!Number.isFinite(frontAngle) || !Number.isFinite(backAngle) || frontAngle < lower ||
-      backAngle > upper || backAngle - frontAngle < separation) {
-      throw new RangeError(`Caster plates do not fit on the ${side === "left" ? "inner" : "outer"} base rail.`);
-    }
-    const frontHeading = startIndex === 0 ? heading : frontAngle;
-    steps[0].parts.bottomFrame.hardware[`${side}Caster`] = new Caster(
-      radius * Math.cos(frontAngle) - INNER_RADIUS, radius * Math.sin(frontAngle), frontHeading);
-    const rearEast = radius * Math.cos(backAngle), rearNorth = radius * Math.sin(backAngle);
+    const [frontEast, frontNorth] = front.map((value, i) => value + along[i] * frontDistance);
+    const frontHeading = startIndex === 0 ? heading : Math.atan2(frontNorth, frontEast + INNER_RADIUS);
+    steps[0].parts.bottomFrame.hardware[`${side}Caster`] = new Caster(frontEast, frontNorth, frontHeading);
+    const [rearEast, rearNorth] = front.map((value, i) => value + along[i] * rearDistance);
+    const rearHeading = Math.atan2(rearNorth, rearEast + INNER_RADIUS) + Math.PI;
     steps.at(-1).parts.bottomFrame.hardware[`${side}RearCaster`] = new Caster(
-      cosine * rearEast + sine * rearNorth - INNER_RADIUS,
-      -sine * rearEast + cosine * rearNorth, backAngle + Math.PI - rearAngle);
+      cosine * (rearEast + INNER_RADIUS) + sine * rearNorth - INNER_RADIUS,
+      -sine * (rearEast + INNER_RADIUS) + cosine * rearNorth, rearHeading - rearAngle);
   }
 }
 
-function addSupportCrossPiece(step, beams) {
-  const crossPiece = new SupportCrossPiece(step, beams.leftSupportBeam);
+function addSupportCrossPiece(step) {
+  const crossPiece = new SupportCrossPiece(step);
   validateFootprints(crossPiece.name, [crossPiece.footprint], step.footprint);
   const crossTop = crossPiece.bottomHeight + crossPiece.thickness;
   for (const side of ["left", "right"]) {
@@ -1239,11 +1228,10 @@ function addSupportCrossPiece(step, beams) {
   step.parts.bottomFrame.boards.supportCrossPiece = crossPiece;
 }
 
-function addRearSupportCrossPiece(step, beams) {
+function addRearSupportCrossPiece(step) {
   const { leftRearUpright, rightRearUpright, leftUpright } = step.parts.uprights.boards;
   const crossPiece = new UprightCrossPiece(leftRearUpright ?? leftUpright, rightRearUpright,
-    [step.footprint[3], step.footprint[2]], beams.leftSupportBeam.bottomHeight +
-      beams.leftSupportBeam.thickness, true);
+    [step.footprint[3], step.footprint[2]], BASE_RAIL_TOP_HEIGHT, true);
   crossPiece.name = "Beam - cross rear";
   const front = step.parts.bottomFrame.boards.supportCrossPiece;
   const [start, end] = [front.footprint[3], front.footprint[2]];
@@ -1491,7 +1479,7 @@ function addNewelFraming(first, second, beams) {
     thickness: TWO_BY_FOUR_STOCK.thickness, width: FRAME_WIDTH,
     length: blockBack - Math.min(...blockFront.map(point => project(point)[1])),
     stock: TWO_BY_FOUR_STOCK,
-  }, SUPPORT_BEAM_BOTTOM_HEIGHT + SUPPORT_BEAM_THICKNESS - FRAME_WIDTH, 1);
+  }, BASE_RAIL_TOP_HEIGHT - FRAME_WIDTH, 1);
   cheek.name = "Newel block - inner";
   boards.newelInnerBlock = cheek;
 
@@ -1512,7 +1500,6 @@ function addNewelFraming(first, second, beams) {
       beam.footprint[1], beam.footprint[2], pointAtNorth(beam.footprint[3], beam.footprint[2], front)];
     beam.length = Math.max(...[[0, 1], [3, 2]].map(([start, end]) =>
       Math.hypot(...beam.footprint[end].map((value, axis) => value - beam.footprint[start][axis]))));
-    beam.casterFrontBoundary = front;
   }
   beams.rightSupportBeam.casterFrontSetback = 1;
 
@@ -1532,7 +1519,7 @@ function addNewelFraming(first, second, beams) {
 export class Uprights {
   constructor(footprint, bottomFrame, height, rearUprights = false, frontSetback = 0,
     frontBevel = rearUprights && frontSetback > 0,
-    bottomHeight = SUPPORT_BEAM_BOTTOM_HEIGHT + SUPPORT_BEAM_THICKNESS) {
+    bottomHeight = BASE_RAIL_TOP_HEIGHT) {
     const [a, b, c, d] = footprint;
     const [leftFront, leftBack] = [a, d];
     const [rightFront, rightBack] = [b, c];
@@ -2238,7 +2225,7 @@ function createModuleBaseRail(module, innerRadius, radius, name) {
       Math.sin(i * angle) * (east + INNER_RADIUS) + Math.cos(i * angle) * north,
     ];
     const spindle = step.parts.frontSpindle;
-    if (spindle && spindle.bottomHeight < SUPPORT_BEAM_BOTTOM_HEIGHT) notches.push(
+    if (spindle && spindle.bottomHeight < BASE_RAIL_TOP_HEIGHT) notches.push(
       rectangle(spindle.footprint.map(rotate), `Step ${module.startIndex + i + 1} spindle clearance`));
     if (module.startIndex === 0 && i === 0) {
       for (const [board, name] of [[step.parts.newel, "Newel post clearance"],
@@ -2262,7 +2249,7 @@ function createModuleBaseRail(module, innerRadius, radius, name) {
   const panel = new ProfiledPlywood({ construction,
     thickness: BASE_RAIL_THICKNESS,
     origin: [-INNER_RADIUS + tangent[0] * min[0] + radial[0] * min[1], tangent[1] * min[0] + radial[1] * min[1]],
-    heading: halfAngle + Math.PI / 2, bottomHeight: SUPPORT_BEAM_BOTTOM_HEIGHT - BASE_RAIL_THICKNESS });
+    heading: halfAngle + Math.PI / 2, bottomHeight: BASE_RAIL_BOTTOM_HEIGHT });
   panel.name = name;
   return panel;
 }
@@ -2602,7 +2589,7 @@ export class Step {
     // Step 1's temporary uprights are replaced after fitting its top frame.
     const uprights = new Uprights(this.footprint, bottomFrame, height, rearUprights,
       frontSetback, frontSetback > 0,
-      height === stepRise ? FLOOR_CLEARANCE : SUPPORT_BEAM_BOTTOM_HEIGHT + SUPPORT_BEAM_THICKNESS);
+      height === stepRise ? FLOOR_CLEARANCE : BASE_RAIL_TOP_HEIGHT);
     for (const key of ["leftUpright", "rightUpright"]) {
       if (!uprights.boards[key].frontBevel) uprights.boards[key].bevelFront(RISER_THICKNESS);
     }
@@ -2681,11 +2668,11 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
     const boards = createSupportBeams(moduleSteps, i === 0);
     for (const step of moduleSteps) {
       if (step !== steps[0]) {
-        addSupportCrossPiece(step, boards);
+        addSupportCrossPiece(step);
         step.parts.frontSpindle = new Spindle(step, step.parts.uprights.boards.rightUpright, spindleShoulderAscent);
       }
     }
-    addRearSupportCrossPiece(moduleSteps.at(-1), boards);
+    addRearSupportCrossPiece(moduleSteps.at(-1));
     if (startIndex === 0) {
       finishFrontStepSupports(moduleSteps[0], moduleSteps[1]);
       addNewelFraming(moduleSteps[0], moduleSteps[1], boards);
