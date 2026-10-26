@@ -188,8 +188,9 @@ rail runs from `moduleSidingRadius - 6` to the curved siding's inner surface.
 All arcs are centered at C, leaving the middle of the former panel open.
 Caster mounting faces meet the beam undersides directly; no spacers or large
 caster openings in the rails are required.
-Newel, adjoining newel blocks, and low spindles have `1/32 in` clearance cuts
-where they intersect each rail.
+The newel post and low spindles have `1/32 in` clearance cuts
+where they intersect each rail. The adjoining newel blocks meet the rail
+underside and need no rail cutouts.
 The back follows the module's rear radial boundary. In subsequent modules,
 the front reaches the front radial boundary without a setback.
 Module 1 instead extends to the rear face of step 1's vertical front
@@ -200,7 +201,7 @@ the outer tangent from step 1's rear radius to that front-support plane.
 Its inner edge is straight throughout, aligned with the inward edge of the
 right caster beam, so the rail has a variable width rather than a concentric inner arc.
 The outer tangent follows step 1's straight outer edge. It and the curved section form one
-plywood part, with the same newel/block clearances; the inner rail stays
+plywood part, with the same newel post clearance; the inner rail stays
 curved all the way forward. Caster placement follows the beam centerlines and edge clearances;
 all mounting plates have their long edges parallel to their caster beams.
 Caster beams occupy `4.25-5.75 in`, cross-pieces remain at `6.5-8 in`, and both left
@@ -335,7 +336,8 @@ Its front end is mitered against the straight front cross-piece.
 Its rear end is square, stopping at the first
 intersection with step 2's siding or front spindle across the block's
 full thickness, or at the back of the upright if neither intersects.
-It has no top notch and spans elevations `3` to `6.5 in`.
+It has no top notch and spans elevations `2.25` to `5.75 in`, meeting the
+underside of the base rail.
 The former **Newel beam block** beneath the right beam is omitted.
 
 A separate pine 2x4 **Newel block - rear** runs on edge, parallel to
@@ -344,7 +346,7 @@ and its square rear end stops before step 2's right upright's plan footprint.
 The inner block retains its separate back-end position.
 The rear block's default length is approximately `6.2043 in`.
 Its left face is against the inner block's right face. It shares the inner
-block's `3` to `6.5 in` elevations and has square ends.
+block's `2.25` to `5.75 in` elevations and has square ends.
 
 The former right 1x4 side support is omitted. Both module-1 beams have
 front ends mitered to butt against the front cross-piece's back face.
@@ -2047,8 +2049,8 @@ For planning, `CASTER_HEIGHT` is deliberately rounded to **4.25 inches**, rather
 than the reference hardware's 4.3 inches. Beam bottoms meet the caster mounting
 faces at `SUPPORT_BEAM_BOTTOM_HEIGHT = CASTER_HEIGHT`; the flat beams finish at
 `5.75 in`, and the three-quarter-inch base rails finish at `BASE_RAIL_TOP_HEIGHT = 6.5`.
-Cross-pieces, uprights, and newel blocking use that rail-top datum, preserving
-all tread and upper-framing elevations.
+Cross-pieces and uprights use that rail-top datum, preserving all tread and
+upper-framing elevations. Newel blocking finishes at the rail underside, `5.75 in`.
 Installing 4.3-inch casters with the same beams and rails raises the
 entire assembly by 0.05 inch, making the bottom rise slightly greater and
 the final rise to the castle slightly smaller.

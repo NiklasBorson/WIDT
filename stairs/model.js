@@ -1522,7 +1522,7 @@ function addNewelFraming(first, second, beams) {
     thickness: TWO_BY_FOUR_STOCK.thickness, width: FRAME_WIDTH,
     length: blockBack - Math.min(...blockFront.map(point => project(point)[1])),
     stock: TWO_BY_FOUR_STOCK,
-  }, BASE_RAIL_TOP_HEIGHT - FRAME_WIDTH, 1);
+  }, BASE_RAIL_BOTTOM_HEIGHT - FRAME_WIDTH, 1);
   cheek.name = "Newel block - inner";
   boards.newelInnerBlock = cheek;
 
@@ -2301,11 +2301,9 @@ function createModulePlywoodBand(module, innerRadius, radius, name,
     if (spindle && spindle.bottomHeight < bottomHeight + thickness) notches.push(
       rectangle(spindle.footprint.map(rotate), `Step ${module.startIndex + i + 1} spindle clearance`));
     if (module.startIndex === 0 && i === 0) {
-      for (const [board, name] of [[step.parts.newel, "Newel post clearance"],
-        [step.parts.topFrame.boards.newelInnerBlock, "Inner newel block clearance"],
-        [step.parts.topFrame.boards.newelRearBlock, "Rear newel block clearance"]]) {
-        if (board.bottomHeight < bottomHeight + thickness) notches.push(rectangle(board.footprint.map(rotate), name));
-      }
+      const newel = step.parts.newel;
+      if (newel.bottomHeight < bottomHeight + thickness) notches.push(
+        rectangle(newel.footprint.map(rotate), "Newel post clearance"));
     }
   }
   const construction = { blank, trapezoid, arc, ...(!straightInnerEdge ? { innerRadius } : {}), notches: [], openings: [],

@@ -601,7 +601,7 @@ test("left and right uprights meet base rail tops without moving their tops or c
   }
 });
 
-test("rib relief clears the step-2 spindle, newel, and adjoining blocks", () => {
+test("base rails clear the step-2 spindle and newel while adjoining blocks meet the rail underside", () => {
   for (const count of [7, 8, 9]) for (const modules of [2, 3]) {
     const model = buildStairway(24, count, modules), rib = model.modules[0].boards.outerBaseRail;
     const spindle = model.steps[1].parts.frontSpindle;
@@ -609,8 +609,19 @@ test("rib relief clears the step-2 spindle, newel, and adjoining blocks", () => 
     close(Math.min(...heights), spindle.bottomHeight, 1e-5);
     assert.ok(rib.construction.notches.some(cut => /spindle/i.test(cut.name)));
     const first = model.steps[0].parts;
+    for (const block of [first.topFrame.boards.newelInnerBlock, first.topFrame.boards.newelRearBlock]) {
+      close(block.bottomHeight, 2.25);
+      close(block.bottomHeight + block.width, rib.bottomHeight);
+      const heights = Array.from(block.createGeometry().positions).filter((_, i) => i % 3 === 1);
+      close(Math.min(...heights), block.bottomHeight);
+      close(Math.max(...heights), rib.bottomHeight);
+    }
+    for (const rail of [model.modules[0].boards.innerBaseRail, rib]) {
+      assert.ok(!rail.construction.notches.some(cut => /newel block/i.test(cut.name)),
+        "Blocks below the rail must not leave clearance cuts in its manufacturing geometry.");
+    }
     for (const [board, rotation] of [[spindle, model.steps[1].angle],
-      [first.newel, 0], [first.topFrame.boards.newelInnerBlock, 0], [first.topFrame.boards.newelRearBlock, 0]]) {
+      [first.newel, 0]]) {
       const c = Math.cos(rotation), s = Math.sin(rotation);
       const footprint = board.footprint;
       const samples = [...footprint, ...footprint.map((point, i) => point.map((value, axis) =>
