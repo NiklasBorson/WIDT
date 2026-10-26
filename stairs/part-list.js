@@ -20,6 +20,7 @@ const foundationRoles = new Set([
   "leftCaster", "rightCaster", "leftRearCaster", "rightRearCaster",
   "innerBaseRail", "outerBaseRail",
   "leftSupportBeam", "rightSupportBeam", "supportCrossPiece", "rearSupportCrossPiece",
+  "frontPanelSupportBlock", "rearPanelSupportBlock",
   "frontStepSupport", "rearStepSupport", "frontStepRightSupport", "frontStepLeftSupport",
 ]);
 const stepFramingRoles = new Set([
@@ -33,7 +34,10 @@ const banisterRoles = new Set([
   "newel", "frontSpindle", "rearSpindle", "spindleShim", "newelInnerBlock", "newelRearBlock",
   "rightUpright", "rightRearUpright",
 ]);
-const claddingRoles = new Set(["siding", "frontSiding", "backPanel"]);
+const claddingRoles = new Set([
+  "siding", "frontSiding", "backPanel", "sidingStiffener", "frontSidingStiffener",
+  "sidingStiffenerUpper", "frontSidingStiffenerUpper",
+]);
 
 function partSubsets(node) {
   const foundation = foundationRoles.has(node.key) || (node.key === "southCrossPiece" && node.stepNumber === 1);

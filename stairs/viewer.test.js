@@ -406,7 +406,9 @@ test("base rail construction annotations locate each authored cut corner and cha
         assert.equal(arc.radialGuides.length, 2, "Both authored radial guidelines point toward C.");
         const inset = rib.construction.trapezoid.left.inset;
         assert.deepEqual(arc.radialGuides.map(guide => [guide.side, guide.inset]), [["left", inset], ["right", 0]]);
-        assert.ok(features.find(feature => feature.id === "C1").lines.includes(`Cut ${formatLength(inset)} in inside radial guide`));
+        const frontCut = features.find(feature => feature.id === "C1");
+        if (inset) assert.ok(frontCut.lines.includes(`Cut ${formatLength(inset)} in inside radial guide`));
+        else assert.doesNotMatch(frontCut.lines.join(" "), /inside radial guide|outside radial guide/);
         for (const edge of arc.radialGuides) {
           const delta = edge.to.map((value, axis) => value - edge.from[axis]);
           const relative = arc.radiusCenter.map((value, axis) => value - edge.from[axis]);

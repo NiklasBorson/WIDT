@@ -142,6 +142,42 @@ sloped bottom, rather than a complex milled curved notch floor. These openings
 are included in the flat outline, cutting drawings, inventory identity, and
 wood-volume estimates. Installed cylinder facets have at most `0.001 in` sag.
 
+### Panel bottom stiffeners
+
+Each curved side panel has two stacked horizontal **Panel bottom stiffener - curved**
+Pieces cut from `1/2 in` plywood, sharing a single Part design. Their outer arcs
+follow the panel's inside face; their inner arcs are exactly `1 in` inward radially.
+The stack runs from `1 1/4 in` to `2 1/4 in` above the floor; the upper Piece's
+top meets the bottoms of the panel support blocks. Their radial ends match the
+panel's angular span. Module 1's curved stiffeners start behind step 1, just like its
+curved side panel; unlike that module's outer base rail, they keep concentric inner arcs.
+
+Step 1's two flat side-panel sections use matching doubled straight bottom stiffeners
+at the same stack elevation where space permits, also `1 in` wide per layer.
+Their ends fit around
+the newel post, and the front strip stops behind the front riser. In the 8- and
+9-step designs, the deep front tread support already occupies and reinforces
+the front strip's position, so no redundant front strip is added.
+
+Stiffeners are ordinary shared plywood Parts with module-owned or step-owned
+Pieces. They participate in inventory, Details, Placement, wood-weight estimates,
+and clash checks. They belong to Cladding and follow their panels' siding visibility.
+
+### Panel support blocks
+
+Square-cut pine 2x4 blocks (`4 in` long, `1 1/2 in` thick and `3 1/2 in` tall)
+stand edge-on beneath each module's outer base rail. Their tops meet the rail
+underside at `5 3/4 in`; their bottoms meet the doubled stiffeners at `2 1/4 in`.
+One sits behind the front caster and one ahead of the rear caster, outside the
+same conservative plate-diagonal envelope used for caster placement.
+Module 1 omits its front block because the rear newel block already reinforces
+that area.
+
+Each block follows a straight chord: both outside end corners meet the rail's
+outer arc, leaving approximately `1/32 in` between the middle of the straight
+outside face and the curved panel. All blocks share a square-cut Part; they
+belong to Foundation and Framing and follow support-beam visibility.
+
 ### Base rails
 
 Each module has two separate flat `3/4 in` plywood parts, **Base rail - inner**
@@ -153,9 +189,9 @@ All arcs are centered at C, leaving the middle of the former panel open.
 Caster mounting faces meet the beam undersides directly; no spacers or large
 caster openings in the rails are required.
 Newel, adjoining newel blocks, and low spindles have `1/32 in` clearance cuts
-where they intersect each rail; spindles are not shortened.
-The back follows the module's rear radial boundary. The front is set back
-`1/4 in` from its radial boundary to clear the preceding module's rear panel.
+where they intersect each rail.
+The back follows the module's rear radial boundary. In subsequent modules,
+the front reaches the front radial boundary without a setback.
 Module 1 instead extends to the rear face of step 1's vertical front
 cross-piece (`southCrossPiece`), `1 3/4 in` behind the tread front.
 The deeper upper flat support is not the rail-front datum.
@@ -247,8 +283,9 @@ matching left/right notches are `1/2 in` deep, leaving a `1/2 in` tongue.
 Shoulder ascent defaults to `32 in` (a `34 in` top), with a slider allowing
 `25 in` through `37 in` in one-inch increments. Adjusting it changes the
 spindle tops and notch shoulders without changing their mounting or bottom cuts.
-At the front inner edge, the bottom descends `stepRise + 6 in` below the
-baseline. Its 45-degree cut rises toward the outside, leaving the longer
+At the front inner edge, the bottom descends `stepRise + 5 in` below the
+baseline, one inch higher than the earlier spindle design without moving
+the top or notch shoulders. Its 45-degree cut rises toward the outside, leaving the longer
 edge against the upright, and does not slope front-to-back.
 At each joint between modules, a separate **Spindle shim** fills the wedge
 between the rear spindle and the next module's front spindle. It belongs to

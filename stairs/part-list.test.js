@@ -192,6 +192,11 @@ test("modeled part names use family-first qualifiers across every supported layo
     frontSpindle: "Spindle - front", rearSpindle: "Spindle - rear", spindleShim: "Spindle shim",
     siding: ["Side panel - curved", "Side panel - right rear section"],
     frontSiding: "Side panel - right front section",
+    sidingStiffener: ["Panel bottom stiffener - curved", "Panel bottom stiffener - rear section"],
+    frontSidingStiffener: "Panel bottom stiffener - front section",
+    sidingStiffenerUpper: ["Panel bottom stiffener - curved", "Panel bottom stiffener - rear section"],
+    frontSidingStiffenerUpper: "Panel bottom stiffener - front section",
+    frontPanelSupportBlock: "Panel support block - front", rearPanelSupportBlock: "Panel support block - rear",
   };
   const seen = new Set();
   for (const steps of [6, 7, 8, 9]) for (const modules of [2, 3]) {
@@ -255,7 +260,8 @@ test("curated subsets cover every modeled role, overlap deliberately, and distin
       assert.equal(framing.has(id), (node.kind === "lumber" || node.category === "base-rails") &&
         (foundation.has(id) || stepFraming.has(id)));
       assert.equal(withoutCladding.has(id), !cladding.has(id));
-      assert.equal(cladding.has(id), ["siding", "frontSiding", "backPanel"].includes(key));
+      assert.equal(cladding.has(id), ["siding", "frontSiding", "backPanel", "sidingStiffener", "frontSidingStiffener",
+        "sidingStiffenerUpper", "frontSidingStiffenerUpper"].includes(key));
       assert.equal(surfaces.has(id), ["tread", "riser"].includes(key));
       assert.equal(banister.has(id), ["newel", "frontSpindle", "rearSpindle", "spindleShim",
         "newelInnerBlock", "newelRearBlock", "rightUpright", "rightRearUpright"].includes(key) ||
@@ -685,7 +691,7 @@ test("finite notch shoulders have dashed edge-view traces through the callout an
     assert.ok(!feature.hidden, "Keep the leader and anchor for the exposed notch");
     assert.deepEqual(feature.outline, [
       [spindle.blank.length - 2, 0, notchIndex ? 1 : 0.5],
-      [47.75 - 2, spindle.blank.thickness, notchIndex ? 1 : 0.5],
+      [46.75 - 2, spindle.blank.thickness, notchIndex ? 1 : 0.5],
     ], "Use each face's actual end, not a square-blank approximation");
     assert.deepEqual(feature.point, [0, 1, 2].map(axis =>
       (feature.outline[0][axis] + feature.outline[1][axis]) / 2));

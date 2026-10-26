@@ -13,6 +13,8 @@ export const SIDING_THICKNESS = 1 / 8;
 export const SIDING_CLEARANCE = 0;
 export const BASE_RAIL_THICKNESS = 3 / 4;
 export const BASE_RAIL_WIDTH = 6;
+export const PANEL_STIFFENER_THICKNESS = 1 / 2;
+export const PANEL_STIFFENER_WIDTH = 1;
 export const DEFAULT_SPINDLE_SHOULDER_ASCENT = 32;
 export const FLOOR_CLEARANCE = 1;
 export const CASTER_HEIGHT = 4.25;
@@ -22,6 +24,9 @@ export const UPRIGHT_THICKNESS = 1.5;
 export const SUPPORT_BEAM_THICKNESS = 1.5;
 export const BASE_RAIL_BOTTOM_HEIGHT = SUPPORT_BEAM_BOTTOM_HEIGHT + SUPPORT_BEAM_THICKNESS;
 export const BASE_RAIL_TOP_HEIGHT = BASE_RAIL_BOTTOM_HEIGHT + BASE_RAIL_THICKNESS;
+export const PANEL_SUPPORT_BLOCK_LENGTH = 4;
+export const PANEL_SUPPORT_BLOCK_BOTTOM_HEIGHT = BASE_RAIL_BOTTOM_HEIGHT - FRAME_WIDTH;
+export const PANEL_STIFFENER_BOTTOM_HEIGHT = PANEL_SUPPORT_BLOCK_BOTTOM_HEIGHT - 2 * PANEL_STIFFENER_THICKNESS;
 export const CASTER_DIMENSIONS = Object.freeze({
   height: CASTER_HEIGHT, wheelDiameter: 3, wheelWidth: 1.25, plateLength: 3.62, plateWidth: 2.5,
 });
@@ -1214,6 +1219,39 @@ function addModuleCasters({ steps, boards: beams }) {
   }
 }
 
+function addPanelSupportBlocks(module) {
+  const radius = moduleSidingRadius(module), halfLength = PANEL_SUPPORT_BLOCK_LENGTH / 2;
+  const across = Math.sqrt(radius ** 2 - halfLength ** 2);
+  const halfAngle = Math.atan2(halfLength, across - TWO_BY_FOUR_STOCK.thickness);
+  for (const rear of [false, true]) {
+    if (!rear && module.startIndex === 0) continue;
+    const step = rear ? module.steps.at(-1) : module.steps[0];
+    const caster = step.parts.bottomFrame.hardware[rear ? "rightRearCaster" : "rightCaster"];
+    const rotation = rear ? (module.steps.length - 1) * step.angle : 0;
+    const c = Math.cos(rotation), s = Math.sin(rotation);
+    const center = [c * (caster.east + INNER_RADIUS) - s * caster.north,
+      s * (caster.east + INNER_RADIUS) + c * caster.north];
+    const casterRadius = Math.hypot(CASTER_DIMENSIONS.plateLength, CASTER_DIMENSIONS.plateWidth) / 2;
+    const casterHalfAngle = Math.asin(casterRadius / Math.hypot(...center));
+    const angle = Math.atan2(center[1], center[0]) + (rear ? -1 : 1) * (casterHalfAngle + halfAngle);
+    const radial = [Math.cos(angle), Math.sin(angle)], tangent = [-radial[1], radial[0]];
+    const point = (distance, along) => [
+      radial[0] * distance + tangent[0] * along - INNER_RADIUS,
+      radial[1] * distance + tangent[1] * along,
+    ];
+    const footprint = [
+      point(across - TWO_BY_FOUR_STOCK.thickness, -halfLength), point(across, -halfLength),
+      point(across, halfLength), point(across - TWO_BY_FOUR_STOCK.thickness, halfLength),
+    ];
+    const block = new FrameBoard(footprint, {
+      length: PANEL_SUPPORT_BLOCK_LENGTH, width: TWO_BY_FOUR_STOCK.width,
+      thickness: TWO_BY_FOUR_STOCK.thickness, stock: TWO_BY_FOUR_STOCK,
+    }, PANEL_SUPPORT_BLOCK_BOTTOM_HEIGHT, 1);
+    block.name = `Panel support block - ${rear ? "rear" : "front"}`;
+    module.boards[rear ? "rearPanelSupportBlock" : "frontPanelSupportBlock"] = block;
+  }
+}
+
 function addSupportCrossPiece(step) {
   const crossPiece = new SupportCrossPiece(step);
   validateFootprints(crossPiece.name, [crossPiece.footprint], step.footprint);
@@ -2212,16 +2250,18 @@ function moduleSidingRadius(module) {
   return INNER_RADIUS + module.steps[0].width;
 }
 
-function createModuleBaseRail(module, innerRadius, radius, name) {
+function createModulePlywoodBand(module, innerRadius, radius, name,
+  { thickness = BASE_RAIL_THICKNESS, panel = null, bottomHeight = panel?.bottomHeight ?? BASE_RAIL_BOTTOM_HEIGHT } = {}) {
   const { angle } = module.steps[0];
   const halfAngle = module.steps.length * angle / 2, c = Math.cos(halfAngle), s = Math.sin(halfAngle);
   const radial = [c, s], tangent = [-s, c], end = module.steps.length * angle;
-  const frontAngle = 0;
+  const frontAngle = panel?.startAngle ?? 0;
   const frontNormal = [-Math.sin(frontAngle), Math.cos(frontAngle)];
   const firstSupport = module.steps[0].parts.topFrame.boards.southCrossPiece;
-  const frontOffset = module.startIndex === 0 ? Math.max(...firstSupport.footprint.map(point => point[1])) : RISER_THICKNESS;
+  const frontOffset = !panel && module.startIndex === 0
+    ? Math.max(...firstSupport.footprint.map(point => point[1])) : 0;
   const backNormal = [Math.sin(end), -Math.cos(end)];
-  const straightInnerEdge = module.startIndex === 0 && radius === moduleSidingRadius(module);
+  const straightInnerEdge = !panel && module.startIndex === 0 && radius === moduleSidingRadius(module);
   const beamInnerCorner = module.boards.rightSupportBeam.footprint[3];
   const left = straightInnerEdge
     ? (beamInnerCorner[0] + INNER_RADIUS) * c + beamInnerCorner[1] * s
@@ -2258,13 +2298,13 @@ function createModuleBaseRail(module, innerRadius, radius, name) {
       Math.sin(i * angle) * (east + INNER_RADIUS) + Math.cos(i * angle) * north,
     ];
     const spindle = step.parts.frontSpindle;
-    if (spindle && spindle.bottomHeight < BASE_RAIL_TOP_HEIGHT) notches.push(
+    if (spindle && spindle.bottomHeight < bottomHeight + thickness) notches.push(
       rectangle(spindle.footprint.map(rotate), `Step ${module.startIndex + i + 1} spindle clearance`));
     if (module.startIndex === 0 && i === 0) {
       for (const [board, name] of [[step.parts.newel, "Newel post clearance"],
         [step.parts.topFrame.boards.newelInnerBlock, "Inner newel block clearance"],
         [step.parts.topFrame.boards.newelRearBlock, "Rear newel block clearance"]]) {
-        notches.push(rectangle(board.footprint.map(rotate), name));
+        if (board.bottomHeight < bottomHeight + thickness) notches.push(rectangle(board.footprint.map(rotate), name));
       }
     }
   }
@@ -2279,12 +2319,32 @@ function createModuleBaseRail(module, innerRadius, radius, name) {
     if (remainingArea - nextArea > 1e-8) remainingArea = nextArea;
     else construction.notches.pop();
   }
-  const panel = new ProfiledPlywood({ construction,
-    thickness: BASE_RAIL_THICKNESS,
+  const band = new ProfiledPlywood({ construction, thickness,
     origin: [-INNER_RADIUS + tangent[0] * min[0] + radial[0] * min[1], tangent[1] * min[0] + radial[1] * min[1]],
-    heading: halfAngle + Math.PI / 2, bottomHeight: BASE_RAIL_BOTTOM_HEIGHT });
-  panel.name = name;
-  return panel;
+    heading: halfAngle + Math.PI / 2, bottomHeight });
+  band.name = name;
+  return band;
+}
+
+function createFlatPanelStiffener(panel, name, bottomHeight, frontInset = 0) {
+  const [a, b, c, d] = panel.footprint;
+  const length = Math.hypot(d[0] - a[0], d[1] - a[1]);
+  const outward = [(d[1] - a[1]) / length, (a[0] - d[0]) / length];
+  const innerOffset = a[0] * outward[0] + a[1] * outward[1] - PANEL_STIFFENER_WIDTH;
+  let front = a, innerFront = pointAtOffset(a, b, outward, innerOffset);
+  const innerBack = pointAtOffset(d, c, outward, innerOffset);
+  if (frontInset) {
+    front = pointAtNorth(a, d, a[1] + frontInset);
+    innerFront = pointAtNorth(innerFront, innerBack, a[1] + frontInset);
+  }
+  const footprint = [front, d, innerBack, innerFront];
+  const board = new FlatFrameBoard(footprint, {
+    length: Math.hypot(d[0] - front[0], d[1] - front[1]),
+    width: PANEL_STIFFENER_WIDTH, thickness: PANEL_STIFFENER_THICKNESS,
+    material: PLYWOOD, stock: { kind: "plywood", thickness: PANEL_STIFFENER_THICKNESS },
+  }, bottomHeight);
+  board.name = name;
+  return board;
 }
 
 function createModuleSiding(module, spindles) {
@@ -2483,7 +2543,7 @@ export class Spindle extends Board {
     const run = baselineEnd.reduce((sum, value, axis) =>
       sum + (value - baselineStart[axis]) * along[axis], 0);
     const slope = step.stepRise / run;
-    const descent = step.stepRise + 6;
+    const descent = step.stepRise + 5;
     const frontHeight = shoulderAscent + 2 + descent;
     super({ length: frontHeight + slope * size, width: size, thickness: size,
       material: OAK, stock: TWO_BY_TWO_STOCK });
@@ -2724,9 +2784,10 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
     }
     const module = { startIndex, steps: moduleSteps, boards };
     const radius = moduleSidingRadius(module);
-    boards.innerBaseRail = createModuleBaseRail(module, INNER_RADIUS, INNER_RADIUS + BASE_RAIL_WIDTH, "Base rail - inner");
-    boards.outerBaseRail = createModuleBaseRail(module, radius - BASE_RAIL_WIDTH, radius, "Base rail - outer");
+    boards.innerBaseRail = createModulePlywoodBand(module, INNER_RADIUS, INNER_RADIUS + BASE_RAIL_WIDTH, "Base rail - inner");
+    boards.outerBaseRail = createModulePlywoodBand(module, radius - BASE_RAIL_WIDTH, radius, "Base rail - outer");
     addModuleCasters(module);
+    addPanelSupportBlocks(module);
     for (const [j, step] of moduleSteps.entries()) {
       addSupportBlocks(step, startIndex > 0 && j === 0, steps[startIndex + j - 1]);
     }
@@ -2756,11 +2817,29 @@ export function buildStairway(stairWidth = 24, stepCount = 9, moduleCount = Math
   }
   for (const module of modules) {
     module.boards.siding = createModuleSiding(module, spindles);
+    const panel = module.boards.siding;
+    for (const [key, layer] of [["sidingStiffener", 0], ["sidingStiffenerUpper", 1]]) {
+      module.boards[key] = createModulePlywoodBand(module,
+        panel.bend.innerRadius - PANEL_STIFFENER_WIDTH, panel.bend.innerRadius, "Panel bottom stiffener - curved",
+        { thickness: PANEL_STIFFENER_THICKNESS, panel,
+          bottomHeight: PANEL_STIFFENER_BOTTOM_HEIGHT + layer * PANEL_STIFFENER_THICKNESS });
+    }
     for (const step of module.steps) {
       for (const post of [step.parts.frontSpindle, step.parts.rearSpindle].filter(Boolean)) {
         step.parts.tread.notchForPost(post);
       }
       if (step !== first) delete step.parts.siding;
+    }
+  }
+  const frontPanel = first.parts.frontSiding, frontSupport = first.parts.topFrame.boards.southCrossPiece;
+  for (const [suffix, layer] of [["", 0], ["Upper", 1]]) {
+    const bottomHeight = PANEL_STIFFENER_BOTTOM_HEIGHT + layer * PANEL_STIFFENER_THICKNESS;
+    first.parts[`sidingStiffener${suffix}`] = createFlatPanelStiffener(first.parts.siding,
+      "Panel bottom stiffener - rear section", bottomHeight);
+    if (frontSupport.bottomHeight >= bottomHeight + PANEL_STIFFENER_THICKNESS ||
+      frontSupport.bottomHeight + frontSupport.width <= bottomHeight) {
+      first.parts[`frontSidingStiffener${suffix}`] = createFlatPanelStiffener(frontPanel,
+        "Panel bottom stiffener - front section", bottomHeight, RISER_THICKNESS);
     }
   }
   const footprints = new Map();
