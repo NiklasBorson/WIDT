@@ -429,6 +429,51 @@ test("analytic tread cutting outlines retain newel and spindle reliefs in closed
   }
 });
 
+test("splitting moves every module away from the castle and increases the gaps between modules", () => {
+  for (const [steps, count, width] of [[7, 2, 20], [8, 3, 36], [9, 3, 20]]) {
+    const model = buildStairway(width, steps, count);
+    const base = model.partTree.root.children.map(module => model.createNodeGeometry(module.id));
+    const centers = model.modules.map(module => {
+      const angle = (module.startIndex + module.steps.length / 2) * Math.PI / (2 * steps);
+      const radius = model.innerRadius + width / 2;
+      return [radius * Math.cos(angle), -radius * Math.sin(angle)];
+    });
+    let previousCenters = centers;
+    let previousRadii = base.map(geometry => geometry.positions.filter((_, i) => i % 3 === 0)
+      .map((x, i) => Math.hypot(x, geometry.positions[i * 3 + 2])));
+    for (const amount of [0.25, 0.5, 1]) {
+      const matrices = model.getModuleTransforms(amount);
+      const movedCenters = centers.map(([x, z], index) => {
+        const matrix = matrices[index];
+        close(Math.hypot(matrix[12], matrix[14]), width * amount, 1e-4);
+        assert.equal(matrix[13], 0);
+        return [matrix[0] * x + matrix[8] * z + matrix[12],
+          matrix[2] * x + matrix[10] * z + matrix[14]];
+      });
+      for (let i = 0; i < count; i++) for (let j = i + 1; j < count; j++) {
+        const gap = points => Math.hypot(points[i][0] - points[j][0], points[i][1] - points[j][1]);
+        assert.ok(gap(movedCenters) > gap(previousCenters));
+      }
+      previousCenters = movedCenters;
+      previousRadii = base.map((geometry, index) => {
+        const matrix = matrices[index], radii = [];
+        for (let i = 0; i < geometry.positions.length; i += 3) {
+          const x = geometry.positions[i], z = geometry.positions[i + 2];
+          const movedX = matrix[0] * x + matrix[8] * z + matrix[12];
+          const movedZ = matrix[2] * x + matrix[10] * z + matrix[14];
+          const radius = Math.hypot(movedX, movedZ);
+          assert.ok(radius > previousRadii[index][i / 3], `Module ${index + 1} must move outward.`);
+          radii.push(radius);
+        }
+        return radii;
+      });
+    }
+    for (const matrix of model.getModuleTransforms(0)) {
+      matrix.forEach((value, index) => close(value, index % 5 === 0 ? 1 : 0));
+    }
+  }
+});
+
 test("module matrices reproduce split piece positions and normals for even and unequal module layouts", () => {
   for (const [steps, count] of [[7, 2], [8, 2], [8, 3], [9, 3]]) {
     const model = buildStairway(24, steps, count);

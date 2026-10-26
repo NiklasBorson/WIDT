@@ -2890,8 +2890,12 @@ export function buildStairway(stairWidth = 20, stepCount = 9, moduleCount = Math
     }
   }
   const footprints = new Map();
-  const moduleSeparationRotation = (module, amount) =>
-    ((module.startIndex + module.steps.length / 2) * angle - Math.PI / 4) * amount;
+  const moduleSeparation = (module, amount) => {
+    const midpoint = (module.startIndex + module.steps.length / 2) * angle;
+    const rotation = (midpoint - Math.PI / 4) * amount;
+    const distance = stairWidth * amount, heading = midpoint + rotation;
+    return { rotation, translation: [distance * Math.cos(heading), 0, -distance * Math.sin(heading)] };
+  };
   const model = {
     label: "Curved stairway",
     stairWidth, stepCount, stepRise, landingRise, moduleCount, stepsPerModule, spindleShoulderAscent, steps, modules,
@@ -2905,9 +2909,9 @@ export function buildStairway(stairWidth = 20, stepCount = 9, moduleCount = Math
         throw new RangeError("Stairway moduleExplosion must be a finite number between 0 and 1.");
       }
       return modules.map(module => {
-        const rotation = moduleSeparationRotation(module, moduleExplosion);
+        const { rotation, translation } = moduleSeparation(module, moduleExplosion);
         const c = Math.cos(rotation), s = Math.sin(rotation);
-        return new Float32Array([c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1]);
+        return new Float32Array([c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, ...translation, 1]);
       });
     },
     createFootprintGeometry(nodeId = null, stockAligned = false, inset = true, moduleExplosion = 0, moduleNumber = null) {
@@ -2921,15 +2925,15 @@ export function buildStairway(stairWidth = 20, stepCount = 9, moduleCount = Math
         const geometry = this.createFootprintGeometry(null, stockAligned, inset, 0, moduleNumber);
         const positions = geometry.positions.slice();
         for (const module of modules) {
-          const rotation = moduleSeparationRotation(module, moduleExplosion);
+          const { rotation, translation } = moduleSeparation(module, moduleExplosion);
           const cosine = Math.cos(rotation), sine = Math.sin(rotation);
           for (let step = module.startIndex; step < module.startIndex + module.steps.length; step++) {
             const [start, end] = geometry.treadRanges[step];
             for (let i = start; i < end; i++) {
               const vertex = geometry.indices[i] * 3;
               const x = geometry.positions[vertex], z = geometry.positions[vertex + 2];
-              positions[vertex] = cosine * x + sine * z;
-              positions[vertex + 2] = -sine * x + cosine * z;
+              positions[vertex] = cosine * x + sine * z + translation[0];
+              positions[vertex + 2] = -sine * x + cosine * z + translation[2];
             }
           }
         }
@@ -3023,10 +3027,11 @@ export function buildStairway(stairWidth = 20, stepCount = 9, moduleCount = Math
       const piece = this.partTree.getNode(id);
       if (!piece.part) throw new TypeError("An installation transform requires a Piece.");
       const module = this.partTree.getNode(piece.parentId).module;
+      const { rotation: separationRotation, translation } = moduleSeparation(module, moduleExplosion);
       const rotation = (module.startIndex + piece.stepIndex * explosion) * angle +
-        moduleSeparationRotation(module, moduleExplosion);
+        separationRotation;
       const c = Math.cos(rotation), s = Math.sin(rotation);
-      return composeTransforms(placementMatrix([[c, 0, -s], [0, 1, 0], [s, 0, c]], [0, 0, 0]), piece.transform);
+      return composeTransforms(placementMatrix([[c, 0, -s], [0, 1, 0], [s, 0, c]], translation), piece.transform);
     },
     createGeometry(visibility = {}, explosion = 0, moduleExplosion = 0, nodeId = null, hiddenCategories = []) {
       if (!Number.isFinite(explosion) || explosion < 0 || explosion > 1) {

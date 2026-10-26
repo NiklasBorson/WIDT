@@ -688,9 +688,11 @@ Modules are joined by default. Clicking **Split modules** changes its label to
 stairway's world origin, spreading around the fixed 45-degree center of the
 arc. Each module's extra rotation is its angular midpoint minus 45 degrees:
 front modules rotate clockwise and rear modules counter-clockwise. For the
-default three equal modules, the extra rotations are -30, 0, and +30 degrees,
-so the middle module stays stationary. Clicking **Join modules** restores the
-assembled quarter-turn stairway.
+default three equal modules, the extra rotations are -30, 0, and +30 degrees.
+Each module also moves radially outward along its rotated angular midpoint,
+traveling one stair-width at full separation. This moves every module away
+from the castle, including the middle module, while increasing the gaps
+between modules. Clicking **Join modules** restores the assembled quarter-turn stairway.
 
 **Show castle** toggles a gray cylinder centered at the world origin, with radius
 `INNER_RADIUS`, bottom at the floor, and top at `TOTAL_HEIGHT`. Its label becomes

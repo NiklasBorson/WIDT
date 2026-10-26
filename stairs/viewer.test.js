@@ -1657,7 +1657,7 @@ test("3D taps respect Filters, separated modules, URL parameters, and the active
     return { ...geometry, colors: geometry.colors.map((value, i) => selectedColors.get(node.id) === selected.entry.key
       ? value * 0.25 + [0.18, 0.8, 1][i % 3] * 0.75 : value * 0.6) };
   }));
-  assert.deepEqual(controls.geometry, expected);
+  closeGeometry(controls.geometry, expected);
   controls.calls.length = 0;
   controls.node("#details-tab").dispatch("click");
   tapPart(controls, point);
