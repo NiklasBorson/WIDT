@@ -281,10 +281,8 @@ export function assessModel(model) {
 export function assessConfigurations(matrix = false) {
   if (!matrix) return [assessModel(buildStairway())];
   const reports = [];
-  for (const width of [20, 24, 36]) for (const steps of [7, 8, 9]) {
-    for (const modules of [2, 3]) for (const shoulder of [25, 32, 37]) {
-      reports.push(assessModel(buildStairway(width, steps, modules, shoulder)));
-    }
+  for (const width of [20, 24, 36]) {
+    reports.push(assessModel(buildStairway(width)));
   }
   return reports;
 }

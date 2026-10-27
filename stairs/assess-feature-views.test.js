@@ -5,7 +5,7 @@ import test from "node:test";
 import {
   assessConfigurations, assessDescription, assessModel, assessPlaneAngle, formatAssessment,
 } from "./assess-feature-views.mjs";
-import { buildStairway } from "./model.js";
+import { buildStairway, NotchedBoard } from "./model.js";
 import { PartInventory } from "./part-list.js";
 
 const radians = degrees => degrees * Math.PI / 180;
@@ -190,8 +190,8 @@ test("default model is exhaustively inventoried without invoking render-mesh gen
     () => assert.fail("Cutting geometry must not be read."));
   const inventory = new PartInventory(model.partTree), actual = assessModel(model);
   assert.equal(actual.summary.occurrences, leaves.length);
-  assert.equal(actual.summary.woodenPatterns, 71);
-  assert.equal(actual.summary.woodenOccurrences, 161);
+  assert.equal(actual.summary.woodenPatterns, 67);
+  assert.equal(actual.summary.woodenOccurrences, 189);
   assert.equal(actual.summary.hardwareOccurrences, 12);
   assert.equal(actual.parts.length + actual.hardware.length, inventory.entries.length);
   const occurrenceIds = [...actual.parts, ...actual.hardware].flatMap(part => part.occurrenceIds);
@@ -219,7 +219,7 @@ test("default model is exhaustively inventoried without invoking render-mesh gen
       }
     }
   }
-  for (const kind of ["blank", "width-rip", "cut-plane", "corner-notch", "end-notch"]) {
+  for (const kind of ["blank", "width-rip", "cut-plane", "corner-notch"]) {
     assert.ok(categories.has(kind), `The actual model did not exercise ${kind}.`);
   }
   assert.equal(JSON.stringify(leaves.map(node => node.getDescription())), snapshot);
@@ -237,15 +237,24 @@ test("actual shim has square ends and preserves its end-view side bevels", () =>
   }
   close(shim.features.find(feature => feature.id === "blank").geometry.length, 4);
   assert.ok(shim.features.every(feature => !/facet/.test(feature.name)));
+  let totalBevel = 0;
   for (const name of ["Front face", "Back face"]) {
     const bevel = shim.features.find(feature => feature.name === name).measurements
       .find(measurement => measurement.property === "bevel");
-    close(bevel.valueDegrees, 5);
+    assert.ok(bevel.valueDegrees > 0);
+    const face = shim.features.find(feature => feature.name === name);
+    close(bevel.valueDegrees, Math.abs(face.metadata.signedBevelDegrees));
+    totalBevel += face.metadata.signedBevelDegrees;
     assert.deepEqual(bevel.preferredViews, ["Up", "Down"]);
   }
+  close(Math.abs(totalBevel), 5);
   for (const name of ["Inner face", "Outer face"]) {
-    assert.ok(shim.features.find(feature => feature.name === name).measurements
-      .every(measurement => measurement.kind === "coordinate"));
+    const measurements = shim.features.find(feature => feature.name === name).measurements;
+    assert.equal(measurements.filter(measurement => measurement.kind === "coordinate").length, 3);
+    const angle = measurements.find(measurement => measurement.kind === "plane-angle");
+    assert.ok(angle.valueDegrees > 0 && angle.valueDegrees < 1);
+    assert.equal(angle.status, "standard");
+    assert.deepEqual(angle.preferredViews, ["Up", "Down"]);
   }
 });
 
@@ -254,22 +263,24 @@ test("actual stopped newel bevel retains its finite outline and broad-face end-n
   const stopped = newel.features.find(feature => feature.metadata?.cornerBevel);
   assert.ok(stopped.geometry.points.length >= 3);
   assert.ok(stopped.metadata.cornerBevel.end > stopped.metadata.cornerBevel.start);
-  assert.equal(stopped.name, "Bevel top shoulder");
+  assert.equal(stopped.name, "Bevel bottom shoulder");
   const bevelPatch = newel.features.find(feature => feature.name === "Newel corner bevel");
   assert.ok(bevelPatch.geometry.points.length >= 3);
   const bevel = bevelPatch.measurements.find(measurement => measurement.property === "bevel");
   close(bevel.valueDegrees, 10);
   assert.equal(bevel.status, "standard");
-  const dado = report.parts.flatMap(part => part.features).find(feature => feature.kind === "end-notch");
+  const description = new NotchedBoard({ length: 12, thickness: 1.5, width: 3.5 }, {},
+    [{ face: "negativeY", start: 0, width: 1.5, depth: 0.5 }]).getManufacturingDescription();
+  const dado = assessDescription(description).find(feature => feature.kind === "end-notch");
   const depth = dado.measurements.find(measurement => measurement.property === "depth");
   assert.equal(depth.axis, "Y");
   assert.ok(depth.reference.includes(dado.geometry.face));
   assert.deepEqual(depth.values, [dado.geometry.depth]);
 });
 
-test("all 54 sampled UI configurations have standard-view coverage after simplifying the shim", () => {
+test("all three source-width samples have standard-view coverage", () => {
   const reports = assessConfigurations(true);
-  assert.equal(reports.length, 54);
+  assert.equal(reports.length, 3);
   for (const actual of reports) {
     assert.equal(actual.summary.independentAuxiliaryAngles, 0);
     assert.equal(actual.summary.diagnosticAuxiliaryAngles, 0);

@@ -16,31 +16,29 @@ export async function checkConfigurations(directory = join(root, ".clash-results
   const executable = join(rust, "target", "release", process.platform === "win32" ? "mesh-clash.exe" : "mesh-clash");
   await mkdir(directory, { recursive: true });
   let passed = 0, failed = 0, errors = 0;
-  for (const stairCount of [7, 8, 9]) {
-    for (const moduleCount of [2, 3]) {
-      const label = `${stairCount} steps / ${moduleCount} modules / width 20 in`;
-      const file = join(directory, `${stairCount}-steps-${moduleCount}-modules.xml`);
-      console.log(`\nChecking ${label}`);
-      try {
-        await rm(file, { force: true });
-        await exportStairway(file, stairCount, moduleCount);
-        const checked = run(executable, [file], { stdio: "inherit" });
-        if (checked.error) throw checked.error;
-        if (checked.status === 0) {
-          await rm(file);
-          passed++;
-        } else {
-          if (checked.status === 1) failed++;
-          else errors++;
-          console.error(`${checked.status === 1 ? "INTERFERENCE" : "CHECK ERROR"}: ${label}; retained ${file}`);
-        }
-      } catch (error) {
-        errors++;
-        console.error(`ERROR: ${label}: ${error.message}`);
+  for (const moduleCount of [3]) {
+    const label = `9 steps / ${moduleCount} modules / width 20 in`;
+    const file = join(directory, `9-steps-${moduleCount}-modules.xml`);
+    console.log(`\nChecking ${label}`);
+    try {
+      await rm(file, { force: true });
+      await exportStairway(file);
+      const checked = run(executable, [file], { stdio: "inherit" });
+      if (checked.error) throw checked.error;
+      if (checked.status === 0) {
+        await rm(file);
+        passed++;
+      } else {
+        if (checked.status === 1) failed++;
+        else errors++;
+        console.error(`${checked.status === 1 ? "INTERFERENCE" : "CHECK ERROR"}: ${label}; retained ${file}`);
       }
+    } catch (error) {
+      errors++;
+      console.error(`ERROR: ${label}: ${error.message}`);
     }
   }
-  console.log(`\nSix configurations: ${passed} clear, ${failed} with interference, ${errors} errors. All physical pieces and the castle included.`);
+  console.log(`\nFixed configuration: ${passed} clear, ${failed} with interference, ${errors} errors. All physical pieces and the castle included.`);
   return { passed, failed, errors, exitCode: errors ? 2 : Number(failed > 0) };
 }
 

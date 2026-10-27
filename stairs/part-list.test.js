@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildStairway, NotchedBoard, Siding, BentPlywood, ProfiledPlywood, SpindleShim, PINE, OAK, PARTICLE_BOARD } from "./model.js";
-import { PartInventory, PART_SUBSETS, manufacturingSpecification } from "./part-list.js";
+import { PartInventory, PART_SUBSETS, PART_VISIBILITY_CATEGORIES, partVisibilityCategory,
+  manufacturingSpecification } from "./part-list.js";
 import { formatLength, formatPartDescription, getSimpleEdgeBevel } from "./part-description.js";
 import { getPartFeatures } from "./part-annotations.js";
 import { PieceTree, createPieces } from "./parts.js";
@@ -12,6 +13,25 @@ const boardDescription = (length = 10, material = PINE, notches = {}, dados = []
   new NotchedBoard({ length, thickness: 0.75, width: 3.5, material,
     stock: { kind: "lumber", nominalSize: "1x4", thickness: 0.75, width: 3.5 } }, notches, dados)
     .getManufacturingDescription();
+
+const uprightViews = [
+  ["Up", [1, 0, 0]], ["Down", [-1, 0, 0]],
+  ["Left", [0, -1, 0]], ["Right", [0, 1, 0]],
+  ["Front", [0, 0, -1]], ["Back", [0, 0, 1]],
+].map(([name, direction]) => ({ name, direction }));
+
+function notchedUprightDescription(bevelToLeft = false) {
+  const difference = 1.5 * Math.tan(5 * Math.PI / 180);
+  const depths = bevelToLeft ? [difference, 0] : [0, difference];
+  return new NotchedBoard({
+    length: 44, thickness: 1.5, width: 3.5, material: PINE,
+    stock: { kind: "lumber", nominalSize: "2x4", thickness: 1.5, width: 3.5 },
+  }, {
+    endNear: { length: 3.5, depth: depths.map(depth => depth + 0.75) },
+    endFar: { length: 3.5, depth: [0.75, 0.75] },
+  }, [{ face: "negativeY", start: 0, width: 1.5, depth: 0.5 }],
+  [{ corner: "endNear", length: 44, depth: depths }]).getManufacturingDescription();
+}
 
 function inventoryTree(descriptions) {
   const catalog = new PartCatalog();
@@ -91,7 +111,7 @@ test("curved Pieces share finished and flat Part geometry while radius changes c
 });
 
 test("arc-cut manufacturing identity and radius annotations use analytic edges, not mesh facets or placement", () => {
-  const rib = buildStairway().modules[1].boards.outerBaseRail, description = rib.getManufacturingDescription();
+  const rib = buildStairway().modules[1].boards.sidingRib, description = rib.getManufacturingDescription();
   const moved = new ProfiledPlywood({ construction: description.construction, thickness: rib.thickness,
     origin: [40, 70], heading: 1.2, bottomHeight: 20 });
   assert.equal(specification(description), specification(moved.getManufacturingDescription()));
@@ -174,39 +194,48 @@ test("notch reference callouts use nearby blank edges and omit offsets on exact 
 test("modeled part names use family-first qualifiers across every supported layout", () => {
   const names = {
     leftCaster: "Caster", rightCaster: "Caster", leftRearCaster: "Caster", rightRearCaster: "Caster",
-    innerBaseRail: "Base rail - inner", outerBaseRail: "Base rail - outer",
     leftSupportBeam: "Beam - caster left", rightSupportBeam: "Beam - caster right",
     supportCrossPiece: "Beam - cross", rearSupportCrossPiece: "Beam - cross rear",
-    leftUpright: ["Upright - front left", "Upright - full left"],
+    leftUpright: "Upright - front left",
+    leftRearUpright: "Upright - rear left",
     rightUpright: "Upright - front right",
-    leftRearUpright: "Upright - rear left", rightRearUpright: "Upright - rear right",
+    rightRearUpright: "Upright - rear right",
     leftSupportBlock: "Attachment block - upright left",
     rightSupportBlock: "Attachment block - upright right",
-    leftBackSupportBlock: "Attachment block - rear support left",
-    rightBackSupportBlock: "Attachment block - rear support right",
+    leftRearSupportBlock: "Attachment block - upright rear left",
+    rightRearSupportBlock: "Attachment block - upright rear right",
     southCrossPiece: "Tread support - front", northCrossPiece: "Tread support - rear",
     leftStepSupport: "Tread support - left", rightStepSupport: "Tread support - right",
-    frontStepSupport: "Tread support - first-step front", rearStepSupport: "Tread support - first-step rear",
+    frontStepLeftSupport: "Tread support - first-step left",
+    frontStepRightSupport: "Tread support - first-step right",
+    frontStepRightRearSupport: "Tread support - first-step right rear",
+    frontStepFrontBearing: "Beam - first-step front", frontStepRearBearing: "Beam - first-step rear",
+    extendedLeftSupportCrossPiece: "Beam - extended left support",
+    upperBackGusset: "Rear gusset - upper",
+    rearUprightBrace: "Rear brace - lower",
     newelInnerBlock: "Newel block - inner", newelRearBlock: "Newel block - rear",
-    newel: "Newel post", riser: "Riser", tread: "Tread", backPanel: "Rear panel",
+    newel: "Newel post", riser: "Riser", tread: "Tread",
+    frontSpindleBlock: ["Spindle block - front", "Spindle support - front"], rearSpindleBlock: "Spindle block - rear",
     frontSpindle: "Spindle - front", rearSpindle: "Spindle - rear", spindleShim: "Spindle shim",
     siding: ["Side panel - curved", "Side panel - right rear section"],
     frontSiding: "Side panel - right front section",
     sidingStiffener: ["Bottom rib - curved", "Bottom rib - rear section"],
-    frontSidingStiffener: "Bottom rib - front section",
     sidingStiffenerUpper: ["Bottom rib - curved", "Bottom rib - rear section"],
-    frontSidingStiffenerUpper: "Bottom rib - front section",
     frontPanelSupportBlock: "Panel support block - front", rearPanelSupportBlock: "Panel support block - rear",
     sidingRib: "Panel rib",
+    sidingRib2: "Panel rib", sidingRib3: "Panel rib",
     intermediateSidingRib: "Panel rib - intermediate",
+    intermediateSidingRib2: "Panel rib - intermediate", intermediateSidingRib3: "Panel rib - intermediate",
     frontRibSupportBlock: "Attachment block - panel rib front",
     rearRibSupportBlock: "Attachment block - panel rib rear",
+    backRibSupportBlock: "Attachment block - panel rib back",
     frontIntermediateRibSupportBlock: "Attachment block - panel rib front",
     rearIntermediateRibSupportBlock: "Attachment block - panel rib rear",
+    backIntermediateRibSupportBlock: "Attachment block - panel rib back",
   };
   const seen = new Set();
-  for (const steps of [6, 7, 8, 9]) for (const modules of [2, 3]) {
-    const model = buildStairway(24, steps, modules), inventory = new PartInventory(model.partTree);
+  for (const steps of [9]) for (const modules of [3]) {
+    const model = buildStairway(24), inventory = new PartInventory(model.partTree);
     for (const node of model.partTree.getLeaves()) {
       assert.ok([names[node.key]].flat().includes(node.name), `${node.id}: ${node.name}`);
       assert.equal(node.getDescription().name, node.name);
@@ -243,8 +272,35 @@ test("Parts inventory filters intersect module, subset, and stock category", () 
   const framing = inventory.filter({ subset: "step-framing" });
   assert.ok(framing.occurrences.length);
   assert.ok(framing.occurrences.every(({ entry, location }) =>
-    ["lumber", "hardware"].includes(entry.kind) || location.category === "base-rails"));
+    ["lumber", "hardware"].includes(entry.kind) || location.category === "base-rails" ||
+      location.name.startsWith("Rear gusset - ") || location.name === "Rear brace - lower"));
   assert.throws(() => inventory.filter({ subset: "missing" }), /Unknown part subset/);
+});
+
+test("Stairway visibility partitions installed pieces by role instead of accumulating construction stages", () => {
+  const model = buildStairway(), leaves = model.partTree.getLeaves();
+  for (const [category, roles] of [
+    ["foundation", ["leftCaster", "frontStepFrontBearing", "frontStepRearBearing", "supportCrossPiece",
+      "frontStepLeftSupport", "frontStepRightSupport", "frontStepRightRearSupport"]],
+    ["uprights", ["leftUpright", "rightRearUpright", "rearUprightBrace",
+      "leftSupportBlock", "rightSupportBlock", "leftRearSupportBlock", "rightRearSupportBlock"]],
+    ["step-framing", ["northCrossPiece", "leftStepSupport", "extendedLeftSupportCrossPiece", "upperBackGusset"]],
+    ["treads", ["tread", "riser"]],
+    ["banister", ["newel", "newelInnerBlock", "frontSpindle", "rearSpindleBlock", "spindleShim"]],
+    ["ribs", ["sidingRib", "sidingStiffener", "frontRibSupportBlock", "rearPanelSupportBlock"]],
+    ["siding", ["siding", "frontSiding"]],
+  ]) {
+    for (const role of roles) {
+      const pieces = leaves.filter(node => node.key === role);
+      assert.ok(pieces.length, role);
+      for (const piece of pieces) assert.equal(partVisibilityCategory(piece), category, piece.id);
+    }
+  }
+  for (const piece of leaves.filter(node => node.key === "southCrossPiece")) {
+    assert.equal(partVisibilityCategory(piece), piece.stepNumber === 1 ? "foundation" : "step-framing");
+  }
+  assert.deepEqual(new Set(leaves.map(partVisibilityCategory)),
+    new Set(PART_VISIBILITY_CATEGORIES.map(({ key }) => key)));
 });
 
 test("construction subsets are cumulative and add each role at its construction stage", () => {
@@ -253,22 +309,25 @@ test("construction subsets are cumulative and add each role at its construction 
   ]);
   const stages = {
     foundation: ["leftCaster", "rightCaster", "leftRearCaster", "rightRearCaster",
-      "innerBaseRail", "outerBaseRail", "leftSupportBeam", "rightSupportBeam",
-      "supportCrossPiece", "rearSupportCrossPiece", "frontStepSupport", "rearStepSupport",
-      "frontStepRightSupport", "frontStepLeftSupport"],
-    uprights: ["leftUpright", "rightUpright", "leftRearUpright", "rightRearUpright"],
-    "step-framing": ["southCrossPiece", "northCrossPiece", "leftStepSupport", "rightStepSupport",
-      "leftSupportBlock", "rightSupportBlock", "leftBackSupportBlock", "rightBackSupportBlock"],
-    banister: ["newel", "frontSpindle", "rearSpindle", "spindleShim", "newelInnerBlock", "newelRearBlock"],
-    ribs: ["sidingRib", "sidingStiffener", "sidingStiffenerUpper", "frontSidingStiffener",
-      "frontSidingStiffenerUpper", "frontPanelSupportBlock", "rearPanelSupportBlock",
+      "frontStepFrontBearing", "frontStepRearBearing", "leftSupportBeam", "rightSupportBeam",
+      "supportCrossPiece", "rearSupportCrossPiece",
+      "frontStepRightSupport", "frontStepRightRearSupport", "frontStepLeftSupport"],
+    uprights: ["leftUpright", "rightUpright", "leftRearUpright", "rightRearUpright", "rearUprightBrace"],
+    "step-framing": [
+      "southCrossPiece", "northCrossPiece", "leftStepSupport", "rightStepSupport", "extendedLeftSupportCrossPiece", "upperBackGusset",
+      "leftSupportBlock", "rightSupportBlock", "leftRearSupportBlock", "rightRearSupportBlock"],
+    banister: ["frontSpindleBlock", "rearSpindleBlock",
+      "newel", "frontSpindle", "rearSpindle", "spindleShim", "newelInnerBlock", "newelRearBlock"],
+    ribs: ["sidingRib", "sidingStiffener", "sidingStiffenerUpper", "frontPanelSupportBlock", "rearPanelSupportBlock",
       "frontRibSupportBlock", "rearRibSupportBlock", "intermediateSidingRib",
-      "frontIntermediateRibSupportBlock", "rearIntermediateRibSupportBlock"],
+      "frontIntermediateRibSupportBlock", "rearIntermediateRibSupportBlock",
+      "sidingRib2", "sidingRib3", "intermediateSidingRib2", "intermediateSidingRib3",
+      "backRibSupportBlock", "backIntermediateRibSupportBlock"],
     "": ["tread", "riser", "siding", "frontSiding", "backPanel"],
   };
   const keys = PART_SUBSETS.map(({ key }) => key);
-  for (const steps of [6, 7, 8, 9]) for (const modules of [2, 3]) {
-    const model = buildStairway(24, steps, modules), inventory = new PartInventory(model.partTree);
+  for (const steps of [9]) for (const modules of [3]) {
+    const model = buildStairway(24), inventory = new PartInventory(model.partTree);
     const locations = new Map(inventory.filter().occurrences.map(({ location }) => [location.id, location]));
     const ids = subset => new Set(inventory.filter({ subset }).occurrences.map(({ location }) => location.id));
     let previous = new Set();
@@ -281,6 +340,7 @@ test("construction subsets are cumulative and add each role at its construction 
     for (const node of model.partTree.getLeaves()) {
       const { id, key } = node;
       const stage = key === "southCrossPiece" && node.stepNumber === 1 ? "foundation"
+        : key === "frontSpindleBlock" && node.stepNumber >= 3 ? "step-framing"
         : Object.keys(stages).find(stage => stages[stage].includes(key));
       assert.notEqual(stage, undefined, `Unclassified part role: ${key}`);
       const location = locations.get(id);
@@ -295,27 +355,35 @@ test("construction subsets are cumulative and add each role at its construction 
   }
 });
 
-test("base rails retain analytic boundaries and three-quarter-inch plywood specifications", () => {
-  for (const modules of [2, 3]) {
-    const model = buildStairway(24, 9, modules), inventory = new PartInventory(model.partTree);
-    const rails = inventory.entries.filter(entry => entry.locations.some(location => location.category === "base-rails"));
-    assert.equal(rails.reduce((sum, entry) => sum + entry.quantity, 0), modules * 2);
-    for (const entry of rails) for (const location of entry.locations) {
-      assert.equal(entry.kind, "plywood");
-      assert.deepEqual(location.subsets, ["foundation", "uprights", "step-framing", "banister", "ribs"]);
-    }
-    for (const node of model.partTree.getLeaves().filter(node => node.category === "base-rails")) {
+test("vertical spindle supports belong to Step framing while retained spindle blocks remain in Banister", () => {
+  const model = buildStairway(), inventory = new PartInventory(model.partTree);
+  const mounts = model.partTree.getLeaves().filter(node => ["frontSpindleBlock", "rearSpindleBlock"].includes(node.key));
+  assert.equal(mounts.length, 11);
+  for (const mount of mounts) {
+    const support = mount.key === "frontSpindleBlock" && mount.stepNumber >= 3;
+    assert.equal(partVisibilityCategory(mount), support ? "step-framing" : "banister");
+    const location = inventory.findOccurrence(mount.id).locations.find(location => location.id === mount.id);
+    assert.deepEqual(location.subsets, support ? ["step-framing", "banister", "ribs"] : ["banister", "ribs"]);
+    assert.equal(mount.category === "step-framing", support);
+  }
+});
+
+test("panel ribs retain analytic boundaries and half-inch plywood specifications without base rails", () => {
+  for (const modules of [3]) {
+    const model = buildStairway(24), inventory = new PartInventory(model.partTree);
+    assert.ok(!inventory.entries.some(entry => entry.locations.some(location => location.category === "base-rails")));
+    const ribs = model.partTree.getLeaves().filter(node => /^(sidingRib|intermediateSidingRib)\d?$/.test(node.key));
+    assert.equal(ribs.length, 9);
+    for (const node of ribs) {
       const description = node.getDescription();
-      assert.equal(description.stock.thickness, 0.75);
-      assert.equal(description.blank.thickness, 0.75);
-      const straight = node.id === "stairway/module-1/outerBaseRail";
-      if (straight) assert.equal(description.construction.innerRadius, undefined);
-      else assert.equal(description.construction.arc.radius - description.construction.innerRadius, 6);
-      const moved = new ProfiledPlywood({ construction: description.construction, thickness: 0.75,
+      assert.equal(description.stock.thickness, 0.5);
+      assert.equal(description.blank.thickness, 0.5);
+      assert.equal(description.construction.arc.radius - description.construction.innerRadius, 3.5);
+      const moved = new ProfiledPlywood({ construction: description.construction, thickness: 0.5,
         origin: [100, 200], heading: 1.3, bottomHeight: 50 });
       assert.equal(specification(description), specification(moved.getManufacturingDescription()));
       const features = getPartFeatures(description, { direction: [0, 1, 0], up: [0, 0, -1] });
-      assert.equal(features.filter(feature => feature.kind === "arc").length, straight ? 1 : 2);
+      assert.equal(features.filter(feature => feature.kind === "arc").length, 2);
     }
   }
 });
@@ -598,8 +666,12 @@ test("inner newel block bevel appears only in the two views exposing its angle",
 
 test("simple edge bevels need only an actual end-profile angle, not linked feature constructions", () => {
   const model = buildStairway();
-  const node = model.partTree.getNode("stairway/module-1/step-3-leftBackSupportBlock");
-  const description = node.getDescription(), views = model.partTree.getStockViews(node.id);
+  const description = new NotchedBoard({
+    length: 3.5, thickness: 0.75, width: 3.5, material: PINE,
+    stock: { kind: "lumber", nominalSize: "1x4", thickness: 0.75, width: 3.5 },
+  }, {}, [], [{ corner: "endNear", length: 3.5, depth: [0, 0.75 * Math.tan(5 * Math.PI / 180)] }])
+    .getManufacturingDescription();
+  const views = uprightViews;
   assert.ok(getSimpleEdgeBevel(description));
   assert.equal(formatPartDescription(description).summary, "One full-length edge bevel; square ends");
   for (const view of views) {
@@ -620,7 +692,7 @@ test("simple edge bevels need only an actual end-profile angle, not linked featu
     assert.equal(vertex[2], 0);
     assert.equal(referencePoint[2], 0);
     assert.equal(Math.abs(referencePoint[1] - vertex[1]), description.blank.thickness);
-    assert.ok(Math.abs(cutPoint[2] - description.notches[0].depth[0]) < 1e-8);
+    assert.ok(Math.abs(cutPoint[2] - Math.max(...description.notches[0].depth)) < 1e-8);
     assert.ok(angle.preferredViews.includes(view.name));
   }
   const rebateDescription = (corner, length, depth) => new NotchedBoard({
@@ -656,8 +728,8 @@ test("simple edge bevels need only an actual end-profile angle, not linked featu
 });
 
 test("newel bevel uses an exposed end angle and finite, separately located face extent", () => {
-  for (const stepCount of [7, 8, 9]) {
-    const newel = buildStairway(24, stepCount, 3).steps[0].parts.newel;
+  for (const stepCount of [9]) {
+    const newel = buildStairway(24).steps[0].parts.newel;
     const description = newel.getManufacturingDescription();
     const start = newel.cornerBevel.bottomHeight - newel.bottomHeight;
     const end = newel.cornerBevel.topHeight - newel.bottomHeight;
@@ -693,7 +765,8 @@ test("finite notch shoulders have dashed edge-view traces through the callout an
     assert.ok(!feature.hidden, "Keep the leader and anchor for the exposed notch");
     assert.deepEqual(feature.outline, [
       [spindle.blank.length - 2, 0, notchIndex ? 1 : 0.5],
-      [46.75 - 2, spindle.blank.thickness, notchIndex ? 1 : 0.5],
+      [Math.max(...spindle.blank.profiles.positiveY.map(point => point[0])) - 2,
+        spindle.blank.thickness, notchIndex ? 1 : 0.5],
     ], "Use each face's actual end, not a square-blank approximation");
     assert.deepEqual(feature.point, [0, 1, 2].map(axis =>
       (feature.outline[0][axis] + feature.outline[1][axis]) / 2));
@@ -720,10 +793,8 @@ test("finite notch shoulders have dashed edge-view traces through the callout an
     "A full-length rebate has no internal shoulder");
 });
 
-test("upright feature identities link exact per-face depths, exposed floor angles, and the hidden recess", () => {
-  const model = buildStairway();
-  const node = model.partTree.getNode("stairway/module-1/step-3-rightUpright");
-  const description = node.getDescription(), views = model.partTree.getStockViews(node.id);
+test("notched stock feature identities link exact per-face depths, exposed floor angles, and the hidden recess", () => {
+  const description = notchedUprightDescription(), views = uprightViews;
   const features = name => getPartFeatures(description, views.find(view => view.name === name), views);
   const left = features("Left"), right = features("Right"), up = features("Up"), down = features("Down");
   assert.deepEqual(left.find(feature => feature.id === "N1").lines, []);
@@ -764,23 +835,19 @@ test("hidden lumber recesses omit opposite-face prose but single-view plywood ke
   assert.ok(sheet.lines.some(line => line.startsWith("Depth 1/4 in normal to ")));
 });
 
-test("upright bevel callouts give full-face width difference, not bevel length or total removal", () => {
-  const model = buildStairway();
-  for (const id of ["stairway/module-1/step-2-leftUpright", "stairway/module-2/step-4-leftUpright"]) {
-    const node = model.partTree.getNode(id), description = node.getDescription();
-    const views = model.partTree.getStockViews(id);
+test("notched stock bevel callouts give full-face width difference, not bevel length or total removal", () => {
+    const description = notchedUprightDescription(true), views = uprightViews;
     const features = name => getPartFeatures(description, views.find(view => view.name === name), views);
     const bevel = features("Down").find(feature => feature.id === "B1");
     const notch = description.notches.find(notch => notch.length === description.blank.length);
     const difference = Math.abs(notch.depth[0] - notch.depth[1]);
     assert.ok(Math.abs(difference - 0.13123299528888602) < 1e-8);
     assert.ok(bevel.lines.includes(
-      `Left face setback: ${formatLength(difference)} in from Right face (across width)`), id);
+      `Left face setback: ${formatLength(difference)} in from Right face (across width)`));
     assert.equal(bevel.dimensions.length, 0, "Do not anchor a profile dimension to the recessed-away face edge");
     assert.ok(Math.abs(bevel.angles[0].valueDegrees - 5) < 1e-8);
     assert.ok(!features("Up").find(feature => feature.id === "B1").lines.some(line => line.includes("face setback")),
       "Do not add the measurement to a bevel hidden by the deeper end notch");
-  }
 });
 
 test("single-view plywood retains both notch profiles and labels separate true-angle plane constructions", () => {

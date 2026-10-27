@@ -21,14 +21,15 @@ contains two front uprights on every step except step 1, including the highest s
 and two full-width rear uprights on each module's last assembly.
 Each top frame has a front cross-piece and a back step support. Above the
 lowest step it also has a right step support bridging the upright and the
-back support or rear upright. Non-module-last steps above step 1 have a matching
+back support or rear upright. Every step above step 1 has a matching
 left support. Step 1 omits both edge-on 1x4 side supports.
-Its flat front and rear supports extend to the inner framing tangent,
+Its three ripped supports run fore-and-aft on flat 1x4 carrier cross-pieces: a 1x3 on the
+left and two 2x4s beside and behind the newel on the right,
 and a right 2x4 newel inner block extends toward step 2's upright.
 The riser is a separate piece.
 A half-inch tread sits on each top frame, with concentric curved sides,
 a radial back edge, and a front edge flush with the front of the riser.
-Most framing is pine, including every front, rear, and combined upright.
+Most framing is pine, including every front and rear upright.
 The support cross-pieces are also pine. Risers, treads, and siding are plywood,
 shown in a slightly lighter wood tone than the pine framing.
 Subtle procedural grain follows each board's length, with slightly
@@ -54,54 +55,49 @@ relative to the camera; there are no manual lighting controls.
 This second draft uses a single, constant stair width. Every tread starts with
 the same radial outline; the first has an additional newel cutout.
 The inner and outer reference curves are concentric circular arcs.
-Home (`index.html`) has a full-width **WIDT Stairs Project** header and a
-**Configure parameters** link. The content pane has **Stairway** and **Part details**
+Home (`index.html`) has a full-width **WIDT Stairs Project** header.
+The content pane has **Stairway**, **Part details**, and **Placement**
 tabs, with a collapsible, Parts-only right sidebar. **Hide parts / Show parts**
 changes the available content space without clearing selection or filters.
-Both Home and Parameters use a simplified three-step staircase SVG favicon.
+The page uses a simplified three-step staircase SVG favicon.
+The Parameters page and its navigation have been removed. The design has
+`STEP_COUNT = 9`, `MODULE_COUNT = 3`, and `RAILING_BOTTOM_ASCENT = 32` in
+`model.js`. The app uses the source default width of 20 inches; there are no
+runtime model controls. The reusable builder still accepts a source width.
+Reset view affects the camera, not the model.
 
-The separate Parameters page (`parameters.html`) has a full-width
-**WIDT Stairs Project - Parameters** header and a **Home** link. Its right-hand
-panel provides live sliders for stair width, step count, module count, and
-spindle shoulder ascent; its content pane always shows the complete 3D stairway.
-Changes preserve the camera's viewing angle, zoom, and pan; Reset view clears
-the pan as well as resetting rotation, zoom, and lighting, without changing the model.
-
-Both pages read and retain the four model parameters in the URL query:
-`width`, `steps`, `modules`, and `shoulderAscent`. Home also encodes the selected
+Legacy `width`, `steps`, `modules`, and `shoulderAscent` query settings are
+ignored and removed. The URL still encodes the selected
 content `tab` (`stairway`, `details`, or `placement`), Parts sidebar visibility
-(`parts=hidden` or `parts=shown`), and the Module (`module`), Subset (`subset`),
-and Material (`type`) filters. `castle=shown` enables the optional castle;
-hidden is the default and is omitted from the URL. `part` identifies the exact installed occurrence,
+(`parts=hidden` or `parts=shown`), and the Module (`module`) and Material (`type`)
+filters. `show` independently lists visible Stairway categories, for example
+`show=foundation+uprights` or `show=castle+treads+siding`. All categories,
+including Castle, are visible by default and the default omits `show`.
+An explicit `show=` hides every category. Legacy `subset` is removed;
+legacy `castle=shown/hidden` links are normalized to the new visibility state.
+`part` identifies the exact installed occurrence,
 including its module and step, rather than just its unique manufacturing group.
 Default viewer settings are omitted: Stairway, Parts shown, all filters cleared,
 and no selected part. Find text, drawing direction, camera position, and split
 modules remain local state.
 
-Links between Home and Parameters carry all these settings; Parameters retains
-the Home settings without applying its filters to the full-model preview.
 Changes replace the current history entry rather than pushing a new entry.
-Refreshing or sharing a URL restores the same model and Home view. Browser
+Refreshing or sharing a URL restores the same fixed model and view. Browser
 history navigation also restores the encoded state, with missing viewer settings
-returning to their defaults. Missing model parameters use defaults; invalid, duplicate, out-of-range,
-or off-increment values show an explanation and are replaced with defaults.
+returning to their defaults, without rebuilding the model.
 Invalid or duplicate viewer settings likewise show an explanation and normalize
-to defaults. A part that no longer exists for the model parameters, or is excluded
+to defaults. A part that no longer exists in the model, or is excluded
 by the restored filters, clears selection with a notice rather than selecting a
-different instance. This validation also runs when returning from Parameters.
-**Reset defaults** on Parameters restores all four model settings, controls,
-and URL values while retaining the Home view settings; it is independent of
-**Reset view**.
+different instance.
 
-The Parts sidebar's **Filter parts** section combines independent Module,
-Subset, and Material filters, initially showing all parts.
-These filters narrow both the Parts list and visible model geometry. Parameters
-always shows the complete model, without applying Parts visibility or selection.
+The Parts sidebar's **Filter parts** section combines independent Module
+and Material filters, initially showing all parts.
+These filters narrow both the Parts list and visible model geometry.
 Visibility changes preserve the framing scale based on the complete assembly,
 so filtering does not rescale the remaining parts.
 The Module filter also limits the footprint to that module and makes it the
 orbit center. Changing the Module filter clears the pan offset; orientation and
-zoom are retained. Subset and Material filters do not change the orbit center.
+zoom are retained. Material and Stairway visibility controls do not change the orbit center.
 
 **Clear selection** beside the Parts heading removes the part highlight and
 restores normal model brightness without changing the filters, Find text, camera,
@@ -122,11 +118,11 @@ at the front of step 2. All panels use the **Siding** visibility category.
 `BentPlywood` stores the developed flat outline and its installed bend. The
 neutral surface is halfway through the thickness: the inner layers compress
 as much as the outer layers stretch, and developed length is neutral radius
-times sweep angle. The inner surface contacts the rear right upright edges,
-without the old artificial outward offset; the roughly `0.010 in` gaps at front
-uprights and tiny tread/framing overlaps are accepted. The two flat step-1
+times sweep angle. Framing and treads are fitted inside the panel's inner
+surface without the old artificial outward offset or accepted solid overlaps.
+The two flat step-1
 pieces have no outward clearance: their inner faces lie on the original straight
-step edge. Existing framing is not trimmed.
+step edge.
 
 Details' stock-aligned views show the flat cutting pattern; the rotatable
 preview, Stairway, and Placement show the installed curve. Curvature is part
@@ -150,14 +146,12 @@ follow the panel's inside face; their inner arcs are exactly `1 in` inward radia
 The stack runs from `1 1/4 in` to `2 1/4 in` above the floor; the upper Piece's
 top meets the bottoms of the panel support blocks. Their radial ends match the
 panel's angular span. Module 1's curved bottom ribs start behind step 1, just like its
-curved side panel; unlike that module's outer base rail, they keep concentric inner arcs.
+curved side panel. Their inner and outer arcs are concentric.
 
-Step 1's two flat side-panel sections use matching doubled straight bottom ribs
-at the same stack elevation where space permits, also `1 in` wide per layer.
-Their ends fit around
-the newel post, and the front strip stops behind the front riser. In the 8- and
-9-step designs, the deep front tread support already occupies and reinforces
-the front strip's position, so no redundant front strip is added.
+Step 1's flat rear side-panel section uses matching doubled straight bottom ribs
+at the same stack elevation, also `1 in` wide per layer. Their front ends meet
+the newel post's back face. The tiny **Bottom rib - front section** part is
+omitted in both layers; the flat front side-panel section remains.
 
 Bottom ribs are ordinary shared plywood Parts with module-owned or step-owned
 Pieces. They participate in inventory, Details, Placement, wood-weight estimates,
@@ -167,34 +161,43 @@ Their legacy siding visibility is retained.
 
 ### Elevated panel ribs
 
-Modules 2 and 3 each have a horizontal **Panel rib** cut from `1/2 in` plywood.
-Module 1 has no elevated rib; a two-module layout has just module 2's rib.
-The outer arc matches the outer base rail and the panel's inside face, with the
-inner arc `4 in` inward radially. Each rib's top aligns with the underside of
+Modules 2 and 3 have horizontal **Panel rib** segments cut from `1/2 in` plywood.
+Module 1 has no elevated rib. Each segment fits between the facing broad
+surfaces of two consecutive right uprights: three segments per level.
+The outer arc matches the panel's inside face, with the
+inner arc `3.5 in` inward radially. Each upper rib's top aligns with the underside of
 the tread supports for its module's first step. In the default nine-step,
-three-module layout, module 2's rib spans `26 1/2–27 in` above the floor and
-module 3's spans `49 3/4–50 1/4 in`.
+three-module layout, module 2's rib spans `29 1/2–30 in` above the floor and
+module 3's spans `55–55 1/2 in`.
 
-When the clear gap from a module's outer base rail top to the upper rib's
-bottom exceeds `48 in`, a second **Panel rib - intermediate** is centered
+When the clear gap from a module's caster-beam top to the upper rib's
+bottom exceeds `48 in`, a **Panel rib - intermediate** level is centered
 halfway through that gap. It uses the same plywood thickness, radial width,
-and upright clearances. Every front and rear right upright in that module,
-including those on its first two steps, has a dedicated vertical attachment
-block above the intermediate rib. Module 1 remains excluded.
-For the eight-step, three-module layout, module 3's clear gap is `48 1/2 in`;
-its intermediate rib spans `30 1/2–31 in` above the floor.
+and three-bay segmentation. Module 1 remains excluded.
+For the fixed nine-step, three-module layout, module 3's clear gap is `49 1/4 in`;
+its intermediate rib spans `30 1/8–30 5/8 in` above the floor.
 
-For the upper rib, steps after the first two in each rib-bearing module have vertical pine 2x4
-**Attachment block - panel rib** parts on the inside faces of their front and,
-where present, rear right uprights. These blocks are `3 1/2 in`
-long, with their bottom ends flush with the rib's top. They belong to the
-**Ribs** category and construction stage; module 1 has no rib attachment blocks.
-Blocks that also support step framing appear earlier, at **Step framing**.
+There are three elevated segments in module 2 and six in module 3 (three
+middle and three upper). The doubled bottom ribs are unchanged.
 
-Through-cut notches allow `1/32 in` clearance around the right uprights and any
-spindles, tread framing, risers, or rear panels crossing the rib's elevation.
-The front end also clears the preceding module's rear panel. These cuts vary
-with the layout; existing framing, panels, and tread geometry are unchanged.
+Vertical pine 2x2 **Attachment block - panel rib** parts bear the segment ends.
+Each is `3 1/2 in` long, with its top against the rib's underside.
+Its `1 1/2 x 3 1/2 in` side face meets the upright's broad face facing the bay.
+It sits flush with the upright's outer (right) edge, or as close as possible
+while leaving `1/32 in` clearance from the curved side panel.
+Interior uprights receive a block on each face where required.
+At the upper rear corners of modules 2 and 3, the blocks meet the front faces
+of the new rear cross-pieces instead. Those cross-pieces have `1/2 in` deep
+top-edge seats for the ribs; the ribs are not notched around the cross-pieces.
+At steps 4 and 7, the existing spindle supports instead end at the first
+upper rib's underside: they are shortened by `1/2 in`, from `8.5` to `8 in`,
+without moving their bottoms. This replaces two otherwise redundant rib blocks.
+The upper levels each have five separate blocks; the middle level has six.
+These 16 blocks belong to **Ribs**; the dual-purpose spindle supports belong
+to **Step framing**. Module 1 has no elevated rib attachment blocks.
+
+The ribs no longer need upright cutouts. Through-cut notches still allow
+`1/32 in` clearance around spindles, tread framing, or risers crossing a rib.
 Ribs retain analytic arcs and cut geometry in their shared Part definitions;
 module-owned Pieces supply the installation and join/split transforms.
 They share the Ribs category and construction stage with the bottom ribs,
@@ -204,66 +207,41 @@ inventory, Details, Placement, wood-weight estimates, and clash checks.
 ### Panel support blocks
 
 Square-cut pine 2x4 blocks (`4 in` long, `1 1/2 in` thick and `3 1/2 in` tall)
-stand edge-on beneath each module's outer base rail. Their tops meet the rail
-underside at `5 3/4 in`; their bottoms meet the doubled bottom ribs at `2 1/4 in`.
-One sits behind the front caster and one ahead of the rear caster, outside the
-same conservative plate-diagonal envelope used for caster placement.
+run radially inward on edge beneath existing lower cross-pieces.
+Their tops attach directly to the cross-piece undersides at `5 3/4 in`;
+their bottoms meet the doubled bottom ribs at `2 1/4 in`. No separate ties
+are used. The front block attaches beneath the second step's cross-piece,
+behind the front caster; the rear block attaches beneath the last step's
+front cross-piece, ahead of the rear caster.
 Module 1 omits its front block because the rear newel block already reinforces
 that area.
 
-Each block follows a straight chord: both outside end corners meet the rail's
-outer arc, leaving approximately `1/32 in` between the middle of the straight
-outside face and the curved panel. All blocks share a square-cut Part; they
+Both corners of each block's short outside end meet the panel's outer arc.
+Its `4 in` length extends inward, giving nearly `6 sq in` of top-face contact
+with the cross-piece. All blocks share a square-cut Part; they
 belong to the Ribs category and construction stage and follow support-beam visibility.
 
-### Base rails
+### Rail-free foundation and plywood rib patterns
 
-Each module has two separate flat `3/4 in` plywood parts, **Base rail - inner**
-and **Base rail - outer**, immediately above the caster beams from `5.75 in`
-to `6.5 in` above the floor. Except for module 1's outer rail, each curved rail section is exactly `6 in` wide radially:
-the inner rail runs from `INNER_RADIUS` to `INNER_RADIUS + 6`; the outer
-rail runs from `moduleSidingRadius - 6` to the curved siding's inner surface.
-All arcs are centered at C, leaving the middle of the former panel open.
-Caster mounting faces meet the beam undersides directly; no spacers or large
-caster openings in the rails are required.
-The newel post and low spindles have `1/32 in` clearance cuts
-where they intersect each rail. The adjoining newel blocks meet the rail
-underside and need no rail cutouts.
-The back follows the module's rear radial boundary. In subsequent modules,
-the front reaches the front radial boundary without a setback.
-Module 1 instead extends to the rear face of step 1's vertical front
-cross-piece (`southCrossPiece`), `1 3/4 in` behind the tread front.
-The deeper upper flat support is not the rail-front datum.
-Its outer rail keeps the outer arc behind step 1, then continues along
-the outer tangent from step 1's rear radius to that front-support plane.
-Its inner edge is straight throughout, aligned with the inward edge of the
-right caster beam, so the rail has a variable width rather than a concentric inner arc.
-The outer tangent follows step 1's straight outer edge. It and the curved section form one
-plywood part, with the same newel post clearance; the inner rail stays
-curved all the way forward. Caster placement follows the beam centerlines and edge clearances;
-all mounting plates have their long edges parallel to their caster beams.
-Caster beams occupy `4.25-5.75 in`, cross-pieces remain at `6.5-8 in`, and both left
-and right uprights start at rail-top height, `6.5 in`. Attachment blocks on
-both sides start at `8 in`. No upright notches are needed in the rails.
-The new role keys are `innerBaseRail` and `outerBaseRail`, in category
-`base-rails`; the former `rib` and caster-spacer parts no longer exist.
+The inner and outer plywood base rails are removed. Lower cross-pieces bear
+directly on the caster beams: beams occupy `4.25-5.75 in`, cross-pieces
+`5.75-7.25 in`, and posts start at `7.25 in`. Tread elevations remain
+unchanged. Caster mounting faces meet the beam undersides directly, without spacers.
+Step 1 instead has two flat 1x4 carrier cross-pieces at `5.75-6.5 in`,
+supporting its three ripped fore-and-aft boards at `6.5-8 in`.
+The `innerBaseRail` and `outerBaseRail` installed roles no longer exist.
 
-Unlike `BentPlywood`, `ProfiledPlywood` stays flat. Rails are authored as a
+Unlike `BentPlywood`, `ProfiledPlywood` stays flat. Panel ribs are authored as a
 construction recipe: start with a rectangular blank, trim the two upper corners
 to form a trapezoid, cut the concentric arcs, then the rectangular clearances.
-For module 1's outer rail, the original blank's Z = 0 edge supplies the straight
-inner boundary. Stop the outer arc at the specified join radius and continue
-its tangent to the front cut before cutting clearances.
-Cuts entirely outside the retained rail are omitted.
+Cuts entirely outside the retained rib are omitted.
 Each trapezoid side is authored as a radial guideline through C and a signed
-perpendicular inset toward the retained material. The front inset is `1/4 in`;
-the rear inset is zero; module 1 uses the front-support datum instead. Cut lines and corner coordinates are derived from those
+perpendicular inset toward the retained material. Cut lines and corner coordinates are derived from those
 inputs, rather than authored independently.
 The original blank and trapezoid can extend beyond the finished outline's
 tight bounds. The recipe generates the analytic line/arc perimeter, cutting
 annotations, manufacturing identity, and exact material volume; these do not
 depend on display tessellation. Arc facets have at most `0.001 in` sag.
-The hybrid outer rail also has a `T1` callout giving its join angle and straight inner-edge datum.
 
 Details shows the entire original blank with a dotted outline and overall
 dimensions above and left. Callouts locate the two upper triangle-cut vertices
@@ -299,15 +277,21 @@ Small drawing stages retain readable annotation
 scale; pan or zoom to inspect the full drawing. Placement uses the broad faces
 and authored straight edges as planar references, never artificial arc facets.
 
-Base rails have their own **Base rails** category and appear at Foundation
-and every later construction stage. They remain included in clash checks.
+The removed base rails have no installed Pieces or Parts category.
 
 ### Banister spindles
 
 Each front right upright on steps 2 onward carries an oak 2x2 spindle
 (`1.5 x 1.5 in` actual). Each module's rear right upright carries another.
-Their inner faces are flush against the upright's outside face. Both front
-and rear spindles are centered front-to-back on their upright's stock span.
+Their inner faces meet the outside faces of separate pine mounts.
+Steps 3-9 use vertical **Spindle support - front** 2x2s behind the front posts,
+flush with each post's right edge. Five are `8.5 in` long and end beneath the
+right tread support; the step-4 and step-7 supports are `8 in` long and end
+beneath the first upper panel rib. Their lower ends are unchanged.
+All seven vertical supports are classified as **Step framing**, not Banister.
+Step 2 and the rear uprights retain fitted 2x4 **Spindle block - front/rear**
+mounts, 3.5 inches high and 1.5 inches deep fore-aft.
+Spindles meet these mounts' outside faces. No fasteners attach only to a thin post edge.
 Bolt hardware and holes are not yet modeled.
 
 The baseline joins the top front-right corners of consecutive front
@@ -316,12 +300,12 @@ offsets from that line. It is continued at the same rise/run past the highest
 step for the last spindle. The slope is projected along the upright's
 front-to-back stock direction.
 
-Every spindle in a stair configuration has the same cutting pattern:
-the top follows that slope `2 in` above the spindle shoulder ascent;
+Front and rear spindles have different cutting patterns because their
+mounting faces have different plan orientations. Each top follows the baseline
+slope `2 in` above the spindle shoulder ascent;
 matching left/right notches are `1/2 in` deep, leaving a `1/2 in` tongue.
-Shoulder ascent defaults to `32 in` (a `34 in` top), with a slider allowing
-`25 in` through `37 in` in one-inch increments. Adjusting it changes the
-spindle tops and notch shoulders without changing their mounting or bottom cuts.
+Shoulder ascent is the source constant `RAILING_BOTTOM_ASCENT = 32 in`
+(a `34 in` top), not a UI or URL setting.
 At the front inner edge, the bottom descends `stepRise + 5 in` below the
 baseline, one inch higher than the earlier spindle design without moving
 the top or notch shoulders. Its 45-degree cut rises toward the outside, leaving the longer
@@ -338,7 +322,8 @@ Both adjoining side faces remain beveled to fit flush against the spindles;
 the shim does not follow the banister slope.
 There is no shim after the last module.
 
-Spindles and shims share independent **Spindles** visibility and normal
+Spindles and shims share the model's **Spindles** category and the Stairway
+**Banister** checkbox, along with normal
 Parts, stock views, cutting descriptions, and weight estimates.
 Handrails are not yet modeled.
 
@@ -349,13 +334,13 @@ Its side faces follow the first tread's straight right edge, tangent to step 2's
 outer arc at the shared radial boundary. Its right face is `2 in` outside that line, measured
 perpendicular to it. The post is shifted forward along that edge until
 its front face passes through the front cross-piece's rear-right corner.
-The pine 2x6 cross-piece stays parallel to the tread front; its right end
-is flush with the tread's right-edge line, as is the flat rear step support.
+The pine 1x6 cross-piece stays parallel to the tread front; its right end
+is flush with the tread's right-edge line, as is the edge-on rear step support.
 The cross-piece has a straight, unnotched back edge. Instead, the newel's
 front-inner corner has a stopped bevel flush with that back face, only
 between the cross-piece's bottom and top elevations. This is a `10 deg`
-bevel in the default nine-step layout; its angle follows the right-edge
-orientation when the step count changes. The post remains square above
+bevel in the fixed nine-step layout, following the right-edge
+orientation. The post remains square above
 the joint, and below it wherever the cross-piece starts above the post bottom.
 The original oak 4x4 stock blank is retained, with the bevel and shoulder
 planes included in the manufacturing description.
@@ -365,7 +350,7 @@ top has ascent `spindleShoulderAscent + 3 in`, measured at the center of its
 back face against the baseline between the actual top front-right corners
 of steps 1 and 2's front cross-pieces. The level top has greater ascent at
 the front. Changing **Railing bottom ascent** moves only its top, not its
-footprint or bottom.
+footprint or bottom. This ascent is a source-only constant, not a UI control.
 
 The boxed connection adds a pine 2x4 **Newel block - inner**, on edge against
 the post's inner face. It extends from the front cross-piece toward
@@ -375,14 +360,14 @@ Its rear end is square, stopping at the first
 intersection with step 2's siding or front spindle across the block's
 full thickness, or at the back of the upright if neither intersects.
 It has no top notch and spans elevations `2.25` to `5.75 in`, meeting the
-underside of the base rail.
+caster-beam top elevation.
 The former **Newel beam block** beneath the right beam is omitted.
 
 A separate pine 2x4 **Newel block - rear** runs on edge, parallel to
 the newel's side faces. Its front end butts against the newel's back face,
 and its square rear end stops before step 2's right upright's plan footprint.
 The inner block retains its separate back-end position.
-The rear block's default length is approximately `6.2043 in`.
+Its rear end also clears the shifted step-2 spindle and siding.
 Its left face is against the inner block's right face. It shares the inner
 block's `2.25` to `5.75 in` elevations and has square ends.
 
@@ -396,31 +381,41 @@ Both front caster plates clear the cross-piece by at least `1/8 in`.
 The right front caster is set back an additional `1 in` along its beam.
 The left beam retains its lateral position and rear end.
 
-The tread and, where present, flat front step support have exact through
-cutouts for the post. Their original stock blanks are retained, with the
-new cut-face coordinates included in manufacturing descriptions. The
+The tread has an exact through cutout for the post. Two separate ripped
+2x4 tread supports run beside the post's inner face and behind its back face,
+so neither needs a newel notch or an oversized blank with a cutout. The
 step-1 siding is fitted around the post, retaining a short front piece and a
-rear piece. Both clear the front cross-piece and relocated rear step support.
-The post has independent **Newel** visibility. All new pieces participate
+rear piece. Both clear the front cross-piece and the fore-and-aft supports.
+The post retains the model's **Newel** category and follows the Stairway
+**Banister** checkbox. All new pieces participate
 in Parts, stock views, mesh export, and wood-weight estimates.
 
 This models the timber arrangement, not a rated railing connection.
 Fasteners, holes, and metal connectors are not modeled; fastening details,
 connection capacity, and overall stair stability still require verification.
 
-### Back panels
+### Rear plywood gussets
 
-Each module has a `RISER_THICKNESS = 1/4 in` particle-board back panel attached
-outside its rear boundary. Its vertical side edges align with the outside
-edges of the rear uprights, including the combined left upright where present.
-The bottom is flush with the bottom of the rear support cross-piece (`6.5 in`
-above the floor); the top is `1.5 in` above the bottom of the back step support.
-The panel is named **Rear panel** in Parts.
+Modules 2 and 3 each have one `8 x 8 in` right-triangular, `1/4 in` plywood
+gusset at the upper-left rear framing corner. Its back face meets the front
+faces of the left rear upright and rear tread support, with its top flush
+with the support top. It is inset one inch from the upright's outer edge
+to clear the side-support half-lap. Both plates remain inside the existing
+module footprints and share one cutting pattern; together they add about
+`0.37 lb`. There is no gusset in module 1 and no lower rear gusset.
 
-The following module's front attachment blocks are moved rearward to clear the
-panel: `1/8 in` on the left and `1/4 in` on the right, measured perpendicular
-to the module's front plane. Their lengths are unchanged. The first module's
-blocks are unaffected.
+The gussets follow **Step framing** visibility. There is no rear particle-board
+panel. The right-side plywood panel remains; castle attachments are still
+conceptual and unmodeled.
+
+Modules 2 and 3 also each have a rectangular `1/4 in` plywood **Rear brace - lower**,
+`8 in` high, spanning exactly between the outer edges of their rear uprights
+(`19.656 in` at the default stair width). Its bottom bears on the rear cross-beam
+at `7.25 in`, and its rear face meets both upright front faces. The two rear
+upright attachment blocks move forward `1/4 in` to meet the brace's front face,
+retaining full lower cross-beam bearing. These rectangles follow **Uprights**
+visibility; the triangular upper gussets still follow **Step framing**.
+Module 1 is unchanged.
 
 ### Module support beams
 
@@ -431,7 +426,8 @@ Every module uses pine 2x4s with an actual cross section of `1.5 x 3.5 in`,
 laid flat with the 1.5-inch dimension vertical. Every pair spans its entire
 module, including step 1 in the lowest module. Their direction bisects the
 module's angular span. In module 1, both fronts are mitered against the
-`1.75 in` back plane of step 1's 2x6 front cross-piece.
+`1 in` back plane of step 1's 1x6 front cross-piece. The newel and beam
+fronts move forward with that thinner member.
 Other modules' square-cut front ends
 extend forward until their foremost corner meets the module's first-step
 front boundary, with no part projecting outside the footprint.
@@ -442,19 +438,18 @@ Other modules keep their front ends at the boundary and take all rounding trim a
 
 The lowest module's beams have no front-top recesses or narrow tongues.
 The former matching beam-clearance cuts in step 2's riser are also absent.
-Step 1's back step support remains temporarily omitted; its low framing still
-needs a separate support solution.
+Step 1 omits the ordinary upper rear cross-piece; its three separate
+fore-and-aft tread supports bear on two flat 1x4 carrier cross-pieces.
 
 Casters mount directly beneath both ends of each beam. The beam bottoms remain
 at the modeled caster mounting-face elevation, `4.25 in`, and their tops are at
-`5.75 in`. The plywood rails sit on these beams and finish at `6.5 in`.
-Left and right front/rear uprights all start at that rail-top elevation.
+`5.75 in`. Lower cross-pieces bear directly on these beams.
+Left and right front/rear uprights start on the cross-piece tops at 7.25 inches.
 Right support beams are inset an additional `3/4 in` toward
 the inside of the curve to give their casters more clearance from the siding,
 except in module 1 where the newel inner block determines the right beam position.
 Each right beam retains its fitted inward placement relative to the
-right uprights' plan footprints, accounting for their front bevels and the half-inch material
-removed from their inward faces by the bottom-open notches.
+right uprights' plan footprints.
 Left beam placement is unchanged. Casters follow their supporting beams. End rounding does
 not change either beam's lateral position. Apart from the newel blocking,
 there are no caster platforms, reinforcement blocks, links, or extra step-2 casters.
@@ -470,33 +465,25 @@ rigidly with their module when modules are split.
 ### Support cross-pieces
 
 Every step except step 1 has a pine 2x4 support cross-piece
-lying flat across both base rails. Its lower face rests at the rail tops,
-`6.5 in` above the floor; its upper face is at `8 in`.
-Its front edge follows the upper front step support's front face.
-If it would intersect the upper frame's front cross-piece, only that support
-cross-piece moves back to clear the framing. This applies to the lowest module
-as well as the upper modules.
+lying flat across both caster beams. Its lower face rests at the beam tops,
+`5.75 in` above the floor; its upper face is at `7.25 in`.
+Its front edge is at local North `0.25 in`, flush with the upper
+front step support's front face; its rear edge is at `3.75 in`. This seats both
+the plain posts and the full depth of their rear-face attachment blocks.
+The beam and posts remain clear of the upper framing.
 This includes the module fronts and step 2, where caster platforms formerly sat.
-The lowest front support cross-piece remains deliberately omitted for now.
-With quarter-inch rises and nine steps, a lower 2x4 cross-piece would extend
-above the first tread's underside at `7.25 in`; the rails themselves clear
-that tread by `0.75 in`.
+The lowest lower 2x4 cross-piece remains omitted. Step 1 instead uses three
+fore-and-aft boards on edge, spanning the `1.5 in` from the flat carriers to its
+tread underside: a ripped 1x3 on the left and two ripped 2x4s on the right.
 
-Each end extends `1/2 in` into the corresponding front upright, with a matching
-`1/2 in`-deep notch across the upright's inward face, open at its bottom end.
-The left notch is `1.5 in` high; the extended right notch is `7 in` high.
-Both keep their shoulders at the cross-piece's `8 in` top elevation.
-The overhang beyond
-each beam varies to bridge the gap to its upright. The ends are mitered to match
-the upright faces. Where the front board reaches the left-rear upright, its
-existing through corner clearance notch is retained.
+Each cross-piece spans the actual step side boundaries. Its flat top at
+`7.25 in` supports the full plain post ends; there are no half-inch post notches.
+The overhang beyond each caster beam varies with the step and curvature.
 
 Each module also has a **Beam - cross rear** between its rear uprights.
-This is another flat pine 2x4, resting at the same rail-top elevation. Its rear
+This is another flat pine 2x4, resting at the same caster-beam-top elevation. Its rear
 edge follows the module's rear boundary, with the board extending forward.
-Both ends seat `1/2 in` into bottom-open face notches matching those of the
-front cross-pieces. A combined left front/rear upright shares its existing notch;
-there is no duplicate cut. The new board is trimmed along the front
+Both rear posts bear on its top, without bottom notches. The board is trimmed along the front
 cross-piece's rear edge wherever they would overlap, leaving that front piece
 unchanged.
 
@@ -506,64 +493,73 @@ in each module's part list. They have individual stock views, cutting dimensions
 and move rigidly with their module when modules are split.
 
 Pine 2x4 **Attachment block - upright left** and **Attachment block - upright right** parts
-bear against the uprights' inward faces. Both sides rest directly on the pine
-cross-pieces. These attachment blocks
-stand on their narrow edges: `1.5 in` thick and `3.5 in` high, from `8 in`
-to `11.5 in` on both sides, before upper
-reliefs. Ordinary blocks match the upright's front-to-back
-width, not its vertical height, with front ends trimmed where needed to clear
-the riser behind the upright's full-height bevel.
+sit behind the front uprights, with their broad faces against the posts'
+broad rear faces. Each is a `3.5 in` length of 2x4, with grain running
+left/right, `1.5 in` thickness fore-aft, and `3.5 in` vertical height.
+The usual post-contact area is `3.5 x 3.5 in`, not a narrow-edge joint.
+Blocks span `7.25-10.75 in` above the floor and have full bearing on the
+lower cross-pieces. Small end bevels fit the step side boundaries; there
+are no upper clearance notches or tiny three-quarter-inch cut lengths.
+Spindle mounts also sit behind the front posts. Only the step-2 right lower
+block is ripped to `2.25 in` tall (`7.25-9.5 in`) to clear its spindle mount,
+retaining the full `3.5 in` cut length and a `3.5 x 2.25 in` contact face.
 
-On each module's last step, one continuous block per side joins both the front
-and rear uprights. Its front end aligns with the riser's back plane,
-and its rear end aligns with the rear upright's back. The block
-bears on both pine cross-pieces. Ends are beveled where needed to stay inside
-the step footprint and clear the riser; upper-front notches clear low risers
-or front cross-pieces without shortening the block's full bearing span.
-Right blocks also receive upper-front relief where needed to clear the
-preceding tread's rear frame.
+On each module's last step, separate **Attachment block - upright rear left**
+and **Attachment block - upright rear right** parts meet the rear posts'
+broad front faces. They have the same stock dimensions and height, and bear
+on the lower cross-pieces. The former long inward-edge blocks spanning front
+and rear posts are gone; every post has its own face-contact attachment.
 Step 1, which has no lower support cross-piece, has no such blocks.
 
-### Open-sided framing
+### Bearing-ended framing
 
 All risers above step 1 have height `stepRise`, running between the undersides
 of consecutive treads. This gives `1/2 in` of overlap with the lower tread;
 module boundaries do not change the panel height. Step 1 retains its existing
 one-inch floor clearance. There are no extended module-last riser panels.
 
-Every step above step 1 has two front uprights with
-full-height front-edge bevels flush with the panel's back plane,
-`RISER_THICKNESS = 0.25 in` behind the step front. The panel can fasten directly
-to these 1.5-inch-thick pine uprights; the former vertical 2x2 riser cleats
-are removed. The bevels replace stepped riser rebates rather than adding
-full-height notches. Existing rear endpoints are preserved except on step 2,
-where they move slightly forward to retain 2x4 stock instead of requiring 2x6s.
-The adjoining supports are refitted to those endpoints. Combined left
-front/rear uprights retain their rear ends in place. A separate module-wide
-stiffening piece is deferred and is not yet modeled.
+Every step above step 1 has two rotated pine 1x4 front posts: their
+3.5-inch faces point front/back and their 3/4-inch edges point left/right.
+Most start on the lower cross-pieces at 7.25 inches and finish directly beneath
+the upper front 1x4. There is no bearing cap. Posts have no top seats, lower
+face notches, or full-height bevels. Their front faces are flush with the
+front support at local North `0.25 in`, immediately behind the riser.
+The left front posts for steps 5, 6, 8, and 9 instead start at the bottoms
+of the extended left supports described below.
+
+Each upper tread frame above step 1 is closed with left and right on-edge
+1x4 side supports, including module backs. At the front, each side support
+extends into a half-lap with the front cross-piece. Both are cut `1.75 in`
+deep: the front cross-piece retains the lower half and bears the side support's
+upper half.
+At each module's last step, side supports retain their lower halves and
+bear the rear cross-piece's upper halves. Rear post ends still bear directly
+beneath these rear cross-pieces, without new post notches.
+At intermediate steps, rear cross-pieces retain their lower halves and bear
+the side supports' upper halves. Both stop at the following post's broad
+front face; there are no short side-support tongues or matching post notches.
+The front half-laps are unchanged, including on steps 4 and 7: each front
+cross-piece overlaps the left support's full thickness rather than butting
+against its right/inside face.
+
+Modules 2 and 3 each have a pine 1x4 **Beam - extended left support** in front
+of their rear uprights, with its back broad face against both post faces.
+Its top is at `30 in` or `55.5 in`, matching the bottom of the module's first
+left tread support. That support extends back onto the cross-piece, retaining
+only its front half-lap. Its rear tread support is shortened on the left to
+butt against the extended support, with no lap or notch at that corner.
+The cross-piece's right end has a `1/2 in` deep seat beneath the upper panel rib.
+The two later left front posts start at the extended support's bottom and
+have fitted `3.5 in` high bottom-edge notches around it, bearing on its top.
+Their now-unused lower 2x4 attachment blocks are omitted. These four bottom
+seats are the only remaining upright notches.
 Fasteners, connection strength, and structural capacity are not modeled.
 
-Neither foundations nor steps retain the former full-length side boards.
-Above the lowest step, a shorter right step support bridges the gap behind
-the right-front upright. Except at module backs, a matching left support
-fits the shorter inner edge. Both supports extend to a back step support
-shifted `RISER_THICKNESS` behind the tread's rear boundary, flush with the
-next step's beveled upright fronts. Their rear half-laps retain bottom
-notches in the side supports and top notches in the back support.
-
-Each non-first step of a module except global step 2 has vertical pine 2x4
-**Attachment block - rear support left** and **Attachment block - rear support right** parts on its
-front uprights' inward faces. These separate six-inch-long blocks have
-matching front bevels and bear against the preceding step's shifted back
-support. Their bottoms align with the bottom of that support. They belong to **Top frames**,
-not **Uprights**, for visibility control. There are no blocks behind step 1's
-absent back support or across module boundaries.
-All front and rear uprights
-have their outer broad faces on the step's side boundaries, 3/4 inch outward
-from the former inset positions. The upper front/rear
+The former separate upper rear-support cleats are omitted: moving the posts
+forward closes that joint directly and leaves no space for those front-face blocks.
+Except for the shortened rear supports on steps 4 and 7, the upper front/rear
 cross-pieces span the full footprint width, with angled ends matching those
-boundaries. Support cross-pieces fit the uprights' inward faces
-with half-inch engagement in their bottom-open face notches.
+boundaries. Lower cross-pieces support the unraised posts' full end grain.
 Support beams fit farther outward beneath the raised uprights, while retaining
 the existing square-end setbacks and whole-inch lengths.
 
@@ -653,15 +649,8 @@ opposite-face cuts overlap or meet.
 ### Modules and view modes
 
 A module is a permanently joined group of consecutive step assemblies. Modules
-can be detached from one another. `moduleCount` sets the exact number of groups.
-The normal group size is derived as `stepsPerModule = Math.floor(stepCount / moduleCount)`;
-any remainder goes into the bottom module rather than making a smaller group.
-For example, ten steps with three modules form `4 + 3 + 3`; the default nine
-steps and three modules form `3 + 3 + 3`. The model requires at least two modules
-and defaults to `Math.min(3, Math.floor(stepCount / 2))` modules. Every module
-must contain at least two steps so its front and rear caster supports fit.
-The API rejects fewer than four steps or more than `Math.floor(stepCount / 2)`
-modules, with an overall module-count limit of four.
+can be detached from one another. The fixed nine steps form exactly
+`3 + 3 + 3` in three modules. Other module layouts are no longer supported.
 The model exposes `modules`, each containing its `startIndex` and
 references to its `steps`. Rough front and rear casters and their supporting
 woodwork and banister spindles are included; module connections and handrails
@@ -673,14 +662,12 @@ and material density: pine at `30 lb/ft^3`, oak and particle board at `45 lb/ft^
 and plywood at `40 lb/ft^3`. Module weights are calculated from
 their constituent steps; the largest value is used, not necessarily the highest
 module. These are wood-only estimates: casters, fasteners, handrails, and
-unmodeled corner reinforcement are excluded. Width, step count, and module count
-update the estimates; hiding parts or separating assemblies does not affect them.
-Changing module count also changes rear-upright quantities and the support beam
-lengths, so it can change the total weight even when
-step count and width stay fixed.
+unmodeled connections are excluded. Source geometry changes update the estimates;
+hiding parts or separating assemblies does not affect them.
 
-Three buttons float over the upper-left corner of the 3D panel: **Reset view**,
-**Split modules**, and **Show castle**, in that order. There is no bottom View panel.
+**Reset view** and **Split modules** float over the upper-left corner of the
+3D panel, above independent **Show** checkboxes and a **Show all** button.
+There is no bottom View panel.
 Step dimensions and interaction instructions occupy a full-width information
 panel below the 3D canvas instead of floating over the model.
 Modules are joined by default. Clicking **Split modules** changes its label to
@@ -694,9 +681,9 @@ traveling one stair-width at full separation. This moves every module away
 from the castle, including the middle module, while increasing the gaps
 between modules. Clicking **Join modules** restores the assembled quarter-turn stairway.
 
-**Show castle** toggles a gray cylinder centered at the world origin, with radius
-`INNER_RADIUS`, bottom at the floor, and top at `TOTAL_HEIGHT`. Its label becomes
-**Hide castle** when enabled, and visibility is retained in the URL. The cylinder
+The **Castle** checkbox toggles a gray cylinder centered at the world origin, with radius
+`INNER_RADIUS`, bottom at the floor, and top at `TOTAL_HEIGHT`. It is checked
+by default, and visibility is retained in `show`. The cylinder
 stays fixed during Split/Join animation. It is not a part, cannot be selected,
 and does not appear in Details, Placement, inventory, or weight estimates.
 It occludes picking of parts hidden behind it. It is included in clash checks
@@ -723,7 +710,7 @@ Each module's render-only footprint follows the same transform. Filters and
 selection update the retained batches, while parameter changes invalidate the
 cached assembled meshes. Details and Placement keep their single-mesh draw path.
 
-Width, step-count, module-count, shoulder-ascent, and part-visibility controls remain live during transitions.
+Part-visibility controls remain live during transitions; geometry settings are fixed.
 The camera retains its orientation and relative zoom while fitting the moving
 full assembly, including hidden parts. Reset view affects only the camera and lighting.
 The increased angular spacing is a visualization, not a change to the stairway's
@@ -733,8 +720,8 @@ specified quarter-turn layout or fabrication dimensions.
 
 The script retains a named object tree independently of the combined WebGL
 mesh. Home's side panel is a Parts-only inventory, replacing both the former
-hierarchical Assemblies browser and grouped Parts inventory. Parameters lives
-on its own page with the existing sliders.
+hierarchical Assemblies browser and grouped Parts inventory. The Parameters
+page and its controls have been removed.
 The internal tree and manufacturing identity remain
 available without exposing assembly navigation in the UI.
 
@@ -742,48 +729,50 @@ In Stairway, clicking or tapping a visible piece selects and scrolls to its
 unique-part row, highlighting all matching pieces in the current filter scope.
 Picking uses the nearest front-facing triangle in the displayed geometry,
 including separated-module positions. Empty space leaves selection unchanged.
-Orbit drags, multi-touch gestures, and cancelled touches do not select parts;
-picking is inactive in Parameters.
+Orbit drags, multi-touch gestures, and cancelled touches do not select parts.
 
 The Parts panel starts with an always-visible **Filter parts** section containing:
 
-- **Module:** All modules, then Module 1 through the current module count.
-  A two-module model does not offer Module 3.
-- **Subset:** Foundation, Uprights, Step framing, Banister, Ribs, or All parts.
-  All parts remains the default.
+- **Module:** All modules, then Module 1, Module 2, and Module 3.
 - **Material:** All materials, or a stock/material category such as pine 2x4, oak 4x4,
   a particular plywood thickness, or a hardware category. These are not
   manufacturing-specification groups.
 
-Subsets follow construction order. Each stage includes everything in the
-stage above it, independently of manufacturing specification or material:
+The former cumulative Subset selector is removed. Instead, the left side of
+the Stairway canvas has independent checkboxes. Any combination can be selected;
+none includes another category. All are checked by default, including Castle.
+**Show all** checks every box without resetting Parts filters or selection.
 
-| Subset | Included parts |
+| Stairway checkbox | Included parts |
 |---|---|
-| Foundation | Caster beams, front/rear support cross-pieces, base rails, casters, and the special first-step front cross-piece and flat tread supports. |
-| Uprights | Foundation plus all front and rear uprights. |
-| Step framing | Uprights plus upper cross-pieces, tread supports, and their attachment blocks, including blocks that also support ribs. |
-| Banister | Step framing plus the newel post, spindles, spindle shims, and newel blocks. |
-| Ribs | Banister plus the upper and bottom ribs and their dedicated attachment/support blocks. |
-| All parts | Ribs plus treads, risers, siding, and back panels: everything in the module/material scope. |
+| Foundation | Caster beams, front/rear support cross-pieces, casters, and the special first-step front cross-piece, flat carriers, and edge-on ripped tread supports. |
+| Uprights | Front and rear upright posts, their lower face attachment blocks, and lower rear plywood braces. |
+| Step framing | Upper cross-pieces, half-lapped tread side supports, rear plywood gussets, vertical 2x2 spindle supports, and framing blocks shared with ribs. |
+| Treads | Treads and risers. |
+| Banister | Newel post, spindles, spindle mounting blocks, spindle shims, and newel blocks. |
+| Ribs | Upper and bottom ribs and their dedicated attachment/support blocks. |
+| Siding | Curved and flat side panels. |
+| Castle | The fixed castle cylinder, not an inventory part. |
 
 Classification belongs to installed Pieces, not shared manufacturing Parts:
-identical blocks can appear at different stages when their installed roles differ.
-Dedicated rib blocks do not appear before Ribs; blocks shared with step framing
-appear at Step framing and remain visible in all later stages.
-The former independent inspection presets are replaced by these cumulative stages.
+identical blocks can belong to different categories when their installed roles differ.
+Dedicated rib blocks belong to Ribs; blocks shared with step framing belong
+only to Step framing. Visibility affects only Stairway rendering and picking,
+not the Parts rows, counts, weights, Find, selection, Details, or Placement.
+Selecting a hidden part in the Parts list remains valid.
 
-**Clear filters** resets Module, Subset, and Material to All,
+**Clear filters** resets Module and Material to All,
 updating the list, model, quantities, and weight. It preserves Find
-text, valid part selection, and camera framing. **Clear selection** sits beside
+text, valid part selection, Stairway checkbox states, and camera framing. **Clear selection** sits beside
 it on the same action row.
 
-All visibility filters combine. Below the actions, the fixed summary reads **N unique parts (M total)**
+The two Parts filters combine. Below the actions, the fixed summary reads **N unique parts (M total)**
 and **Weight ~N lb (wood only)** for the matching occurrences. Unique parts
 means distinct manufacturing specifications, including stock, finished cut
 geometry, and joinery; total counts individual physical pieces, including
 hardware. Wood weight excludes hardware and unmodeled items.
-All three filters affect these quantities and the wood-weight summary.
+Both Parts filters affect these quantities and the wood-weight summary;
+Stairway checkboxes do not.
 
 The filter section has a bottom divider rather than a surrounding border.
 Below it, **Find** searches within the filtered list,
@@ -800,8 +789,12 @@ selection. Clearing Find removes match markers but preserves selection.
 The results are a single listbox with one row per unique manufacturing
 specification, without stock-category headings. Each row shows its inventory
 title, matching module/step context, stock, and dimensions. Titles describe the
-filtered occurrences rather than retaining whole-model step ranges. Identical
-parts share a row, with **x N** appended when more than one occurrence is
+filtered occurrences rather than retaining whole-model step ranges.
+Wooden parts also show their estimated total weight in pounds to two decimal
+places: the computed weight per piece times the visible item count. Filters
+update this row total; hardware says **Weight unavailable (hardware)** rather
+than displaying a zero estimate.
+Identical parts share a row, with **x N** appended when more than one occurrence is
 visible. When filtering excludes some identical pieces, show the visible and
 whole-model quantities, even if only one remains: **Tread (steps 2-3) x 2
 (of 8)** or **x 1 (of 8)**. With all eight visible, the title is **Tread
@@ -834,8 +827,8 @@ specification entirely, selection and model highlighting are cleared and Details
 returns to its empty prompt. If matching occurrences remain, selection is retained and its
 highlight updates to that filtered subset.
 Switching content tabs preserves selection, visibility, Find settings, and
-cameras. Empty scopes show an empty model, retaining the full stairway's camera
-bounds. The separate Parameters page does not use Home's filters or selection tint.
+cameras. Empty Parts scopes show no stair pieces, while Castle remains governed
+by its checkbox and full-stairway camera bounds are retained.
 
 **Part details** replaces the former dialog and Show details button. Before
 selection it shows **Select a part from the Parts list.** Selecting a part never
@@ -1414,7 +1407,7 @@ candidate relationships/view plans for the selected occurrence. Reuse retained
 part meshes and transformations; neither switching views nor rendering a
 frame should rerun discovery or regenerate all physical geometry.
 Invalidate geometry-dependent data when model parameters or topology change,
-including width, step count, module count, and railing ascent. No static
+including width, module count, and railing ascent. No static
 configuration catalog is required. Missing locating intent or an unverified
 reference still requires an explicit limitation, not a guessed measurement.
 
@@ -1720,8 +1713,11 @@ it does not mutate the inventory. Each group retains only the matching
 occurrences and a scoped title, which drive row quantities, model visibility,
 selection highlighting, and Details. `group.entry.quantity` retains the
 whole-model count. Find operates on these groups without invoking filtering.
-`PART_SUBSETS` exports the dropdown keys and labels; each inventory location
-retains its immutable `subsets` memberships. Unknown subset keys are rejected.
+`PART_SUBSETS` and immutable location `subsets` memberships remain available
+for source-level cumulative inventory queries, but there is no Subset UI.
+Unknown subset keys are rejected. `PART_VISIBILITY_CATEGORIES` and
+`partVisibilityCategory(piece)` define the independent Stairway categories
+using the same installed-role classification; these do not filter inventory.
 The controller sums `model.estimateNodeWeightLb(location.id)` for the matching
 occurrences to produce the filtered wood-weight summary.
 
@@ -1756,12 +1752,15 @@ stairway
     step-2-rightSupportBlock       Attachment block - upright right
     step-3-leftSupportBlock        Attachment block - upright left
     step-3-rightSupportBlock       Attachment block - upright right
+    step-3-leftRearSupportBlock    Attachment block - upright rear left
+    step-3-rightRearSupportBlock   Attachment block - upright rear right
     step-2-leftUpright             Upright - front left
     step-2-rightUpright            Upright - front right
     ...                            Remaining front and rear uprights
     step-1-southCrossPiece          Tread support - front
-    step-1-frontStepSupport         Tread support - first-step front (eight or nine steps only)
-    step-1-rearStepSupport          Tread support - first-step rear (eight or nine steps only)
+    step-1-frontStepLeftSupport     Tread support - first-step left
+    step-1-frontStepRightSupport    Tread support - first-step right
+    step-1-frontStepRightRearSupport Tread support - first-step right rear
     step-1-riser                    Riser (plywood leaf)
     step-1-tread                    Tread (plywood leaf)
     step-2-southCrossPiece          Tread support - front
@@ -1770,8 +1769,8 @@ stairway
     step-2-leftStepSupport          Tread support - left
     step-2-riser                    Riser (plywood leaf)
     step-2-tread                    Tread (plywood leaf)
-    step-3-leftBackSupportBlock     Attachment block - rear support left
-    step-3-rightBackSupportBlock    Attachment block - rear support right
+    step-3-leftSupportBlock         Attachment block - upright left
+    step-3-rightSupportBlock        Attachment block - upright right
     ...                            Remaining physical parts
 ```
 
@@ -1823,9 +1822,10 @@ or camera framing; full-model geometry remains available for bounds.
 material. Lumber stock records `kind: "lumber"`, actual `thickness` and
 `width`, and optionally `nominalSize`. Plywood stock records
 `kind: "plywood"` and `thickness`. Standard component constructors supply
-their own stock: 1x4 for upper horizontal framing, 2x2 for spindles,
-2x4 for separate uprights, pine support beams, lower support cross-pieces,
-and spindle shims, wider 2x stock for combined uprights, and
+their own stock: 1x4 for upper horizontal framing and plain uprights,
+1x3 for the ripped first-step left support, 1x6 for the deep first front member,
+2x2 for spindles, 2x4 for pine support beams, lower support cross-pieces,
+attachment blocks, and oak spindle shims, and
 plywood of the appropriate thickness for risers, treads, and siding. A plain, nonstandard
 `Board` defaults to its supplied actual cross section without guessing a
 nominal lumber size. Stock cannot be thinner or narrower than the board.
@@ -1864,7 +1864,7 @@ A description contains:
   radians. This analytic perimeter replaces planar `edgeCuts`; the blank
   remains rectangular. Bounds include arc extrema and volume integrates
   circular segments exactly.
-- `construction`: optional recipe for a flat arc-cut base rail, containing
+- `construction`: optional recipe for a flat arc-cut panel rib, containing
   `blank: { length, width }`,
   `trapezoid: { left: { angleRadians, inset }, right: { angleRadians, inset } }`,
   `arc: { center, radius }`, optional `innerRadius`, `notches`, and optional
@@ -1899,8 +1899,8 @@ component. Notch bevel sign instead follows increasing cut depth from
 negative Y to positive Y, matching the normalized notch depth pair.
 The exact planes/profiles disambiguate mirrored and compound cuts.
 
-For example, the default lowest front step support reports 1x4 pine
-stock and its full 3.5-inch finished width. Tread cutting descriptions retain
+For example, the default lowest front step support reports 1x3 pine
+stock, ripped from 2.5 inches to a 1.5-inch finished width. Tread cutting descriptions retain
 analytic concentric arcs, radial ends, and fitted post notches in an enclosing
 rectangular plywood blank. Their stock length and veneer grain follow the
 step's mid-angle tangent. Step 1 substitutes a straight tangent for the outer arc.
@@ -1951,8 +1951,8 @@ modifying its actual tree children. Any list containing an internal node has
 
 Call `browser.setTree(rebuiltModel.partTree)` after a parameter rebuild.
 If the step/module topology and IDs still match, navigation and selection are
-retained but reference the new component instances. Changing step count,
-regrouping modules, or removing the current assembly resets to the module list.
+retained but reference the new component instances. Regrouping modules
+or removing the current assembly resets to the module list.
 Removing only the selected part clears selection but retains the assembly.
 No DOM, WebGL context, or implicit model regeneration is needed for navigation
 and descriptions. Selection colors are applied only to copies of render
@@ -1969,7 +1969,8 @@ tree builder rather than being inferred from mesh geometry.
 ## Fixed requirements
 
 ```js
-const TOTAL_HEIGHT = 77;
+const TOTAL_HEIGHT = 85;
+const STEP_COUNT = 9;
 const INNER_ARC_LENGTH = 60.5;
 const INNER_RADIUS = INNER_ARC_LENGTH * 2 / Math.PI;
 const FRAME_THICKNESS = 0.75;
@@ -1982,9 +1983,7 @@ const SUPPORT_BEAM_BOTTOM_HEIGHT = CASTER_HEIGHT;
 const SUPPORT_NOTCH_DEPTH = 1 / 2;
 const UPRIGHT_THICKNESS = 1.5;
 const SUPPORT_BEAM_THICKNESS = 1.5;
-const BASE_RAIL_THICKNESS = 3 / 4;
-const BASE_RAIL_BOTTOM_HEIGHT = SUPPORT_BEAM_BOTTOM_HEIGHT + SUPPORT_BEAM_THICKNESS;
-const BASE_RAIL_TOP_HEIGHT = BASE_RAIL_BOTTOM_HEIGHT + BASE_RAIL_THICKNESS;
+const SUPPORT_BEAM_TOP_HEIGHT = SUPPORT_BEAM_BOTTOM_HEIGHT + SUPPORT_BEAM_THICKNESS;
 const SIDING_RIB_THICKNESS = 1 / 2;
 const SIDING_RIB_WIDTH = 4;
 const SIDING_RIB_BLOCK_LENGTH = 3.5;
@@ -2000,7 +1999,8 @@ R = \text{INNER_RADIUS}
   \approx 38.5155
 $$
 
-The total height from the floor to the castle top is exactly `77`. The castle
+The corrected measured height from the floor to the castle top is exactly `85 in`.
+The earlier `77 in` measurement was incorrect. The castle
 is another stage prop, previously called the upper landing; it is not part
 of the modeled stairway.
 `INNER_RADIUS` is the radius of every tread's curved left edge and the castle's
@@ -2015,36 +2015,35 @@ framing envelope are separate geometric datums.
 The assembly is described by:
 
 ```js
-buildStairway(stairWidth, stepCount, moduleCount, spindleShoulderAscent)
+buildStairway(stairWidth = 20)
 ```
 
-| Parameter | Meaning | Default | Slider range |
-|---|---|---|---|
-| `stairWidth` | Constant radial width of every step | `20` | `20` to `36`, in `0.25`-inch increments |
-| `stepCount` | Number of modeled steps, an integer of at least four | `9` | Integers `7` to `9` |
-| `moduleCount` | Number of modules; normal group size is derived and the bottom module takes any remainder | `3` | Integers `2` to `3` |
-| `spindleShoulderAscent` | Vertical ascent of spindle notch shoulders above the step-support baseline; spindle tops are 2 inches higher, and level shim tops meet the lower adjoining shoulder with bottoms 4 inches below | `32` | `25` to `37`, in `1`-inch increments |
+| Source setting | Meaning | Value |
+|---|---|---|
+| `stairWidth` | Constant radial width; optional builder argument, not a UI setting | Default `20 in` |
+| `STEP_COUNT` | Number of modeled treads | `9` |
+| `MODULE_COUNT` | Number of equal three-step modules | `3` |
+| `RAILING_BOTTOM_ASCENT` | Spindle notch-shoulder ascent above the step-support baseline; tops are 2 inches higher | `32 in` |
 
-`stepCount` and the term `stairCount` used in discussion refer to the same
-quantity. This document uses `stepCount` consistently.
-The module slider is capped at three throughout the seven-to-nine-step range.
-Each module needs at least two steps; the lowest module has no additional
-minimum-size restriction.
+`STEP_COUNT = 9` fixes the design at nine modeled treads; the returned model
+retains `stepCount` as reported design information rather than a parameter.
+Three modules contain `3 + 3 + 3` steps. Neither module count nor railing
+ascent is an API argument or URL setting.
 
 ## Casters and mounting woodwork
 
 The stairway is a movable stage prop. Each module has four casters mounted
-directly beneath two flat pine 2x4 caster beams. The curved `6 in`-radial-width,
-`3/4 in` plywood base rails sit on top of those beams.
-The rails replace the thin full-width panel and individual caster spacers.
+directly beneath two flat pine 2x4 caster beams. Lower cross-pieces rest
+directly on those beams, without plywood base rails or caster spacers.
 Two casters support each beam, with centers on its longitudinal centerline.
 The full plate remains at least `1/8 in` inside every beam edge
-in all supported `7-9`-step layouts.
+in the fixed nine-step layout.
 Flat pine 2x4
-support cross-pieces transfer front-upright loads onto those beams, except at
-the unresolved lowest step. The pine rear uprights follow the side boundaries,
-with their back corners meeting the rear radius. The outside faces of the right-hand uprights provide the modeled banister
-spindle mounting surfaces. Their bolts and the handrails are not yet modeled.
+support cross-pieces transfer front-upright loads onto those beams. The lowest
+step's edge-on ripped supports bear on two flat 1x4 carriers. The pine rear uprights follow the side boundaries,
+with their back corners meeting the rear radius. Blocks on the fronts of the
+right-hand rear uprights and backs of the front uprights provide the modeled banister spindle mounting surfaces.
+Their bolts and the handrails are not yet modeled.
 
 ### Selected reference hardware
 
@@ -2069,10 +2068,11 @@ or `1,050 lb` counting only three supporting casters. The latter allows for one
 caster being unloaded on an uneven floor; it is not a separate manufacturer
 rating or a complete dynamic-load/stability assessment.
 
-For context, the current default wooden stairway is approximately `262 lb`,
-with the heaviest module approximately `105 lb`. These estimates include the
-support cross-pieces, attachment blocks, flat beams, siding, back panels,
-newel blocking, plywood base rails, and oak spindles, shims, and newel but exclude all caster hardware weight. The working planning allowance
+For context, the current default wooden stairway is approximately `192.2 lb`,
+with modules approximately `59.3`, `61.0`, and `71.9 lb`. The earlier design
+was approximately `265 lb`. These estimates include the
+support cross-pieces, attachment blocks, flat beams, siding, panel support blocks,
+newel blocking, and oak spindles, shims, and newel but exclude all caster hardware weight. The working planning allowance
 is up to `200 lb` for a finished module including cladding and banister, and
 approximately `800 lb` with two people. Those are estimates, not measured
 finished weights. Do not credit adjacent modules with carrying part of that
@@ -2083,10 +2083,9 @@ load when choosing caster capacity.
 For planning, `CASTER_HEIGHT` is deliberately rounded to **4.25 inches**, rather
 than the reference hardware's 4.3 inches. Beam bottoms meet the caster mounting
 faces at `SUPPORT_BEAM_BOTTOM_HEIGHT = CASTER_HEIGHT`; the flat beams finish at
-`5.75 in`, and the three-quarter-inch base rails finish at `BASE_RAIL_TOP_HEIGHT = 6.5`.
-Cross-pieces and uprights use that rail-top datum, preserving all tread and
-upper-framing elevations. Newel blocking finishes at the rail underside, `5.75 in`.
-Installing 4.3-inch casters with the same beams and rails raises the
+`5.75 in`. Cross-pieces start at that beam-top datum and their tops support the posts at
+`7.25 in`. Newel blocking finishes at the beam-top elevation, `5.75 in`.
+Installing 4.3-inch casters with the same beams raises the
 entire assembly by 0.05 inch, making the bottom rise slightly greater and
 the final rise to the castle slightly smaller.
 
@@ -2097,20 +2096,19 @@ and siding bottoms.
 | Feature or clearance | Nominal value |
 |---|---|
 | Caster mounting face above floor | `4.25 in` |
-| Plywood base rail radial width x thickness | `6 x 0.75 in` |
 | Underside of flat support beam above floor | `4.25 in` |
 | Top of flat support beam above floor | `5.75 in` |
-| Top of support cross-piece / bottom-notch shoulder above floor | `8 in` |
-| Bottom of left uprights above floor | `6.5 in` |
-| Bottom of right front/rear uprights above floor | `6.5 in` |
-| Base rail underside / top above floor | `5.75 in` / `6.5 in` |
-| Bottom of left uprights above caster mounting face | `2.25 in` |
+| Top of support cross-piece / bottom of plain posts above floor | `7.25 in` |
+| Bottom of left uprights above floor | `7.25 in` |
+| Bottom of right front/rear uprights above floor | `7.25 in` |
+| First-step carrier underside / top above floor | `5.75 in` / `6.5 in` |
+| Bottom of left uprights above caster mounting face | `3 in` |
 | Wheel axle above floor, estimated as half the wheel diameter | `1.5 in` |
 | Top of wheel above floor | `3 in` |
 | Mounting face above top of wheel | `1.25 in` |
 
 The flat support beam sits directly on the modeled `4.25 in` mounting face,
-with the plywood base rail on top of the beam. The modeled `1.25 in` above
+with the lower cross-piece directly on top of the beam. The modeled `1.25 in` above
 the wheel is occupied in part by the fork and swivel head; it is not free
 clearance for framing. The wheel also overlaps the base framing's vertical
 height range, so horizontal clearance from the framing must be provided.
@@ -2173,45 +2171,38 @@ oak links, and extra step-2 casters are removed. All modules now use the same
 flat-beam and directly mounted caster arrangement. All uprights are pine,
 including at module fronts and backs.
 
-Step 1's lower support cross-piece and upper back step support remain omitted.
-With eight or nine steps, a separate **Tread support - first-step front** lies flat beneath
-the first tread, extending to both side edges. Its front edge butts against the riser's
-back face at local North `RISER_THICKNESS = 0.25` inch; its back edge is at
-`3.75` inches. Its angled left end follows the tread's side plane without dados.
-Its angled right end follows the tread's right-edge plane and is notched around the newel.
-It rests on both rail tops at `6.5` inches and meets the tread underside:
+Step 1's ordinary lower support cross-piece and upper rear cross-piece remain omitted.
+Three separate tread supports run fore-and-aft on edge. All bear
+on the flat 1x4 carriers and meet the first tread's underside:
 
-| Step count | Pine source stock | Thickness | Upper face |
-|---|---|---|---|
-| 9 | 1x4 | `0.75 in` | `7.25 in` |
-| 8 | 2x4 | `1.5 in` | `8 in` |
+| Support | Pine source stock | Thickness | Lower face | Upper face | Gap above carriers |
+|---|---|---|---|---|---|
+| First-step left | Ripped 1x3 | `0.75 in` | `6.5 in` | `8 in` | `0 in` |
+| First-step right | Ripped 2x4 | `1.5 in` | `6.5 in` | `8 in` | `0 in` |
+| First-step right rear | Ripped 2x4 | `1.5 in` | `6.5 in` | `8 in` | `0 in` |
 
-Both sizes have an actual face width of `3.5` inches. A matching pine
-**Tread support - first-step rear** lies flat across the same rails, parallel to the
-front support. Its front edge is immediately behind the newel's rearmost
-corner, and its back edge is `3.5 in` farther North. In the default layout
-these are approximately `5.6484` and `9.1484 in`.
-Its right end follows the tread's right-edge plane, flush with the front
-2x6 cross-piece's right end.
-Its left end extends to the tread's left edge and is mitered clear of
-step 2's pine support cross-piece wherever their height ranges overlap.
-That pine cross-piece and step 2's riser remain unchanged. Both pine supports rest at
-`6.5` inches and meet the first tread's underside. Other step counts and all
-later steps omit these two parts.
+The left support is ripped from `2.5 in` to `1.5 in` high and follows the
+inner tread-side tangent. The two right supports are ripped from `3.5 in`
+to `1.5 in` high and run parallel to the newel: one against its inner face,
+the other behind its back face and alongside the first board.
+The left and inner-right supports start at local North `1 in`, immediately
+behind the deep front 1x6. The right-rear support starts at the newel's back
+face. All three end on step 1's rear radial plane, clear of step 2's lower
+cross-piece. Their fitted blanks need only straight end cuts, not a newel
+notch. Step 2's pine cross-piece and riser remain unchanged.
+All later steps omit these three special supports.
 
-The on-edge **Tread support - front** uses pine 2x6 stock, with an actual
-`1.5 x 5.5 in` cross section. Its top retains its previous elevation.
-For eight or nine steps it spans `1` to `6.5` inches, with its top against
-the flat front support's underside.
-Without a front step support its top remains flush with the tread underside.
-Its straight back face is at local North `RISER_THICKNESS + 1.5 = 1.75` inches,
+The on-edge **Tread support - front** uses pine 1x6 stock, with an actual
+`0.75 x 5.5 in` cross section. Raised `0.75 in` from the previous revision,
+it spans `2.5` to `8` inches and directly meets the tread underside.
+Its straight back face is at local North `RISER_THICKNESS + 0.75 = 1` inch,
 fitting a stopped bevel on the newel's front-inner corner. The cross-piece
 has no V-shaped notch.
 The left beam begins behind this
 cross-piece; the right beam also butts against that cross-piece.
 
-Step 1 has no vertical uprights or edge-on 1x4 side supports in any
-step-count configuration. The **Newel block - inner** remains alongside
+Step 1 has no vertical uprights or edge-on 1x4 side supports.
+The **Newel block - inner** remains alongside
 the post, ending square at the first step-2 siding or spindle obstruction.
 It is a top-frame part, not a member of the Uprights visibility category.
 
@@ -2219,43 +2210,58 @@ Step 2's riser ends at step 1's tread underside, giving `1/2` inch of overlap
 measured from the tread top. Its uprights
 sit behind the riser without riser rebates. Rounded regular rises make both
 heights quarter-inch measurements. In the default nine-step layout its lower
-edge is at `7.25` inches, clearing the base rails by `0.75` inch. The step slider remains capped
-at nine; a tenth step would leave no clearance between the first tread and
-the rail tops.
+edge is at `8` inches, clearing the ordinary lower cross-pieces by `0.75` inch.
 
 The support cross-pieces and overall load transfer still need structural review.
 This is an incomplete structural model, not construction approval.
 Final caster positions will be determined experimentally with actual hardware;
 bolt holes, fasteners, and swivel clearance envelopes are not modeled.
 
+### Proposed castle attachment hard points
+
+The left side will be attached to the castle during use. The attachment concept
+assumes a curved plywood castle wall with wood bracing; both faces are accessible,
+and 2x4 backing blocks can be added inside. The lighter framing is modeled;
+these castle connections are not yet implemented.
+
+Provide independently removable attachments for each module, with separation
+both vertically and along the inside arc to resist sway and rotation. Low
+attachment zones should connect to the caster-beam/cross-piece structure; higher
+zones should connect to reinforced inner upright/tread-support joints. Do not
+attach only to a thin panel or to the narrow edge of a 1x4 upright.
+Local blocking or brackets should distribute the bolt loads into the frame.
+
+Use accessible through-bolts, bearing plates or adequately sized washers, and
+fitted bearing blocks/spacers at the curved wall. The spacers must bridge the
+actual gap without pulling the plywood flat or shifting the stairway into the
+castle. Inside backing blocks must transfer loads into the castle's wood bracing,
+not merely be fastened to its plywood skin.
+
+The intended restraint path is stair framing to hard point, bolt and backing
+block, castle bracing, and castle base. Vertical stair loads should continue
+through the stair frame and casters unless a separate bearing connection is
+designed. The castle's own stability is part of this load path.
+Detached modules still need handling rigidity. Castle restraint can reduce
+left-side bracing needed during use, but does not by itself establish the
+capacity of thinner posts, their tread-support joints, or the right-side railing.
+Final locations, bolt sizes, edge distances, and backing details require the
+actual castle framing and connection loads; they are not specified by this model.
+
 ### Modeled rear uprights
 
 Only the last step assembly of each module receives rear supports.
-Separate `leftRearUpright` and `rightRearUpright` parts are full-width pine 2x4s, with their
-broad outer faces following the step's corresponding outer side boundaries.
-Their backmost corners meet the rear radial boundary without extending beyond it.
-If the untrimmed left front and rear uprights meet or overlap along their
-common side plane, replace both with one **Upright - full left**, retaining
-the `leftUpright` role key and omitting the separate `leftRearUpright` part.
-Its thickness and height are unchanged; its width is the rectangular union
-of the original footprints. It is pine, cut from the smallest fitting dressed
-2x6, 2x8, or 2x10 (`5.5`, `7.25`, or `9.25 in` wide). Manufacturing details
-report the finished-width rip from that source stock. A real gap leaves both
-full-width pine boards separate.
-The default nine-step layout combines each module-back left pair into a
-2x8; seven- and eight-step layouts keep the pair separate. The front-right
-upright remains full width.
+Separate `leftRearUpright` and `rightRearUpright` parts use rotated plain pine
+1x4 stock. Their backmost corners meet the rear boundary. Both left posts stay
+separate; there are no installed combined 2x8 posts. They bear on the rear
+cross-piece at 7.25 inches and finish below the rear upper frame. The right rear
+post has a separate front-face spindle block. There are no upper seats or
+bottom notches.
 
-Both rear uprights have a beveled upper `endFar` notch for the top
-frame's back step support, fitted to its front plane. The right rear upright
-also has a three-quarter-inch-deep upper `endNear` seat for the right step support.
-Separate rear uprights have bottom-open face notches, but no inward platform dados.
-The combined board retains the front upright's upper-front notch, fitted
-front-edge bevel and inward support notch, and the rear upright's upper-back notch.
-Its support notch crosses the combined board's full finished width and opens at the bottom end.
-It is counted and weighed only once. Separate rear uprights have matching
-half-inch-deep bottom notches for the rear pine support cross-piece. The rear casters mount directly beneath the
-beam ends instead of a transverse platform.
+The alternative of removing each module-back front pair is not modeled.
+That would require extending the preceding step's side beams to the rear
+posts and supporting the upper front cap with approximately 4.25-inch short
+posts. The outer beam needs a new inward chord, not a straight extension of
+the current tangent, plus fitted rear bearing connections.
 
 ## World coordinates and direction
 
@@ -2367,8 +2373,8 @@ To place step $i$:
 
 The rotation changes both position and orientation. It is not a rotation about
 the step's translated local origin. The local vertical origin remains floor
-level; the lower support cross-pieces and all left/right uprights start at the `6.5 in`
-rail tops.
+level; lower support cross-pieces start at the `5.75 in` caster-beam tops, and the
+plain left/right uprights start on their tops at `7.25 in`.
 
 The implementation maps East to `+X`, Up to `+Y`, and North to `-Z`. The camera
 orbits the assembled model's bounding-box center; the geometry retains its
@@ -2381,9 +2387,10 @@ without lower front cross-pieces:
 
 | Board | Cross section | Placement |
 |---|---|---|
-| `supportCrossPiece` | `1.5 in` by `FRAME_WIDTH`, laid flat | Every step except step 1; pine 2x4 on both beams, fitted into the front upright bottom notches |
+| `supportCrossPiece` | `1.5 in` by `FRAME_WIDTH`, laid flat | Every step except step 1; pine 2x4 spanning the side boundaries beneath both plain posts |
+| `rearSupportCrossPiece` | Same | Module backs, supporting both rear posts |
 
-Support cross-pieces span `6.5` to `8` inches vertically. Caster hardware
+Support cross-pieces span `5.75` to `7.25` inches vertically. Caster hardware
 is stored separately from `boards`, on each module's first and last steps;
 the flat beams themselves belong to `module.boards`. There are no platforms,
 blocks, links, or lower front/rear frame cross-pieces, and the uprights have
@@ -2404,72 +2411,36 @@ explicitly.
 
 ## Named part: uprights
 
-Above step 1, `Step.parts.uprights.boards` includes the two front vertical 2x4s, `leftUpright`
+Above step 1, `Step.parts.uprights.boards` includes the two front vertical 1x4s, `leftUpright`
 and `rightUpright`, and adds `leftRearUpright` and `rightRearUpright` on each
-module's last assembly, except when the left pair combines into one board as
-described above. Separate uprights have rectangular uncut stock cross sections,
-measuring `UPRIGHT_THICKNESS` by `FRAME_WIDTH`, or `1.5 x 3.5`.
-All front, rear, and combined uprights use pine.
+module's last assembly. All 22 posts are pine 1x4s, with canonical
+stock thickness 0.75 inches and width 3.5 inches. `BearingUpright` maps
+stock length vertically, stock width across the step, and stock thickness
+fore-aft; stock dimensions are not swapped to fake the installed orientation.
 
 | Board | Stock cross section | Placement |
 |---|---|---|
-| `leftUpright` | `1.5 x 3.5 in`, or the combined width from 2x6/2x8/2x10 | Vertical, with its outer face on the castle tangent plane |
-| `rightUpright` | `UPRIGHT_THICKNESS` by `FRAME_WIDTH` | Vertical, with its outer face along the outer framing chord |
-| `leftRearUpright` | `UPRIGHT_THICKNESS` by `FRAME_WIDTH` | Module backs only when separate; full-width pine, along the castle tangent at the rear radius |
-| `rightRearUpright` | `UPRIGHT_THICKNESS` by `FRAME_WIDTH` | Module backs only; full-width pine, along the outer framing chord at the rear radius |
+| `leftUpright` | `0.75 x 3.5 in` | Front, near the castle tangent |
+| `rightUpright` | `0.75 x 3.5 in` | Front, inside the outer side frame |
+| `leftRearUpright` | `0.75 x 3.5 in` | Module backs, separate from the front post |
+| `rightRearUpright` | `0.75 x 3.5 in` | Module backs, with a front-face spindle block |
 
-The left upright's broad west face lies on the mid-angle castle tangent; the right
-upright's broad east face lies on the outer framing chord. Each upright's
-width follows that boundary's direction. Every front upright has a continuous
-full-height bevel at the riser's back plane, local North
-`RISER_THICKNESS = 0.25`. There is no additional stopped riser-clearance notch.
-Rectangular cutting blanks include the bevel waste. Ordinary and module-last
-uprights preserve their former rear endpoints. Step 2's rear endpoints move
-slightly forward so its beveled uprights still fit 2x4 stock; adjoining
-side supports are refitted to their new rear planes. The uncut stock
-outline remains rectangular.
+Most posts start at 7.25 inches on the lower cross-pieces. The left front
+posts on steps 5 and 6 start at 30 inches; those on steps 8 and 9 start at
+55.5 inches, with bottom-edge notches bearing on their modules' extended
+left tread supports. Front post tops meet
+the front upper cross-piece underside directly; rear post tops meet the rear upper frame
+underside. Post length is that bearing elevation minus 7.25 inches. Front faces
+are flush with the step framing at local North 0.25 inch.
+Four `3.5 in` high bottom-edge openings fit the extended left supports.
+There are no intermediate side-support tongue seats.
+Rear posts and module-front posts remain
+unnotched; there are no post dados or full-height bevels.
 
-All uprights start at the rail tops, `BASE_RAIL_TOP_HEIGHT`,
-or `6.5` inches above the floor. Their
-tops are at `height - TREAD_THICKNESS`, level with the tread's underside.
-Each upright's vertical length is therefore:
-
-```js
-height - TREAD_THICKNESS - bottomHeight
-```
-
-Each front upright uses `NotchedBoard` with an `endNear` cut for the upper
-front cross-piece and no lower `startNear` cut. Stock length is mapped vertically.
-The upper notch runs from the upright top down to the cross-piece's bottom.
-It matches the cross-piece's vertical width when that cross-piece meets the
-tread underside. Step 1 instead has the notched side supports described above.
-The depths on the two broad faces are calculated by intersecting the upright
-stock with each cross-piece's back plane. This removes the actual intersecting
-wood rather than merely hiding it or shortening the cross-piece. The upper
-cut is parallel to the full-height front bevel and extends farther into
-the upright for the cross-piece. Depths are derived on each broad face,
-accounting for the angled sides.
-
-The first step's upper front cross-piece has its full 5.5-inch vertical width.
-For eight or nine steps it sits
-below the flat front step support. The beams start behind its back face.
-
-Every remaining front upright and each separate rear upright has an inward-facing
-bottom-open face notch for its support cross-piece. Combined left uprights share one notch between
-the front and rear cross-pieces. Both left and right openings span floor elevations
-`6.5` to `8` inches,
-are `SUPPORT_NOTCH_DEPTH = 1/2` inch deep, and leave `1` inch of stock thickness.
-The left upright uses its positive-Y stock face; the right uses its negative-Y
-face. There are no remaining caster-platform dados.
-
-Separate rear uprights also retain an
-upper `endFar` notch meeting the front plane of the back step support,
-as well as the lower face notch. The right rear upright also has an upper `endNear`
-seat for the right step support. Their full-width placement and conditional
-left-pair combination are described in the rear-upright section.
-
-There is no dedicated Uprights hide checkbox. In Parts, upright visibility
-follows the module/material filters; Parameters always shows them.
+The Stairway **Uprights** checkbox controls all posts, their base attachment blocks,
+and the lower rear plywood braces independently
+of Foundation and Step framing. Parts module/material filters also constrain
+which installed pieces are shown, but visibility checkboxes do not filter Parts.
 Visibility changes preserve joints, material assignments, full-model wood
 weight estimates, and full-assembly framing.
 
@@ -2498,9 +2469,9 @@ riserHeight = stepRise;
 
 Its bottom meets the preceding tread's underside, giving exactly `1/2 in`
 of overlap with that tread. Its back face meets its own step's front cross-piece.
-No panel extends down over the preceding back step support or to the rail tops.
-Module-last front uprights retain their fitted front-edge bevels; the
-vertical 2x2 riser cleats remain absent. Separate stiffening is deferred.
+No panel extends down over the preceding back step support or to the lower cross-pieces.
+The riser attaches to the front upper cross-piece, not a thin post edge;
+vertical 2x2 riser cleats remain absent.
 
 The lowest module's beams pass underneath the second riser without
 lower-edge clearance notches.
@@ -2509,15 +2480,33 @@ lower-edge clearance notches.
 
 `Step.parts.topFrame` contains `southCrossPiece` (Tread support - front) and
 `northCrossPiece` (Tread support - rear). Every step except the lowest also has
-`rightStepSupport` (Tread support - right). Non-module-last steps above step 1 also
-have `leftStepSupport` (Tread support - left). Eligible following steps carry
-`leftBackSupportBlock` and `rightBackSupportBlock`, the six-inch vertical
-blocks described above. The existing `northCrossPiece` key
+`rightStepSupport` (Tread support - right). All steps above step 1 also
+have `leftStepSupport` (Tread support - left). The preceding rear support
+meets the next step's front post faces directly, without separate upper cleats.
+The existing `northCrossPiece` key
 and part IDs are retained; its displayed name changes.
-Step 1's back step support remains temporarily omitted pending its support redesign.
+Step 1 omits this ordinary rear cross-piece and instead has the separate
+edge-on ripped rear support described above.
 The cross-pieces and side supports have their tops at
-`height - TREAD_THICKNESS`, aligned with the upright and riser tops, to support
-the tread.
+`height - TREAD_THICKNESS`, aligned with the riser tops, to support
+the tread. Front cross-pieces retain their lower halves at the side-support
+half-laps; side supports retain their upper halves, with 1.75-inch cut depths.
+Rear half-laps bear rear cross-pieces on sides at module backs and sides on rear
+cross-pieces elsewhere. Intermediate ends stop at the next posts' front faces,
+without tongues or side notches.
+The exceptions are the first left supports in modules 2 and 3: these extend
+to the new rear cross-pieces, and their original rear supports butt against
+them without left-side half-laps.
+There are no front bearing caps. Modules 2 and 3 have small front-mounted
+upper-left rear plywood gussets. Vertical 2x2 spindle supports
+belong to Step framing; retained 2x4 spindle mounting blocks belong to Banister.
+
+### Historical notched-joint implementation
+
+The detailed algorithm notes below describe the former notched-post and
+half-lapped frame, not the current bearing-ended design. The current frame
+uses the front/rear half-laps described above, with bottom seats only in the
+four raised left posts, not the former cross-piece end seats.
 
 ### End cross-pieces
 
@@ -2545,22 +2534,21 @@ rearBottom = Math.max(top - FRAME_WIDTH, FLOOR_CLEARANCE + FRAME_WIDTH);
 rearHeight = top - rearBottom;
 ```
 
-Only step `0` requires this rear reduction with eight to ten steps; with seven
-steps, the rear board retains full width. The front cross-piece has
+At the corrected height, no rear reduction is needed with nine steps.
+Step 1's back support remains omitted. The front cross-piece has
 its own floor-clearance limit, independent of the module beams:
 
 ```js
-frontTop = top - (frontStepSupportStock?.thickness ?? 0);
+frontTop = top;
 frontBottom = Math.max(frontTop - FRAME_WIDTH, FLOOR_CLEARANCE);
 frontHeight = frontTop - frontBottom;
 ```
 
-The front cross-piece retains its full width in the slider range. Only step 1
-in eight- and nine-step configurations receives `frontStepSupportStock`; its
-cross-piece top moves down by that flat board's thickness. Otherwise its top
-remains at `top`. Rear board elevations are unchanged. On the lowest step the
-front cross-piece ends at local North `1.75` inches. The left beam starts
-behind it and the right beam starts behind the newel.
+The front cross-piece top remains at `top`. Step 1 replaces that default
+member with a full-width 1x6 whose upper face is also at `top`, from
+`2.5` to `8 in` above the floor. Its rear face is at local North `1 in`;
+the caster beams and separate fore-and-aft tread supports start behind it.
+Rear board elevations are unchanged.
 
 Matching notches in the front uprights accommodate `southCrossPiece`.
 These members no longer occupy the same solid volume as their uprights.
@@ -2642,7 +2630,7 @@ use the same height. Start with `TOTAL_HEIGHT / (stepCount + 1)` and round it
 to the nearest quarter inch, rounding halfway cases upward:
 
 $$
-\text{stepRise} = \frac{\operatorname{round}(4 \cdot 77/(n+1))}{4}
+\text{stepRise} = \frac{\operatorname{round}(4 \cdot 85/(n+1))}{4}
 $$
 
 For step $i$:
@@ -2657,7 +2645,7 @@ $$
 | Bottom step, index `0` | `stepRise` |
 | Step at index `i` | `(i + 1) * stepRise` |
 | Top step, index `n - 1` | `n * stepRise` |
-| Castle top, a separate stage prop | `77` |
+| Castle top, a separate stage prop | `85` |
 
 The castle top is not an additional step in `stepCount`. Only the transition
 from the top tread onto the castle can differ from the regular stair rise.
@@ -2668,19 +2656,19 @@ earlier landing terminology internally:
 landingRise = TOTAL_HEIGHT - stepCount * stepRise;
 ```
 
-| Step count | Regular stair rise | Rise onto castle top | First tread underside above beams |
+| Step count | Regular stair rise | Rise onto castle top | First tread underside above carriers |
 |---|---|---|---|
-| 7 | `9.75 in` | `8.75 in` | `2.75 in` |
-| 8 | `8.5 in` | `9 in` | `1.5 in` |
-| 9 | `7.75 in` | `7.25 in` | `0.75 in` |
+| 9 | `8.5 in` | `8.5 in` | `1.5 in` |
 
-With the initial nine steps, `77 / 10 = 7.7` rounds to `7.75`. The last tread
-is `69.75` above the floor, leaving `7.25` inches onto the castle.
+With the fixed nine steps, `85 / 10 = 8.5` is already a quarter-inch
+measurement. The last tread is `76.5` above the floor, leaving `8.5` inches
+onto the castle.
 The page reports the regular rise and castle transition separately rather
 than displaying a rounded fraction for an unrounded model dimension.
 The current preview renders bottom-frame
 assemblies, top frames, separate risers, and treads at these step-top heights.
-The upright and top-frame tops are `TREAD_THICKNESS` below those heights.
+The top frames meet the tread undersides; plain posts stop beneath their
+front or rear upper cross-pieces.
 The optional castle cylinder can be shown in Stairway view.
 
 ## Command-line interference checks
@@ -2691,21 +2679,21 @@ From `stairs`, with Node.js and Rust/Cargo installed:
 npm run check:intersections
 ```
 
-This builds the Rust checker once in release mode, exports the six supported
-combinations of 7-9 steps and 2-3 modules at the default 20-inch width, and checks
-every configuration even if an earlier one fails. Passing XML files are deleted;
+This builds the Rust checker once in release mode, exports the fixed
+nine-step, three-module design at the default 20-inch width, and checks it.
+Passing XML files are deleted;
 failed/error cases remain in `.clash-results` for investigation. An optional
 results directory can be supplied with `npm run check:intersections -- DIRECTORY`.
 
-The matrix includes every physical piece, including curved siding, treads,
-flat step-1 siding, base rails, and hardware, plus the castle cylinder. The curved-tread framing and post
+The scene includes every physical piece, including curved siding, treads,
+flat step-1 siding, first-step carriers, panel support blocks, and hardware, plus the castle cylinder. The curved-tread framing and post
 reliefs eliminate the former accepted siding overlaps. The Rust analysis inset
 remains `0.001 in` per part.
 
 To export and check one configuration:
 
 ```powershell
-node export-meshes.mjs .clash-results\scene.xml 9 3
+node export-meshes.mjs .clash-results\scene.xml
 cargo run --release --locked --manifest-path mesh-clash\Cargo.toml -- .clash-results\scene.xml
 ```
 
@@ -2752,11 +2740,11 @@ Run focused exporter, orchestration, geometry, and CLI regressions with
 
 ### Test scope
 
-`npm test` runs focused generic board/notch/dado geometry, inventory-grouping,
-and camera/input logic tests. These tests use small fixtures rather than encoding
-the current stairway design.
+`npm test` runs generic board/notch/dado geometry, inventory, placement,
+and camera/input tests, plus focused structural regressions for the current
+bearing-ended framing, front half-laps, first-step carrier bearing, and direct panel-block/cross-piece contact. Synthetic fixtures retain
+machining coverage for joint types no longer present in the installed posts.
 
-For framing changes, use `npm run check:intersections`. Part presence, placement,
-dimensions, materials, and visual presentation are reviewed manually; do not add
-design-specific regression assertions for them. The collision-tool regressions
-remain separate and should run when changing the exporter or checker.
+For framing changes, also use `npm run check:intersections` and
+`npm run test:intersections`. These check modeled fit and mesh validity,
+not connection strength or structural capacity.

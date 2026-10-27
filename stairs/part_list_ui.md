@@ -4,6 +4,15 @@ This is the original design proposal. The current consolidated Parts browser,
 Filters section, and Find interaction are documented in
 [Part-browser UI](stairs.md#part-browser-ui).
 
+The current app is fixed at nine steps and three modules, with source-only
+railing ascent and no Parameters page or runtime geometry controls. Each
+Parts row shows the total wood weight for its filtered occurrence count.
+The sidebar filters only by Module and Material. Independent canvas checkboxes
+control Stairway visibility without filtering Parts; **Show all** checks every
+box, including Castle, and all boxes are checked by default.
+The current default inventory contains 189 wooden pieces (67 patterns) and
+12 casters; modeled wood weighs approximately 192.2 lb.
+
 **Model update:** the current implementation creates canonical, geometry-bearing
 Parts during model construction, then installs Pieces referencing those Parts.
 The Parts list displays those existing definitions and counts their Pieces; it
@@ -59,7 +68,7 @@ application's behavior.
    woodworking drawings or purchased-hardware 3D view as appropriate.
 7. Make each entry useful without opening details: show stock, quantity,
    cutting length or sheet-aligned bounding rectangle, and notable features.
-8. Recompute the inventory when width, step count, or module count changes.
+8. Recompute the inventory when width, module count, or railing ascent changes.
    Camera position, explosion, selection, and visibility must not change the
    quantities.
 9. Make it practical to draft a shopping list from the displayed inventory,

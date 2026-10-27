@@ -315,10 +315,10 @@ measurements. This is geometric feasibility, not a proposed dimension for
 every vertex on the eventual drawing.
 
 The default run assesses `buildStairway()` (20-inch width, nine steps, three
-modules, 32-inch shoulder ascent). A matrix run samples the UI's 7/8/9 steps,
-2/3 modules, and minimum/default/maximum widths and shoulder ascents.
-It is a finite sample, not proof over the continuous parameter ranges or all
-configurations accepted by the lower-level model API.
+modules, 32-inch shoulder ascent). A matrix run samples source/API widths
+20/24/36 inches while retaining nine steps, three modules, and the fixed
+32-inch ascent. The Parameters page has been removed. This is a finite
+sample, not proof over every width accepted by the lower-level model API.
 
 The report should distinguish independent bevel/trace measurements from the
 derived total-inclination diagnostic, list actual auxiliary-view cases, and
@@ -337,7 +337,7 @@ Nonplanar or inconsistent authored cut patches fail the assessment explicitly.
 
 ### Running the prototype
 
-From `stairs2`:
+From `stairs`:
 
 ```powershell
 node assess-feature-views.mjs
@@ -358,33 +358,32 @@ standard-direction coverage.** Its top and bottom are now square-cut,
 horizontal ends, four inches apart, rather than compound facets. Its top
 meets the lower adjoining spindle's notch shoulder and remains at that same
 elevation toward the higher spindle, meeting that spindle below its shoulder.
-The side bevels and plan footprint are unchanged.
+The current shim plan follows the actual gap between the spindles after
+adding their front-face mounting blocks.
 
 For the default model:
 
 | Shim measurement | Result |
 |---|---|
 | Top/bottom ends | Square cuts; 4-inch blank length; no miter or bevel angle annotation |
-| Front/back perimeter bevels | 5 degrees; Up/Down end views |
-| Inner/outer square faces | No nonzero angle annotation |
-| Newel corner bevel | 15 degrees; standard end views, with its finite stopped outline retained |
+| Front/back perimeter bevels | Approximately 2.796 / 7.204 degrees; Up/Down end views |
+| Inner/outer faces | Small nonzero inclinations, approximately 0.227 / 0.286 degrees; standard-direction coverage |
+| Newel corner bevel | 10 degrees; standard end views, with its finite stopped outline retained |
 
-The default assessment covers **64 unique wooden patterns / 141 physical
+The default assessment covers **67 unique wooden patterns / 189 physical
 wooden parts**, with all 12 purchased hardware occurrences reported separately.
-It accounts for 177 authored edge/surface cut patches, 63 corner notches,
-19 broad-face end notches, 11 sheet edge notches, four width rips, and every
-cutting blank. Derived joinery planes are additional assessment records, not
-additional manufactured parts or operations. Internal dados are supported and
-tested with a synthetic example; the default model's broad-face recesses are
-all end notches.
+It accounts for every cutting blank, width rip, and authored machining feature.
+Derived joinery planes are additional assessment records, not additional
+manufactured parts or operations. Synthetic fixtures retain notch/dado and
+broad-face end-notch coverage in addition to the installed post bottom-seat cases.
 
 There are no independent angle measurements or derived total-inclination
 diagnostics requiring auxiliary directions in the current default model.
 Standard-direction coverage may still require a section or construction trace
 rather than a visible outline.
 
-The **54 sampled configurations** use widths 20/24/36 inches, 7/8/9 steps,
-2/3 modules, and shoulder ascents 25/32/37 inches. Every sample completed
+The **three sampled configurations** use widths 20/24/36 inches, nine fixed steps,
+three modules, and a 32-inch shoulder ascent. Every sample completed
 without unsupported or nonplanar feature errors. Each now has zero independent
 or diagnostic angles requiring auxiliary directions. Exact plane and boundary
 definitions remain expressible in stock coordinates.

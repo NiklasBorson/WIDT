@@ -26,22 +26,61 @@ The stairs turn through 90 degrees, with concentric inner and outer reference
 curves. The inner tread edges follow the fixed `INNER_RADIUS` cylinder.
 The outer tread arcs and siding inner face use `INNER_RADIUS + stairWidth`;
 step 1 instead has a straight outer edge tangent at step 2's front.
-The treads are notched around the spindles, which retain their upright attachments.
-Modules contain
-consecutive steps, and their boundaries are radial planes. The design should
-follow actual module boundaries, not assume that every module contains three
-steps or that all sections have equal lengths.
+The treads are notched around the spindles. The design is fixed at nine steps
+in three equal three-step modules, with radial boundaries. Railing bottom
+ascent is fixed at 32 inches in source; there is no Parameters page.
 
-The present foundation has right-front uprights at each step and an additional
-right-rear upright at each module's back. All of these uprights are pine, based on
-`1.5 x 3.5 in` stock, with existing notches and dados. Their outer faces
-align with the step sides. Their bottoms reach the siding bottom, `1 in`
-above the floor; the bottom-open cross-beam notches retain their `8 in`
-shoulder elevation. There are no side boards.
+Each step above the first has pine 1x4 front uprights, with additional
+rear uprights at every module back. Their 3.5-inch faces point front/back;
+their 0.75-inch thickness runs fore-aft. Most full ends bear on flat lower 2x4
+cross-pieces at `7.25 in` above the floor. These cross-pieces bear directly
+on the caster beams; there are no base rails.
+Front posts are flush with the front frame face, immediately behind the riser,
+and carry the front tread support directly, without bearing caps.
+The front supports retain the lower halves of the front/side half-lap joints
+and bear the side supports. Rear post tops bear beneath the upper rear frame.
+At module backs, rear half-laps bear the rear supports on the side supports.
+Elsewhere the sides bear on the rear supports. Intermediate side supports
+stop at the following front uprights' front faces, without short tongues
+or matching post notches.
+In modules 2 and 3, the first left tread support instead extends onto a new
+face-mounted rear 1x4 cross-piece. Its original rear support butts against
+it without a left half-lap. The next two left front posts are shortened
+from below and bottom-notched to bear on the extended support; their lower
+attachment blocks are omitted. A half-inch top-edge seat in each new
+cross-piece accommodates the upper panel rib without cutting that rib.
+Modules 2 and 3 each have one 8-by-8-inch triangular quarter-inch plywood
+gusset on the front faces of the left rear upright and upper rear tread
+support, without extending the module footprint. They belong to Step framing.
+Each also has an 8-inch-high rectangular quarter-inch plywood brace at the
+bottom rear, spanning the rear uprights' outer edges and seated on the rear
+cross-beam. Its rear face meets the upright fronts; the rear attachment blocks
+move forward a quarter inch against the brace. These rectangles belong to Uprights.
+The right-side plywood panel remains.
+The first step instead has a newel and three fore-and-aft tread supports:
+a ripped 1x3 on the left, and ripped 2x4s beside and behind the newel on the
+right. All stand on edge from `6.5` to `8 in`, supported by flat 1x4 cross-pieces
+on the caster beams.
 
-Those uprights provide useful attachment locations, but they should not be
-assumed adequate as freestanding railing posts. They are thin in one bending
-direction, and some of their section is already removed for joints. A tall
+Lower 2x4 attachment blocks meet the posts' broad faces, not their narrow edges.
+Each has a 3.5-inch cross-grain length and rests on the lower cross-pieces.
+They sit behind the front posts and in front of the rear posts or their
+lower plywood braces. Most are
+3.5 inches tall; the step-2 right block is ripped to 2.25 inches tall to
+clear its spindle mount. Previous rear supports meet the next posts'
+broad front faces directly, without separate upper cleats.
+
+Steps 3-9 have vertical pine 2x2 spindle supports behind the right front
+uprights, flush with their right edges. Five are 8.5 inches long and meet
+the right tread supports. At steps 4 and 7, their tops are lowered half an
+inch (8-inch lengths) so they also bear the first upper panel rib.
+Step 2 and the rear uprights retain broad-face 2x4 spindle blocks.
+These mounts retain substantial attachment area without projecting through
+the risers or relying on narrow post edges. Castle hard points are proposed for lateral
+restraint but remain unmodeled, without bolt sizes or holes.
+
+Those locations should not be assumed adequate as freestanding railing
+connections. The posts are thin in the fore-aft direction. A tall
 banister introduces lateral bending and torsion that the current gravity-load
 framing was not specifically designed to resist.
 
@@ -235,8 +274,10 @@ height(theta)        = referenceHeight + (r / a) * (theta - referenceTheta)
 
 Choose the reference point from the finished tread-nosing pitch line and
 the selected handrail height. Use the model's actual `stepRise` and `angle`;
-the rise is `TOTAL_HEIGHT / (stepCount + 1)`, not total height divided by
-the number of modeled treads. Endpoint returns, extensions, and any
+the rise is `TOTAL_HEIGHT / (stepCount + 1)` rounded to the nearest quarter inch,
+not total height divided by the number of modeled treads. The corrected
+`TOTAL_HEIGHT` is `85 in`; the default nine-step rise is `8.5 in`.
+Endpoint returns, extensions, and any
 transition to a landing need separate treatment.
 
 All sections must share this global definition. Do not independently fit a
@@ -259,7 +300,7 @@ Possible fabrication approaches are:
 
 Use common full-size templates or a master jig for the selected stair
 configuration, with mating ends checked together before final finishing.
-A change of stair width, step count, or grouping can require different rail
+A change of stair width or module grouping can require different rail
 geometry or section lengths; the physical rails are not automatically
 interchangeable just because the viewer is parametric.
 

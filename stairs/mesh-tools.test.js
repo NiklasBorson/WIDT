@@ -20,16 +20,16 @@ async function temporaryDirectory(context) {
 }
 
 test("scene export is deterministic and includes every physical part in assembled world coordinates", () => {
-  const model = buildStairway(24, 7, 2), xml = serializeScene(model);
+  const model = buildStairway(24), xml = serializeScene(model);
   assert.equal(xml, serializeScene(model));
   assert.match(xml, /version="1" units="inches" space="world" axes="east-up-south"/);
-  assert.match(xml, /stairWidth="24" stairCount="7" moduleCount="2"/);
+  assert.match(xml, /stairWidth="24" stairCount="9" moduleCount="3"/);
   assert.equal((xml.match(/<part /g) ?? []).length, model.partTree.getLeaves().length + 1);
   assert.match(xml, /<part id="castle" name="Castle" kind="environment">/);
   const castle = xml.slice(xml.indexOf('<part id="castle"'), xml.lastIndexOf("</part>"));
   assert.deepEqual(castle.match(/<vertices>([\s\S]*?)<\/vertices>/)[1].trim().split(/\s+/).map(Number),
     Array.from(model.createCastleGeometry().positions, value => value === 0 ? 0 : value));
-  assert.equal((xml.match(/kind="hardware"/g) ?? []).length, 8);
+  assert.equal((xml.match(/kind="hardware"/g) ?? []).length, 12);
   for (const node of model.partTree.getLeaves()) {
     const start = xml.indexOf(`<part id="${node.id}"`);
     assert.ok(start >= 0);
@@ -65,7 +65,7 @@ test("XML names are escaped and malformed meshes are rejected with the part ID",
 });
 
 test("explicit piece exclusions omit only selected panels, reject unknown IDs, and leave full exports unchanged", async context => {
-  const model = buildStairway(undefined, 7, 2), ids = model.modules.map((_, i) => `stairway/module-${i + 1}/siding`);
+  const model = buildStairway(), ids = model.modules.map((_, i) => `stairway/module-${i + 1}/siding`);
   const full = serializeScene(model), filtered = serializeScene(model, { excludePieceIds: ids });
   for (const id of ids) {
     assert.ok(full.includes(`<part id="${id}"`));
@@ -74,14 +74,14 @@ test("explicit piece exclusions omit only selected panels, reject unknown IDs, a
   for (const id of ["stairway/module-1/step-1-siding", "stairway/module-1/step-1-frontSiding"]) {
     assert.ok(filtered.includes(`<part id="${id}"`), "Both flat step-1 panels remain checked.");
   }
-  assert.equal((full.match(/<part /g) ?? []).length - (filtered.match(/<part /g) ?? []).length, 2);
+  assert.equal((full.match(/<part /g) ?? []).length - (filtered.match(/<part /g) ?? []).length, 3);
   assert.throws(() => serializeScene(model, { excludePieceIds: ["stairway/module-99/siding"] }), /Unknown excluded piece/);
   const directory = await temporaryDirectory(context), file = join(directory, "excluded.xml");
-  const result = spawnSync(process.execPath, [join(root, "export-meshes.mjs"), file, "7", "2",
+  const result = spawnSync(process.execPath, [join(root, "export-meshes.mjs"), file,
     ...ids.flatMap(id => ["--exclude-piece", id])], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(await readFile(file, "utf8"), filtered);
-  assert.match(result.stdout, /Excluded 2 pieces from clash coverage/);
+  assert.match(result.stdout, /Excluded 3 pieces from clash coverage/);
   for (const id of ids) assert.ok(result.stdout.includes(id));
   const invalid = spawnSync(process.execPath, [join(root, "export-meshes.mjs"), join(directory, "invalid.xml"),
     "--exclude-piece", "unknown-piece"], { encoding: "utf8" });
@@ -92,27 +92,27 @@ test("explicit piece exclusions omit only selected panels, reject unknown IDs, a
 
 test("export CLI uses default width and rejects invalid configurations without writing a scene", async context => {
   const directory = await temporaryDirectory(context), file = join(directory, "scene.xml");
-  await exportStairway(file, 8, 2);
-  assert.match(await readFile(file, "utf8"), /stairWidth="20" stairCount="8" moduleCount="2"/);
+  await exportStairway(file);
+  assert.match(await readFile(file, "utf8"), /stairWidth="20" stairCount="9" moduleCount="3"/);
   const invalid = join(directory, "invalid.xml");
-  const result = spawnSync(process.execPath, [join(root, "export-meshes.mjs"), invalid, "7", "4"], { encoding: "utf8" });
+  const result = spawnSync(process.execPath, [join(root, "export-meshes.mjs"), invalid, "4"], { encoding: "utf8" });
   assert.equal(result.status, 2);
-  assert.match(result.stderr, /moduleCount/);
+  assert.match(result.stderr, /Usage:/);
   assert.deepEqual(await readdir(directory), ["scene.xml"]);
 });
 
-test("matrix builds once, runs all six configurations and retains only failures even after checker errors", async context => {
-  const directory = await temporaryDirectory(context), calls = [], statuses = [0, 1, 2, 0, 1, 0];
+test("checker builds once, runs the fixed configuration and retains interference scenes", async context => {
+  const directory = await temporaryDirectory(context), calls = [];
   const run = (command, args) => {
     calls.push({ command, args });
-    return { status: command === "cargo" ? 0 : statuses.shift() };
+    return { status: command === "cargo" ? 0 : 1 };
   };
   const result = await checkConfigurations(directory, run);
-  assert.deepEqual(result, { passed: 3, failed: 2, errors: 1, exitCode: 2 });
+  assert.deepEqual(result, { passed: 0, failed: 1, errors: 0, exitCode: 1 });
   assert.equal(calls.filter(call => call.command === "cargo").length, 1);
-  assert.equal(calls.length, 7);
+  assert.equal(calls.length, 2);
   assert.deepEqual(await readdir(directory),
-    ["7-steps-3-modules.xml", "8-steps-2-modules.xml", "9-steps-2-modules.xml"]);
+    ["9-steps-3-modules.xml"]);
   for (const file of await readdir(directory)) {
     const scene = await readFile(join(directory, file), "utf8");
     assert.match(scene, /stairWidth="20"/);
@@ -122,7 +122,19 @@ test("matrix builds once, runs all six configurations and retains only failures 
     assert.match(scene, /id="castle" name="Castle" kind="environment"/);
   }
   assert.deepEqual(calls.slice(1).map(call => call.args[0]),
-    [7, 8, 9].flatMap(count => [2, 3].map(modules => join(directory, `${count}-steps-${modules}-modules.xml`))));
+    [join(directory, "9-steps-3-modules.xml")]);
+});
+
+test("checker reports errors separately from interference and removes clear scenes", async context => {
+  const directory = await temporaryDirectory(context);
+  const result = await checkConfigurations(directory, command => ({
+    status: command === "cargo" ? 0 : 2,
+  }));
+  assert.deepEqual(result, { passed: 0, failed: 0, errors: 1, exitCode: 2 });
+  assert.deepEqual(await readdir(directory), ["9-steps-3-modules.xml"]);
+  assert.deepEqual(await checkConfigurations(directory, () => ({ status: 0 })),
+    { passed: 1, failed: 0, errors: 0, exitCode: 0 });
+  assert.deepEqual(await readdir(directory), []);
 });
 
 test("matrix fails explicitly on an unavailable Rust build", async context => {
@@ -131,18 +143,17 @@ test("matrix fails explicitly on an unavailable Rust build", async context => {
     /cargo unavailable/);
 });
 
-test("installed curved treads and siding clear spindles and base rails across supported module layouts", async context => {
+test("installed curved treads and siding clear spindles and ribs across supported module layouts", async context => {
   const directory = await temporaryDirectory(context), file = join(directory, "siding-spindles.xml");
   const built = spawnSync("cargo", ["build", "--release", "--locked", "--quiet", "--manifest-path", manifest,
     "--target-dir", target], { encoding: "utf8", timeout: 120000 });
   assert.equal(built.status, 0, built.error?.message ?? `${built.stdout}\n${built.stderr}`);
   const executable = join(target, "release", process.platform === "win32" ? "mesh-clash.exe" : "mesh-clash");
-  for (const width of [20, 24, 36]) for (const count of [4, 5, 6, 7, 8, 9]) for (const modules of [2, 3]) {
-    if (count < modules * 2) continue;
-    const model = buildStairway(width, count, modules);
+  for (const width of [20, 24, 36]) {
+    const model = buildStairway(width), modules = 3;
     const leaves = model.partTree.getLeaves(), selected = leaves.filter(node =>
       ["siding", "ribs"].includes(node.category) || ["frontSpindle", "rearSpindle"].includes(node.key) ||
-      node.category === "base-rails" || node.key === "tread");
+      node.key === "tread");
     assert.equal(selected.filter(node => node.part.bend).length, modules);
     assert.ok(selected.some(node => node.key === "frontSpindle"));
     assert.ok(selected.some(node => node.key === "rearSpindle"));
@@ -150,32 +161,34 @@ test("installed curved treads and siding clear spindles and base rails across su
       excludePieceIds: leaves.filter(node => !selected.includes(node)).map(node => node.id),
     }));
     const result = spawnSync(executable, [file], { encoding: "utf8", timeout: 30000 });
-    assert.equal(result.status, 0, `${width}/${count}/${modules}: ${result.stdout}\n${result.stderr}`);
+    assert.equal(result.status, 0, `${width}/9/${modules}: ${result.stdout}\n${result.stderr}`);
   }
 });
 
-test("base rails, flat siding and raised blocks clear framing across supported layouts", async context => {
+test("rail-free foundation, half-lapped framing and panel blocks clear every installed piece", async context => {
   const directory = await temporaryDirectory(context), file = join(directory, "rib-fit.xml");
   const built = spawnSync("cargo", ["build", "--release", "--locked", "--quiet", "--manifest-path", manifest,
     "--target-dir", target], { encoding: "utf8", timeout: 120000 });
   assert.equal(built.status, 0, built.error?.message ?? `${built.stdout}\n${built.stderr}`);
   const executable = join(target, "release", process.platform === "win32" ? "mesh-clash.exe" : "mesh-clash");
-  for (const width of [20, 24, 36]) for (const count of [4, 5, 6, 7, 8, 9]) for (const modules of [2, 3]) {
-    if (count < modules * 2) continue;
-    const model = buildStairway(width, count, modules), leaves = model.partTree.getLeaves();
-    const selected = count >= 7 ? leaves : leaves.filter(node => !node.part.bend);
-    assert.equal(selected.filter(node => node.category === "base-rails").length, modules * 2);
+  for (const width of [20, 24, 36]) {
+    const model = buildStairway(width), modules = 3, leaves = model.partTree.getLeaves();
+    const selected = leaves;
+    assert.equal(selected.filter(node => node.category === "base-rails").length, 0);
+    assert.equal(selected.filter(node => /frontStep(Front|Rear)Bearing/.test(node.key)).length, 2);
+    assert.equal(selected.filter(node => /PanelSupportTie$/.test(node.key)).length, 0);
+    assert.equal(selected.filter(node => /PanelSupportBlock$/.test(node.key)).length, 5);
     await writeFile(file, serializeScene(model, {
       excludePieceIds: leaves.filter(node => !selected.includes(node)).map(node => node.id),
     }));
     const result = spawnSync(executable, [file], { encoding: "utf8", timeout: 30000 });
-    const report = `${width}/${count}/${modules}: ${result.stdout}\n${result.stderr}`;
-    if (count >= 7) assert.equal(result.status, 0, report);
+    const report = `${width}/9/${modules}: ${result.stdout}\n${result.stderr}`;
+    assert.equal(result.status, 0, report);
     assert.ok([0, 1].includes(result.status), report);
     assert.match(result.stdout, /0 errors;/, report);
     const fitFailures = result.stdout.split("\n").filter(line => line.startsWith("INTERFERENCE:") &&
       (/\/(?:innerBaseRail|outerBaseRail|step-\d+-rightSupportBlock)\]/.test(line) ||
-        (count >= 7 && /\/step-1-(?:frontSiding|siding)\]/.test(line))));
+        /\/step-1-(?:frontSiding|siding)\]/.test(line)));
     assert.deepEqual(fitFailures, [], report);
   }
 });

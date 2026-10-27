@@ -14,29 +14,58 @@ export const PART_SUBSETS = Object.freeze([
   { key: "", label: "All parts" },
 ].map(Object.freeze));
 
+export const PART_VISIBILITY_CATEGORIES = Object.freeze([
+  { key: "foundation", label: "Foundation" },
+  { key: "uprights", label: "Uprights" },
+  { key: "step-framing", label: "Step framing" },
+  { key: "treads", label: "Treads" },
+  { key: "banister", label: "Banister" },
+  { key: "ribs", label: "Ribs" },
+  { key: "siding", label: "Siding" },
+].map(Object.freeze));
+
 const foundationRoles = new Set([
   "leftCaster", "rightCaster", "leftRearCaster", "rightRearCaster",
-  "innerBaseRail", "outerBaseRail",
   "leftSupportBeam", "rightSupportBeam", "supportCrossPiece", "rearSupportCrossPiece",
-  "frontStepSupport", "rearStepSupport", "frontStepRightSupport", "frontStepLeftSupport",
+  "frontStepRightSupport", "frontStepRightRearSupport", "frontStepLeftSupport",
+  "frontStepFrontBearing", "frontStepRearBearing",
 ]);
 const uprightRoles = new Set([
-  "leftUpright", "rightUpright", "leftRearUpright", "rightRearUpright",
+  "leftUpright", "rightUpright", "leftRearUpright", "rightRearUpright", "rearUprightBrace",
+]);
+const uprightBlockRoles = new Set([
+  "leftSupportBlock", "rightSupportBlock", "leftRearSupportBlock", "rightRearSupportBlock",
 ]);
 const stepFramingRoles = new Set([
+  "frontBearingCap", "lowerBackGusset", "upperBackGusset",
   "southCrossPiece", "northCrossPiece", "leftStepSupport", "rightStepSupport",
   "leftSupportBlock", "rightSupportBlock", "leftBackSupportBlock", "rightBackSupportBlock",
-  "frontStepSupport", "rearStepSupport", "frontStepRightSupport", "frontStepLeftSupport",
+  "leftRearSupportBlock", "rightRearSupportBlock",
 ]);
 const banisterRoles = new Set([
+  "frontSpindleBlock", "rearSpindleBlock",
   "newel", "frontSpindle", "rearSpindle", "spindleShim", "newelInnerBlock", "newelRearBlock",
 ]);
 
-function partSubsets(node) {
+function partStage(node) {
   const foundation = foundationRoles.has(node.key) || (node.key === "southCrossPiece" && node.stepNumber === 1);
-  const stage = foundation ? "foundation" : uprightRoles.has(node.key) ? "uprights"
-    : stepFramingRoles.has(node.key) ? "step-framing" : banisterRoles.has(node.key) ? "banister"
+  return foundation ? "foundation" : uprightRoles.has(node.key) ? "uprights"
+    : stepFramingRoles.has(node.key) || node.category === "step-framing" ? "step-framing"
+      : banisterRoles.has(node.key) ? "banister"
       : node.category === "ribs" ? "ribs" : "";
+}
+
+export function partVisibilityCategory(node) {
+  if (uprightBlockRoles.has(node.key)) return "uprights";
+  const stage = partStage(node);
+  if (stage) return stage;
+  if (["tread", "riser"].includes(node.key)) return "treads";
+  if (node.category === "siding") return "siding";
+  throw new RangeError(`Unknown Stairway visibility category for piece: ${node.id}`);
+}
+
+function partSubsets(node) {
+  const stage = partStage(node);
   return PART_SUBSETS.slice(PART_SUBSETS.findIndex(({ key }) => key === stage))
     .map(({ key }) => key).filter(Boolean);
 }

@@ -53,8 +53,8 @@ export function serializeScene(model, { excludePieceIds = [] } = {}) {
   return lines.join("\n");
 }
 
-export async function exportStairway(output, stairCount = 9, moduleCount = 3, { excludePieceIds = [] } = {}) {
-  const model = buildStairway(undefined, stairCount, moduleCount);
+export async function exportStairway(output, { excludePieceIds = [] } = {}) {
+  const model = buildStairway();
   const excluded = excludedPieces(model, excludePieceIds);
   const xml = serializeScene(model, { excludePieceIds });
   await mkdir(dirname(resolve(output)), { recursive: true });
@@ -68,16 +68,15 @@ export async function exportStairway(output, stairCount = 9, moduleCount = 3, { 
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   const args = process.argv.slice(2);
-  const usage = "Usage: node export-meshes.mjs OUTPUT.xml [STAIR_COUNT=9] [MODULE_COUNT=3] [--exclude-piece ID ...]";
+  const usage = "Usage: node export-meshes.mjs OUTPUT.xml [--exclude-piece ID ...]";
   if (args.length === 1 && args[0] === "--help") {
     console.log(usage);
   } else {
     try {
       const { values, positionals } = parseArgs({ args, allowPositionals: true,
         options: { "exclude-piece": { type: "string", multiple: true } } });
-      if (!positionals.length || positionals.length > 3) throw new Error(usage);
-      const count = await exportStairway(positionals[0], positionals[1] === undefined ? 9 : Number(positionals[1]),
-        positionals[2] === undefined ? 3 : Number(positionals[2]), { excludePieceIds: values["exclude-piece"] ?? [] });
+      if (positionals.length !== 1) throw new Error(usage);
+      const count = await exportStairway(positionals[0], { excludePieceIds: values["exclude-piece"] ?? [] });
       console.log(`Exported ${count} meshes (including the castle) to ${positionals[0]}.`);
     } catch (error) {
       console.error(error.message);

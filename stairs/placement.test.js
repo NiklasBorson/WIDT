@@ -299,12 +299,12 @@ test("shared contact corners stay unnumbered and projected crossings never imply
 });
 
 test("caster beam locates its support joint and both extreme tread-template crossings across layouts", () => {
-  for (const [width, steps, modules] of [[20, 7, 2], [24, 8, 2], [24, 9, 3], [36, 9, 2]]) {
-    const model = buildStairway(width, steps, modules), planner = new PlacementPlanner(model);
+  for (const [width, modules] of [[20, 2], [24, 2], [24, 3], [36, 2]]) {
+    const model = buildStairway(width), planner = new PlacementPlanner(model);
     const node = model.partTree.getLeaves().find(n => n.key === "rightSupportBeam");
     const top = planner.plan(node.id).views[0], locations = top.dimensions.filter(d => d.source);
     assert.equal(top.planar.complete, true);
-    assert.ok(locations.some(d => d.source === "contact-position"), `Missing joint for ${width}/${steps}/${modules}`);
+    assert.ok(locations.some(d => d.source === "contact-position"), `Missing joint for ${width}/9/${modules}`);
     const crossings = locations.filter(d => d.source === "template-intersection");
     assert.equal(crossings.length, 2);
     assert.ok(crossings[0].to[2] > crossings[1].to[2]);
@@ -389,31 +389,42 @@ test("unreachable template references report an underconstrained plan instead of
   assert.ok(top.notes.some(note => /0\/3 planar freedoms; placement needs an additional reference/.test(note)));
 });
 
-test("cross beams use real straight or curved tread references for perpendicular end setbacks", () => {
-  const model = buildStairway(24, 8, 2), planner = new PlacementPlanner(model);
-  for (const step of [3, 4]) {
-    const top = planner.plan(`stairway/module-1/step-${step}-supportCrossPiece`).views[0];
-    const setback = top.dimensions.find(d => d.purpose === "longitudinal" &&
-      d.reference === `Tread template arc: Step ${step}`);
+test("full-width cross beams use real contacts and straight tread references without fictitious end setbacks", () => {
+  const model = buildStairway(24), planner = new PlacementPlanner(model);
+  for (const [module, step] of [[1, 3], [2, 4]]) {
+    const top = planner.plan(`stairway/module-${module}/step-${step}-supportCrossPiece`).views[0];
     assert.equal(top.planar.complete, true);
-    assert.equal(top.dimensions.length, 3);
-    assert.equal(setback.source, "template-setback");
-    assert.equal(setback.perpendicular, true);
-    assert.ok(setback.value > 1 && setback.value < 1.1);
-    assert.match(setback.reference, new RegExp(`Step ${step}$`));
-    const radius = Math.hypot(setback.to[0], setback.to[2]);
-    assert.ok(Math.abs(radius - model.innerRadius) < 1e-8, "The reference is the actual inner arc, not a mesh chord.");
-    assert.ok(Math.abs(setback.to[2] - setback.from[2]) < 1e-4);
-    for (const axis of [0, 2]) {
-      assert.ok(Math.abs(setback.from[axis] -
-        (setback.selectedEdge[0][axis] + setback.selectedEdge[1][axis]) / 2) < 1e-4);
+    assert.equal(top.dimensions.some(d => d.source === "template-setback"), false);
+    if (step === 3) {
+      assert.equal(top.planar.implicitRank, 3);
+      assert.ok(top.notes.some(note => note.startsWith("Surface contact:")));
+      assert.equal(top.dimensions.length, 0);
+    }
+    else {
+      assert.equal(top.planar.implicitRank, 0);
+      assert.equal(top.dimensions.length, 3);
+      const clearance = top.dimensions.find(d => d.kind === "offset");
+      assert.equal(clearance.label, "Face clearance");
+      assert.ok(Math.abs(clearance.value - 0.25) < 1e-5);
+      assert.match(clearance.reference, /Beam - cross rear/);
+      const alignments = top.dimensions.filter(d => d.kind === "alignment");
+      assert.equal(alignments.length, 2);
+      assert.ok(alignments.every(d => d.source === "template-extension" && d.value === 0));
+      assert.ok(top.dimensions.some(d => d.reference === "Tread template perimeter: Step 4"));
     }
   }
 });
 
 test("rear cross-beam parallel stations retain an independent along-beam joint location", () => {
-  const model = buildStairway(24, 8, 2);
-  const plan = new PlacementPlanner(model).plan("stairway/module-1/step-4-rearSupportCrossPiece");
+  const model = fixture({
+    beam: box(7, 1, -4, 8, 3, 4),
+    rearPanel: box(6, 0, -5, 7, 5, 5),
+    leftUpright: box(7, 3, -4, 8, 5, -3),
+    rightUpright: box(7, 3, 3, 8, 5, 4),
+  });
+  model.partTree.getLeaves().find(node => node.id === "rearPanel").name = "Rear panel";
+  model.createFootprintGeometry = () => templateStrips([-10, 0, 10]);
+  const plan = new PlacementPlanner(model).plan("beam");
   const top = plan.views[0], bottom = plan.views[1];
   const stations = top.dimensions.filter(d => d.source === "template-extension");
   assert.equal(stations.length, 2);
@@ -427,11 +438,11 @@ test("rear cross-beam parallel stations retain an independent along-beam joint l
     (Math.hypot(...measurement) * span) > 0.99,
   "Require an actual along-beam measurement, not just the planner's complete flag.");
   assert.match(setback.reference, /Rear panel/);
-  assert.ok(Math.abs(setback.value - Math.hypot(1, Math.tan(Math.PI / 32))) < 1e-4);
+  assert.ok(Math.abs(setback.value - 1) < 1e-4);
   assert.equal(top.planar.implicitRank, 2);
   assert.equal(top.planar.complete, true);
   for (const side of ["left", "right"]) {
-    const id = `stairway/module-1/step-4-${side}RearUpright`;
+    const id = `${side}Upright`;
     assert.ok(top.occluded.includes(id), "The upright genuinely overlaps the beam in the Top projection.");
     assert.ok(bottom.neighbors.includes(id), "Bottom shows both raised uprights' joint context.");
   }

@@ -114,7 +114,8 @@ export function describeBoard(board) {
   const stock = { ...board.stock, material: board.material.name, materialKey: board.material.key };
   if (Math.abs(stock.thickness - blank.thickness) > EPSILON ||
     (stock.kind === "lumber" && blank.width > stock.width + EPSILON)) {
-    throw new RangeError("The cutting blank does not fit its source stock.");
+    throw new RangeError(`${board.name ?? board.constructor.name}: the cutting blank does not fit its source stock ` +
+      `(${blank.thickness} x ${blank.width} in; stock ${stock.thickness} x ${stock.width ?? "sheet"} in).`);
   }
   const edgeCuts = blank.faces.filter(face => face.axis !== "thickness").map(face => {
     const normal = face.plane.normal;
@@ -166,7 +167,7 @@ export function describeBoard(board) {
 const PART_NAMES = { riser: "Riser", tread: "Tread", siding: "Side panel - right",
   frontSiding: "Side panel - right front section",
   newel: "Newel post", backPanel: "Rear panel",
-  innerBaseRail: "Base rail - inner", outerBaseRail: "Base rail - outer",
+  lowerBackGusset: "Rear gusset - lower", upperBackGusset: "Rear gusset - upper",
   frontSpindle: "Spindle - front", rearSpindle: "Spindle - rear", spindleShim: "Spindle shim" };
 const BOARD_NAMES = {
   bottomFrame: {
@@ -180,10 +181,12 @@ const BOARD_NAMES = {
     leftStepSupport: "Tread support - left", rightStepSupport: "Tread support - right",
     leftBackSupportBlock: "Attachment block - rear support left",
     rightBackSupportBlock: "Attachment block - rear support right",
-    frontStepSupport: "Tread support - first-step front",
-    rearStepSupport: "Tread support - first-step rear",
+    frontBearingCap: "Bearing cap - front",
+    frontSpindleBlock: "Spindle block - front", rearSpindleBlock: "Spindle block - rear",
     frontStepRightSupport: "Tread support - first-step right",
     frontStepLeftSupport: "Tread support - first-step left",
+    frontStepRightRearSupport: "Tread support - first-step right rear",
+    frontStepFrontBearing: "Beam - first-step front", frontStepRearBearing: "Beam - first-step rear",
   },
 };
 const PART_CATEGORIES = {
@@ -192,10 +195,12 @@ const PART_CATEGORIES = {
   sidingStiffener: "ribs", frontSidingStiffener: "ribs",
   sidingStiffenerUpper: "ribs", frontSidingStiffenerUpper: "ribs",
   sidingRib: "ribs", intermediateSidingRib: "ribs",
+  sidingRib2: "ribs", sidingRib3: "ribs",
+  intermediateSidingRib2: "ribs", intermediateSidingRib3: "ribs",
   frontPanelSupportBlock: "ribs", rearPanelSupportBlock: "ribs",
   frontRibSupportBlock: "ribs", rearRibSupportBlock: "ribs",
   frontIntermediateRibSupportBlock: "ribs", rearIntermediateRibSupportBlock: "ribs",
-  innerBaseRail: "base-rails", outerBaseRail: "base-rails",
+  backRibSupportBlock: "ribs", backIntermediateRibSupportBlock: "ribs",
   leftUpright: "uprights", rightUpright: "uprights",
   leftRearUpright: "uprights", rightRearUpright: "uprights",
 };
@@ -257,7 +262,7 @@ export function createPieces(model) {
         id, key, name, part, parentId, stepNumber, stepIndex, visibilityKey,
         transform: composeTransforms(frame, component.getPlacement()),
         category: component.material?.key === "particle-board" ? "particle-board"
-          : PART_CATEGORIES[key] ?? (kind === "plywood" ? "plywood" : null),
+          : component.category ?? PART_CATEGORIES[key] ?? (kind === "plywood" ? "plywood" : null),
       });
     };
     const pieces = module.steps.flatMap((step, index) => {
@@ -276,7 +281,8 @@ export function createPieces(model) {
     });
     pieces.push(...Object.entries(module.boards).map(([key, board]) =>
       leaf(board, key, board.name, null, key,
-        ["siding", "sidingStiffener", "sidingStiffenerUpper", "sidingRib", "intermediateSidingRib"].includes(key)
+        ["siding", "sidingStiffener", "sidingStiffenerUpper", "sidingRib", "sidingRib2", "sidingRib3",
+          "intermediateSidingRib", "intermediateSidingRib2", "intermediateSidingRib3"].includes(key)
           ? "siding" : "supportBeams")));
     pieces.sort((a, b) =>
       (modulePartOrder.get(a.key) ?? modulePartOrder.size) -

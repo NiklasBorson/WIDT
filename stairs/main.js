@@ -1,10 +1,9 @@
 import { buildStairway, combineGeometries } from "./model.js";
 import { WebGLViewer, STANDARD_VIEWS } from "./renderer.js";
 import { PART_VIEW_NAMES, partViewLabel as viewLabel } from "./parts.js";
-import { PartInventory, PART_SUBSETS } from "./part-list.js";
+import { PartInventory, PART_VISIBILITY_CATEGORIES, partVisibilityCategory } from "./part-list.js";
 import { formatLength, formatPartDescription, formatPartListDescription } from "./part-description.js";
 import { getPartFeatures, renderPartAnnotations, renderPartCompass } from "./part-annotations.js";
-import { PARAMETER_FIELDS, readParameters, parameterURL } from "./parameters.js";
 import { PlacementPlanner } from "./placement.js";
 import { renderPlacementAnnotations, renderTreadTemplate } from "./placement-drawing.js";
 
@@ -17,35 +16,25 @@ function showError(message) {
 }
 
 try {
-  const isParameters = document.body.dataset.page === "parameters";
-  const initialParameters = readParameters(window.location.search);
-  let parameters = initialParameters.values;
-  const notice = document.querySelector("#parameter-notice");
+  const notice = document.querySelector("#view-notice");
   function showURLNotice(warnings) {
     notice.textContent = warnings.join(" ");
     notice.hidden = warnings.length === 0;
   }
-  showURLNotice(initialParameters.warnings);
-  const stairWidth = document.querySelector("#stair-width");
-  const stairCount = document.querySelector("#stair-count");
-  const moduleCount = document.querySelector("#module-count");
-  const spindleShoulderAscent = document.querySelector("#spindle-shoulder-ascent");
   const modulesView = document.querySelector("#view-modules");
-  const castleView = isParameters ? null : document.querySelector("#view-castle");
+  const castleView = document.querySelector("#view-castle");
+  const visibilityControls = [{ key: "castle", input: castleView },
+    ...PART_VISIBILITY_CATEGORIES.map(({ key }) => ({ key, input: document.querySelector(`#view-${key}`) }))];
+  const defaultVisibility = visibilityControls.map(({ key }) => key);
   const identityTransform = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
   let castleShown = false;
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   let modulesSeparated = false;
   let moduleExplosion = 0;
   let animationFrame = 0;
-  const parameterInputs = isParameters ? [stairWidth, stairCount, moduleCount, spindleShoulderAscent] : [];
-  for (const field of PARAMETER_FIELDS) {
-    if (isParameters) document.querySelector(`#${field.id}`).value = String(parameters[field.key]);
-  }
-  const tabs = isParameters ? [] : ["stairway", "details", "placement"];
+  const tabs = ["stairway", "details", "placement"];
   const tabButtons = tabs.map(name => document.querySelector(`#${name}-tab`));
   const moduleFilter = document.querySelector("#parts-module");
-  const subsetFilter = document.querySelector("#parts-subset");
   const typeFilter = document.querySelector("#parts-type");
   const partSearch = document.querySelector("#parts-search");
   const findPrevious = document.querySelector("#parts-find-previous");
@@ -88,14 +77,14 @@ try {
   let selectedPartViewer = null;
   let partPreviewViewer = null;
   let selectedStockView = "Up";
-  const partViews = (isParameters ? [] : PART_VIEW_NAMES).map(name => ({
+  const partViews = PART_VIEW_NAMES.map(name => ({
     name, canvas: document.querySelector(`#part-view-${name.toLowerCase()}`),
     label: document.querySelector(`#part-view-choice-${name.toLowerCase()} span`),
     button: document.querySelector(`#part-view-choice-${name.toLowerCase()}`), viewer: null, standardView: null,
   }));
   let activeTab = "stairway";
-  const detailsActive = () => !isParameters && activeTab !== "stairway";
-  const placementActive = () => !isParameters && activeTab === "placement";
+  const detailsActive = () => activeTab !== "stairway";
+  const placementActive = () => activeTab === "placement";
   const occurrenceTitle = location => `${location.name} (Module ${location.moduleNumber}${
     location.stepNumber === null ? "" : ` / Step ${location.stepNumber}`})`;
   function closeNeighborPopup() {
@@ -103,31 +92,24 @@ try {
     inspectedNeighborId = null;
     pendingNeighbor = null;
   }
-  function readModel() {
-    return buildStairway(parameters.width, parameters.steps, parameters.modules, parameters.shoulderAscent);
-  }
   function syncURL() {
-    const url = parameterURL(window.location.href, parameters);
-    if (!isParameters) {
-      const state = {
-        tab: activeTab === "stairway" ? "" : activeTab,
-        parts: document.querySelector("#parts-sidebar").hidden ? "hidden" : "",
-        module: moduleFilter.value,
-        subset: subsetFilter.value,
-        type: typeFilter.value,
-        part: locatedOccurrenceId ?? "",
-        castle: castleShown ? "shown" : "",
-      };
-      for (const [key, value] of Object.entries(state)) {
-        if (value) url.searchParams.set(key, value);
-        else url.searchParams.delete(key);
-      }
+    const url = new URL(window.location.href);
+    for (const key of ["width", "steps", "modules", "shoulderAscent", "subset", "castle"]) url.searchParams.delete(key);
+    const state = {
+      tab: activeTab === "stairway" ? "" : activeTab,
+      parts: document.querySelector("#parts-sidebar").hidden ? "hidden" : "",
+      module: moduleFilter.value,
+      type: typeFilter.value,
+      part: locatedOccurrenceId ?? "",
+    };
+    for (const [key, value] of Object.entries(state)) {
+      if (value) url.searchParams.set(key, value);
+      else url.searchParams.delete(key);
     }
+    const shown = visibilityControls.filter(({ input }) => input.checked).map(({ key }) => key);
+    if (shown.join(" ") === defaultVisibility.join(" ")) url.searchParams.delete("show");
+    else url.searchParams.set("show", shown.join(" "));
     window.history.replaceState(null, "", url.href);
-    const link = document.querySelector("#page-link");
-    const destination = new URL(isParameters ? "./index.html" : "./parameters.html", url);
-    destination.search = url.search;
-    link.href = destination.href;
   }
   function setPartsHidden(hidden) {
     const toggle = document.querySelector("#toggle-parts");
@@ -146,12 +128,20 @@ try {
       return fallback;
     };
     activeTab = read("tab", "stairway", value => tabs.includes(value), "Selected tab");
-    castleShown = read("castle", "hidden", value => ["shown", "hidden"].includes(value), "Castle visibility") === "shown";
-    renderCastleButton();
+    const parseVisibility = value => value.trim() ? value.trim().split(/[ +]+/) : [];
+    const shown = query.has("show")
+      ? parseVisibility(read("show", defaultVisibility.join(" "), value => {
+        const keys = parseVisibility(value);
+        return new Set(keys).size === keys.length &&
+          keys.every(key => visibilityControls.some(control => control.key === key));
+      }, "Stairway visibility"))
+      : [...defaultVisibility.filter(key => key !== "castle"), ...(read("castle", "shown",
+        value => ["shown", "hidden"].includes(value), "Castle visibility") === "shown" ? ["castle"] : [])];
+    for (const { key, input } of visibilityControls) input.checked = shown.includes(key);
+    castleShown = castleView.checked;
     setPartsHidden(read("parts", "shown", value => ["shown", "hidden"].includes(value), "Parts visibility") === "hidden");
     moduleFilter.value = read("module", "", value => value === "" ||
       model.partTree.root.children.some((_, index) => value === String(index + 1)), "Module filter");
-    subsetFilter.value = read("subset", "", value => PART_SUBSETS.some(subset => subset.key === value), "Subset filter");
     typeFilter.value = read("type", "", value => value === "" ||
       inventory.sections.some(section => section.key === value), "Material filter");
     locatedOccurrenceId = null;
@@ -170,8 +160,8 @@ try {
     if (meshCache?.model !== model) {
       const modules = model.partTree.root.children.map((node, index) => ({
         bounds: model.createNodeGeometry(node.id),
-        pieces: isParameters ? [] : model.partTree.getLeaves(node.id).map(piece => ({
-          node: piece, geometry: model.createNodeGeometry(piece.id),
+        pieces: model.partTree.getLeaves(node.id).map(piece => ({
+          node: piece, category: partVisibilityCategory(piece), geometry: model.createNodeGeometry(piece.id),
         })),
         footprint: model.createFootprintGeometry(null, false, true, 0, index + 1),
       }));
@@ -180,18 +170,18 @@ try {
     pickRanges = [];
     const castle = castleShown ? model.createCastleGeometry() : null;
     const bounds = castle ? combineGeometries([meshCache.bounds, castle]) : meshCache.bounds;
-    const moduleNumber = !isParameters && moduleFilter.value ? Number(moduleFilter.value) : null;
+    const moduleNumber = moduleFilter.value ? Number(moduleFilter.value) : null;
     const orbitKey = moduleNumber === null ? model.partTree.root.id : model.partTree.root.children[moduleNumber - 1].id;
-    const visibleIds = isParameters ? null :
-      new Set(filteredParts.flatMap(({ locations }) => locations.map(location => location.id)));
+    const visibleIds = new Set(filteredParts.flatMap(({ locations }) => locations.map(location => location.id)));
+    const shown = new Set(visibilityControls.filter(({ input }) => input.checked).map(({ key }) => key));
     const selectedKey = inventory?.findOccurrence(locatedId)?.key;
     const selectedIds = new Set(filteredParts.find(({ entry }) => entry.key === selectedKey)
       ?.locations.map(location => location.id));
     const transforms = model.getModuleTransforms(moduleExplosion);
     let triangleCount = 0;
     const batches = meshCache.modules.map((module, index) => {
-      const geometry = isParameters ? module.bounds : combineGeometries(module.pieces
-        .filter(({ node }) => visibleIds.has(node.id)).map(({ node, geometry }) => {
+      const geometry = combineGeometries(module.pieces
+        .filter(({ node, category }) => visibleIds.has(node.id) && shown.has(category)).map(({ node, geometry }) => {
           const start = triangleCount;
           triangleCount += geometry.indices.length / 3;
           pickRanges.push({ id: node.id, start, end: triangleCount });
@@ -212,7 +202,7 @@ try {
       batches.push({ geometry: castle, boundsGeometry: castle, footprint: empty,
         renderGeometry: castle, transform: identityTransform });
     }
-    const visible = isParameters ? bounds : combineGeometries(batches.map(batch => batch.geometry));
+    const visible = combineGeometries(batches.map(batch => batch.geometry));
     const camera = { orbitKey, orbitBatch: moduleNumber === null ? null : moduleNumber - 1, batches,
       renderGeometry: combineGeometries([visible, ...batches.map(batch => batch.footprint)]) };
     return { visible, bounds, camera };
@@ -247,10 +237,6 @@ try {
     element.replaceChildren(...children);
   }
   function showModel(model) {
-    if (isParameters) {
-      moduleCount.max = String(Math.min(3, Math.floor(model.stepCount / 2)));
-      moduleCount.value = String(model.moduleCount);
-    }
     const middleRadius = model.innerRadius + model.stairWidth / 2;
     const run = middleRadius * Math.PI / (2 * model.stepCount);
     setMeasurementText(document.querySelector("#dimensions"),
@@ -258,22 +244,11 @@ try {
       `Rise to castle top: ${formatLength(model.landingRise)} in / ` +
       `Castle top: ${formatLength(model.totalHeight)} in / ` +
       `Inside arc: ${formatLength(model.innerArcLength)} in`);
-    for (const input of parameterInputs) {
-      const length = input === stairWidth || input === spindleShoulderAscent;
-      const value = length ? formatLength(input.valueAsNumber) : input.value;
-      const output = document.querySelector(`output[for="${input.id}"]`);
-      output.value = `${value}${length ? " in" : ""}`;
-      if (length) setMeasurementText(output, output.value);
-      const unit = length ? "inches" : input === moduleCount ? "modules" : "steps";
-      input.setAttribute("aria-valuetext", `${value} ${unit}`);
-    }
   }
-  let model = readModel();
-  let inventory = isParameters ? null : new PartInventory(model.partTree);
-  if (!isParameters) {
-    renderFilters();
-    showURLNotice([...initialParameters.warnings, ...restoreViewState(window.location.search)]);
-  }
+  const model = buildStairway();
+  const inventory = new PartInventory(model.partTree);
+  renderFilters();
+  showURLNotice(restoreViewState(window.location.search));
   const geometry = modelGeometry(model);
   const viewer = new WebGLViewer(canvas, geometry.visible, geometry.bounds, geometry.camera);
   showModel(model);
@@ -284,11 +259,9 @@ try {
       tabButtons[index].setAttribute("aria-selected", String(selected));
       tabButtons[index].tabIndex = selected ? 0 : -1;
     });
-    if (!isParameters) {
-      document.querySelector("#stairway-panel").hidden = activeTab !== "stairway";
-      document.querySelector("#part-details").hidden = activeTab === "stairway";
-      document.querySelector("#part-details").setAttribute("aria-labelledby", `${activeTab}-tab`);
-    }
+    document.querySelector("#stairway-panel").hidden = activeTab !== "stairway";
+    document.querySelector("#part-details").hidden = activeTab === "stairway";
+    document.querySelector("#part-details").setAttribute("aria-labelledby", `${activeTab}-tab`);
   }
   function stockLabel(section) {
     const stock = section.stock;
@@ -298,7 +271,7 @@ try {
           `${stock.material} - ${stock.nominalSize ?? `${formatLength(stock.thickness)} x ${formatLength(stock.width)} in`}`;
   }
   function renderFilters() {
-    const selectedModule = moduleFilter.value, selectedSubset = subsetFilter.value, selectedType = typeFilter.value;
+    const selectedModule = moduleFilter.value, selectedType = typeFilter.value;
     const option = (value, label) => {
       const element = document.createElement("option");
       element.value = value;
@@ -307,11 +280,9 @@ try {
     };
     moduleFilter.replaceChildren(option("", "All modules"),
       ...model.partTree.root.children.map((module, index) => option(String(index + 1), module.name)));
-    subsetFilter.replaceChildren(...PART_SUBSETS.map(subset => option(subset.key, subset.label)));
     typeFilter.replaceChildren(option("", "All materials"),
       ...inventory.sections.map(section => option(section.key, stockLabel(section))));
     moduleFilter.value = Number(selectedModule) <= model.moduleCount ? selectedModule : "";
-    subsetFilter.value = selectedSubset;
     typeFilter.value = inventory.sections.some(section => section.key === selectedType) ? selectedType : "";
   }
   function renderSelection() {
@@ -363,7 +334,6 @@ try {
   function renderInventory() {
     const results = inventory.filter({
       moduleNumber: moduleFilter.value ? Number(moduleFilter.value) : null,
-      subset: subsetFilter.value,
       stockKey: typeFilter.value,
     });
     filteredParts = results.groups;
@@ -406,7 +376,11 @@ try {
         const formatted = formatPartListDescription(entry.description);
         setMeasurementText(description, [formatted.stock, formatted.dimensions].filter(Boolean).join(" / "));
       }
-      item.append(title, context, description);
+      const weight = document.createElement("span");
+      weight.className = "part-option-context";
+      weight.textContent = entry.kind === "hardware" ? "Weight unavailable (hardware)" :
+        `Weight ~${(model.estimateNodeWeightLb(locations[0].id) * locations.length).toFixed(2)} lb (total)`;
+      item.append(title, context, description, weight);
       item.addEventListener("click", () => {
         try {
           selectPart(locations[0].id);
@@ -424,7 +398,6 @@ try {
   }
   function showInformation() {
     closeNeighborPopup();
-    if (isParameters) return;
     if (placementActive()) {
       showPlacementInformation();
       return;
@@ -513,7 +486,7 @@ try {
     placementDetailsToggle.hidden = false;
     updatePlacementDisclosure();
   }
-  if (!isParameters) placementDetailsToggle.addEventListener("click", () => {
+  placementDetailsToggle.addEventListener("click", () => {
     placementMetadataExpanded = !placementMetadataExpanded;
     updatePlacementDisclosure();
   });
@@ -639,7 +612,7 @@ try {
     try { selectStockView(view.name); }
     catch (cause) { reportPartViewError(cause); }
   });
-  if (!isParameters && !placementActive()) selectStockView(selectedStockView);
+  if (!placementActive()) selectStockView(selectedStockView);
   function showPlacementInformation() {
     const node = detailsNode();
     const heading = document.querySelector("#part-details-heading");
@@ -703,7 +676,7 @@ try {
       renderedDetailsId = node.id;
     } catch (cause) { reportPartViewError(cause); }
   }
-  if (!isParameters) placementInstance.addEventListener("change", () => {
+  placementInstance.addEventListener("change", () => {
     try { selectPart(placementInstance.value); }
     catch (cause) { reportUpdateError(cause); }
   });
@@ -856,66 +829,63 @@ try {
     showInformation();
     syncURL();
   }
-  if (!isParameters) {
-    clearSelectionButton.addEventListener("click", clearSelection);
-    document.querySelector("#toggle-parts").addEventListener("click", () => {
-      setPartsHidden(!document.querySelector("#parts-sidebar").hidden);
-      requestRenders();
-      syncURL();
-    });
-    for (const filter of [moduleFilter, subsetFilter, typeFilter]) {
-      filter.addEventListener("change", () => {
-        try { applyPartFilters(); }
-        catch (cause) { reportUpdateError(cause); }
-      });
-    }
-    document.querySelector("#parts-clear-filters").addEventListener("click", () => {
-      try {
-        moduleFilter.value = "";
-        subsetFilter.value = "";
-        typeFilter.value = "";
-        applyPartFilters();
-      } catch (cause) { reportUpdateError(cause); }
-    });
-    partSearch.addEventListener("input", () => {
-      try {
-        renderFind();
-        if (findMatches.length) selectPart(findMatches[0].locations[0].id, true);
-      } catch (cause) { reportUpdateError(cause); }
-    });
-    partSearch.addEventListener("keydown", event => {
-      if (event.key !== "Enter" || event.isComposing) return;
-      event.preventDefault();
-      try { moveFind(event.shiftKey ? -1 : 1); }
-      catch (cause) { reportUpdateError(cause); }
-    });
-    for (const [button, direction] of [[findPrevious, -1], [findNext, 1]]) {
-      button.addEventListener("click", () => {
-        try { moveFind(direction); }
-        catch (cause) { reportUpdateError(cause); }
-      });
-    }
-    inventoryGroups.addEventListener("keydown", event => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        clearSelection();
-        return;
-      }
-      if (!filteredParts.length) return;
-      const selectedKey = inventory.findOccurrence(locatedOccurrenceId)?.key;
-      let index = filteredParts.findIndex(({ entry }) => entry.key === selectedKey);
-      switch (event.key) {
-        case "ArrowDown": index = Math.min(index + 1, filteredParts.length - 1); break;
-        case "ArrowUp": index = index < 0 ? filteredParts.length - 1 : Math.max(0, index - 1); break;
-        case "Home": index = 0; break;
-        case "End": index = filteredParts.length - 1; break;
-        default: return;
-      }
-      event.preventDefault();
-      try { selectPart(filteredParts[index].locations[0].id, true); }
+  clearSelectionButton.addEventListener("click", clearSelection);
+  document.querySelector("#toggle-parts").addEventListener("click", () => {
+    setPartsHidden(!document.querySelector("#parts-sidebar").hidden);
+    requestRenders();
+    syncURL();
+  });
+  for (const filter of [moduleFilter, typeFilter]) {
+    filter.addEventListener("change", () => {
+      try { applyPartFilters(); }
       catch (cause) { reportUpdateError(cause); }
     });
   }
+  document.querySelector("#parts-clear-filters").addEventListener("click", () => {
+    try {
+      moduleFilter.value = "";
+      typeFilter.value = "";
+      applyPartFilters();
+    } catch (cause) { reportUpdateError(cause); }
+  });
+  partSearch.addEventListener("input", () => {
+    try {
+      renderFind();
+      if (findMatches.length) selectPart(findMatches[0].locations[0].id, true);
+    } catch (cause) { reportUpdateError(cause); }
+  });
+  partSearch.addEventListener("keydown", event => {
+    if (event.key !== "Enter" || event.isComposing) return;
+    event.preventDefault();
+    try { moveFind(event.shiftKey ? -1 : 1); }
+    catch (cause) { reportUpdateError(cause); }
+  });
+  for (const [button, direction] of [[findPrevious, -1], [findNext, 1]]) {
+    button.addEventListener("click", () => {
+      try { moveFind(direction); }
+      catch (cause) { reportUpdateError(cause); }
+    });
+  }
+  inventoryGroups.addEventListener("keydown", event => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      clearSelection();
+      return;
+    }
+    if (!filteredParts.length) return;
+    const selectedKey = inventory.findOccurrence(locatedOccurrenceId)?.key;
+    let index = filteredParts.findIndex(({ entry }) => entry.key === selectedKey);
+    switch (event.key) {
+      case "ArrowDown": index = Math.min(index + 1, filteredParts.length - 1); break;
+      case "ArrowUp": index = index < 0 ? filteredParts.length - 1 : Math.max(0, index - 1); break;
+      case "Home": index = 0; break;
+      case "End": index = filteredParts.length - 1; break;
+      default: return;
+    }
+    event.preventDefault();
+    try { selectPart(filteredParts[index].locations[0].id, true); }
+    catch (cause) { reportUpdateError(cause); }
+  });
   renderTabs();
   showInformation();
   function updateGeometry() {
@@ -966,71 +936,30 @@ try {
     renderModulesButton();
     setView();
   });
-  function renderCastleButton() {
-    if (!castleView) return;
-    castleView.textContent = castleShown ? "Hide castle" : "Show castle";
-    castleView.setAttribute("aria-pressed", String(castleShown));
-  }
-  castleView?.addEventListener("click", () => {
+  function applyVisibility() {
     try {
-      castleShown = !castleShown;
-      renderCastleButton();
+      castleShown = castleView.checked;
       updateGeometry();
       syncURL();
     } catch (cause) {
       reportUpdateError(cause);
     }
+  }
+  for (const { input } of visibilityControls) input.addEventListener("change", applyVisibility);
+  document.querySelector("#view-show-all").addEventListener("click", () => {
+    for (const { input } of visibilityControls) input.checked = true;
+    applyVisibility();
   });
   reducedMotion.addEventListener("change", setView);
-  function updateParameters(next, restoreFromURL = false) {
+  window.addEventListener("popstate", () => {
     try {
-      const previous = parameters;
-      parameters = next;
-      let updatedModel;
-      try { updatedModel = readModel(); }
-      catch (cause) { parameters = previous; throw cause; }
-      if (updatedModel.partTree.topologyKey !== model.partTree.topologyKey) locatedOccurrenceId = null;
-      model = updatedModel;
-      placementPlanner = null;
-      placementPlan = null;
-      viewStates.clear();
-      if (!isParameters) {
-        inventory = new PartInventory(model.partTree);
-        renderedDetailsId = null;
-        renderFilters();
-        if (!restoreFromURL) renderInventory();
-      }
-      if (restoreFromURL) {
-        showURLNotice([...readParameters(window.location.search).warnings,
-          ...(!isParameters ? restoreViewState(window.location.search) : [])]);
-      }
-      showModel(updatedModel);
+      showURLNotice(restoreViewState(window.location.search));
       updateGeometry();
       showInformation();
       syncURL();
-      error.hidden = true;
     } catch (cause) {
       reportUpdateError(cause);
     }
-  }
-  for (const [index, input] of parameterInputs.entries()) {
-    input.addEventListener("input", () => {
-      updateParameters({ ...parameters, [PARAMETER_FIELDS[index].key]: input.valueAsNumber });
-    });
-  }
-  if (isParameters) {
-    document.querySelector("#reset-defaults").addEventListener("click", () => {
-      for (const field of PARAMETER_FIELDS) document.querySelector(`#${field.id}`).value = String(field.default);
-      updateParameters(Object.fromEntries(PARAMETER_FIELDS.map(field => [field.key, field.default])));
-      notice.hidden = true;
-    });
-  }
-  window.addEventListener("popstate", () => {
-    const restored = readParameters(window.location.search);
-    if (isParameters) {
-      for (const field of PARAMETER_FIELDS) document.querySelector(`#${field.id}`).value = String(restored.values[field.key]);
-    }
-    updateParameters(restored.values, true);
   });
   function attachViewerControls(canvas, getViewer, onPick = null, rotate = true) {
     const pointers = new Map();
@@ -1111,7 +1040,7 @@ try {
         case "-": viewer.zoom(1 / 0.9); break;
         case "Home": viewer.reset(); break;
         case "Escape":
-          if (isParameters || canvas.id !== "viewer" || activeTab !== "stairway") return;
+          if (canvas.id !== "viewer" || activeTab !== "stairway") return;
           clearSelection();
           break;
         default: return;
@@ -1120,7 +1049,7 @@ try {
     });
   }
   attachViewerControls(canvas, () => viewer, event => {
-    if (isParameters || activeTab !== "stairway") return;
+    if (activeTab !== "stairway") return;
     try {
       const bounds = canvas.getBoundingClientRect();
       const triangle = viewer.hitTest((event.clientX - bounds.left) * canvas.clientWidth / bounds.width,
@@ -1135,74 +1064,71 @@ try {
       else selectPart(hit.id, true);
     } catch (cause) { reportUpdateError(cause); }
   });
-  if (!isParameters) {
-    neighborLink.addEventListener("click", event => {
-      event.preventDefault();
-      if (inspectedNeighborId === null) return;
-      try {
-        const id = inspectedNeighborId;
-        closeNeighborPopup();
-        if (!filteredParts.some(group => group.locations.some(location => location.id === id))) {
-          moduleFilter.value = "";
-          subsetFilter.value = "";
-          typeFilter.value = "";
-          renderInventory();
-        }
-        selectPart(id, true);
-      } catch (cause) { reportUpdateError(cause); }
-    });
-    window.addEventListener("scroll", closeNeighborPopup, true);
-    window.addEventListener("wheel", closeNeighborPopup, { capture: true, passive: true });
-    function pickPlacement(event, target, getViewer, getRanges) {
-      if (!placementActive()) return;
-      try {
-        closeNeighborPopup();
-        const bounds = target.getBoundingClientRect();
-        const triangle = getViewer().hitTest(
-          (event.clientX - bounds.left) * target.clientWidth / bounds.width,
-          (event.clientY - bounds.top) * target.clientHeight / bounds.height);
-        if (triangle === null) return;
-        const hit = getRanges().find(range => triangle >= range.start && triangle < range.end);
-        if (!hit) throw new Error("The selected Placement triangle has no matching part.");
-        if (hit.id === locatedOccurrenceId) return;
-        const location = inventory.findOccurrence(hit.id)?.locations.find(location => location.id === hit.id);
-        if (!location) throw new Error("The selected Placement neighbor has no inventory instance.");
-        pendingNeighbor = { id: hit.id, title: occurrenceTitle(location) };
-      } catch (cause) { reportUpdateError(cause); }
-    }
-    function showNeighborPopup(event) {
-      if (!pendingNeighbor) return;
-      try {
-        inspectedNeighborId = pendingNeighbor.id;
-        neighborLink.textContent = pendingNeighbor.title;
-        pendingNeighbor = null;
-        neighborPopup.showPopover();
-        const popupBounds = neighborPopup.getBoundingClientRect();
-        neighborPopup.style.left = `${Math.max(8, Math.min(event.clientX + 10,
-          window.innerWidth - popupBounds.width - 8))}px`;
-        neighborPopup.style.top = `${Math.max(8, Math.min(event.clientY + 10,
-          window.innerHeight - popupBounds.height - 8))}px`;
-        neighborLink.focus();
-      } catch (cause) { reportUpdateError(cause); }
-    }
-    // Opening on pointerup would let the same click immediately light-dismiss the popover.
-    partDrawingStage.addEventListener("click", showNeighborPopup);
-    partPreviewCanvas.addEventListener("click", showNeighborPopup);
-    attachViewerControls(partDrawingStage, () =>
-      detailsActive() && detailsNode() && !partViewsContainer.hidden ? drawingControls : null,
-    event => pickPlacement(event, selectedPartCanvas, () => selectedPartViewer,
-      () => placementPlan.views.find(view => view.name === selectedPlacementView).pickRanges), false);
-    attachViewerControls(partPreviewCanvas, () =>
-      detailsActive() && detailsNode() && !partViewSidebar.hidden ? partPreviewViewer : null,
-    event => pickPlacement(event, partPreviewCanvas, () => partPreviewViewer, () => placementPlan.previewPickRanges));
-    document.querySelector("#reset-part-preview").addEventListener("click", () => partPreviewViewer?.reset());
-    partPreviewCanvas.addEventListener("webglcontextlost", () => {
-      reportPartViewError(new Error("The WebGL context was lost. Reload the page to restore the part preview."));
-    });
-    selectedPartCanvas.addEventListener("webglcontextlost", () => {
-      reportPartViewError(new Error("The WebGL context was lost. Reload the page to restore the part view."));
-    });
+  neighborLink.addEventListener("click", event => {
+    event.preventDefault();
+    if (inspectedNeighborId === null) return;
+    try {
+      const id = inspectedNeighborId;
+      closeNeighborPopup();
+      if (!filteredParts.some(group => group.locations.some(location => location.id === id))) {
+        moduleFilter.value = "";
+        typeFilter.value = "";
+        renderInventory();
+      }
+      selectPart(id, true);
+    } catch (cause) { reportUpdateError(cause); }
+  });
+  window.addEventListener("scroll", closeNeighborPopup, true);
+  window.addEventListener("wheel", closeNeighborPopup, { capture: true, passive: true });
+  function pickPlacement(event, target, getViewer, getRanges) {
+    if (!placementActive()) return;
+    try {
+      closeNeighborPopup();
+      const bounds = target.getBoundingClientRect();
+      const triangle = getViewer().hitTest(
+        (event.clientX - bounds.left) * target.clientWidth / bounds.width,
+        (event.clientY - bounds.top) * target.clientHeight / bounds.height);
+      if (triangle === null) return;
+      const hit = getRanges().find(range => triangle >= range.start && triangle < range.end);
+      if (!hit) throw new Error("The selected Placement triangle has no matching part.");
+      if (hit.id === locatedOccurrenceId) return;
+      const location = inventory.findOccurrence(hit.id)?.locations.find(location => location.id === hit.id);
+      if (!location) throw new Error("The selected Placement neighbor has no inventory instance.");
+      pendingNeighbor = { id: hit.id, title: occurrenceTitle(location) };
+    } catch (cause) { reportUpdateError(cause); }
   }
+  function showNeighborPopup(event) {
+    if (!pendingNeighbor) return;
+    try {
+      inspectedNeighborId = pendingNeighbor.id;
+      neighborLink.textContent = pendingNeighbor.title;
+      pendingNeighbor = null;
+      neighborPopup.showPopover();
+      const popupBounds = neighborPopup.getBoundingClientRect();
+      neighborPopup.style.left = `${Math.max(8, Math.min(event.clientX + 10,
+        window.innerWidth - popupBounds.width - 8))}px`;
+      neighborPopup.style.top = `${Math.max(8, Math.min(event.clientY + 10,
+        window.innerHeight - popupBounds.height - 8))}px`;
+      neighborLink.focus();
+    } catch (cause) { reportUpdateError(cause); }
+  }
+  // Opening on pointerup would let the same click immediately light-dismiss the popover.
+  partDrawingStage.addEventListener("click", showNeighborPopup);
+  partPreviewCanvas.addEventListener("click", showNeighborPopup);
+  attachViewerControls(partDrawingStage, () =>
+    detailsActive() && detailsNode() && !partViewsContainer.hidden ? drawingControls : null,
+  event => pickPlacement(event, selectedPartCanvas, () => selectedPartViewer,
+    () => placementPlan.views.find(view => view.name === selectedPlacementView).pickRanges), false);
+  attachViewerControls(partPreviewCanvas, () =>
+    detailsActive() && detailsNode() && !partViewSidebar.hidden ? partPreviewViewer : null,
+  event => pickPlacement(event, partPreviewCanvas, () => partPreviewViewer, () => placementPlan.previewPickRanges));
+  document.querySelector("#reset-part-preview").addEventListener("click", () => partPreviewViewer?.reset());
+  partPreviewCanvas.addEventListener("webglcontextlost", () => {
+    reportPartViewError(new Error("The WebGL context was lost. Reload the page to restore the part preview."));
+  });
+  selectedPartCanvas.addEventListener("webglcontextlost", () => {
+    reportPartViewError(new Error("The WebGL context was lost. Reload the page to restore the part view."));
+  });
   canvas.addEventListener("webglcontextlost", () => {
     showError("The WebGL context was lost. Reload the page to restore the model.");
   });
@@ -1225,11 +1151,9 @@ try {
   const observer = new ResizeObserver(requestRenders);
   observer.observe(canvas);
   for (const view of partViews) observer.observe(view.canvas);
-  if (!isParameters) {
-    observer.observe(selectedPartCanvas);
-    observer.observe(partPreviewCanvas);
-    observer.observe(partDrawingStage);
-  }
+  observer.observe(selectedPartCanvas);
+  observer.observe(partPreviewCanvas);
+  observer.observe(partDrawingStage);
   window.addEventListener("resize", () => {
     closeNeighborPopup();
     drawingViewport = null;
