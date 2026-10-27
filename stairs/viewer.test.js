@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
-import { Board, buildStairway, combineGeometries, NotchedBoard, ProfiledPlywood } from "./model.js";
+import { Board, buildStairway, combineGeometries, NotchedBoard, ProfiledPlywood, ThreadedInsert } from "./model.js";
 import { WebGLViewer, STANDARD_VIEWS } from "./renderer.js";
 import { createPieces, PieceTree, PartBrowser, PART_VIEW_NAMES, partViewLabel } from "./parts.js";
 import { PartInventory, PART_VISIBILITY_CATEGORIES, partVisibilityCategory } from "./part-list.js";
@@ -1222,6 +1222,26 @@ test("hit testing uses the nearest visible indexed triangle with camera transfor
   }
 });
 
+test("installed insert centers are black click targets while detail bores remain open", () => {
+  const { geometry, installedGeometry } = new ThreadedInsert().createDesign();
+  const { viewer } = createViewer();
+  for (const mesh of [installedGeometry, geometry]) {
+    viewer.setGeometry(mesh);
+    viewer.setStandardView("Top");
+    for (const position of [[0, 0, 0], [0.09, 0, 0], [0, 0, 0.09]]) {
+      const point = screenPoint(viewer, position), hit = viewer.hitTest(point.x, point.y);
+      if (mesh === geometry) {
+        assert.equal(hit, null, "The detail mesh must retain its open bore.");
+      } else {
+        assert.notEqual(hit, null, "The installed center must be clickable.");
+        for (const index of mesh.indices.slice(hit * 3, hit * 3 + 3)) {
+          assert.deepEqual(Array.from(mesh.colors.slice(index * 3, index * 3 + 3)), [0, 0, 0]);
+        }
+      }
+    }
+  }
+});
+
 test("module batches retain indexed buffers across transforms, bind each draw, and release surplus buffers", () => {
   const originalWindow = globalThis.window;
   globalThis.window = { devicePixelRatio: 1 };
@@ -1757,6 +1777,22 @@ test("Stairway is the default content tab and Details supports empty selection a
   assert.equal(placement.getAttribute("aria-selected"), "true");
 });
 
+test("threaded insert Details shows the full body rather than its installed flange-only mesh", () => {
+  const model = buildStairway(), controls = createControls({ buildModel: () => model });
+  const piece = model.partTree.getLeaves().find(piece => piece.key === "rearSpindleInsert");
+  const item = controls.node("#parts-groups").children.find(item =>
+    item.children[0].textContent.startsWith("Threaded insert"));
+  assert.ok(item);
+  item.dispatch("click");
+  controls.node("#details-tab").dispatch("click");
+  const drawing = controls.partViewers.find(viewer => viewer.canvas.id === "part-view-selected");
+  assert.deepEqual(drawing.geometry, piece.part.createGeometry());
+  assert.notDeepEqual(drawing.geometry, piece.part.createInstalledGeometry());
+  assert.equal(controls.node("#part-view-layout").hidden, false);
+  assert.equal(controls.node("#part-view-sidebar").hidden, true);
+  assert.equal(controls.node("#part-details-error").hidden, true);
+});
+
 test("Placement uses a filtered instance dropdown while Details retains the unique title", () => {
   const model = buildStairway(), inventory = new PartInventory(model.partTree);
   const controls = createControls({ buildModel: () => model });
@@ -2078,7 +2114,7 @@ test("Stairway categories are independent and leave Parts, Find, selection, and 
     assert.deepEqual(controls.node("#parts-groups").children, rows);
     assert.deepEqual(controls.mainViewer.getCameraMatrices(), camera);
   }
-  for (const keys of [["foundation", "uprights"], ["treads", "siding"], ["banister", "ribs"], []]) {
+  for (const keys of [["foundation", "uprights"], ["risers", "treads"], ["treads", "siding"], ["banister", "ribs"], []]) {
     setShownCategories(controls, keys);
     assert.deepEqual(controls.geometry, expectedPartsGeometry(model, expected.groups, null, keys));
     assert.deepEqual(controls.node("#parts-groups").children, rows);
@@ -2979,6 +3015,7 @@ test("view buttons float inside the 3D stage while model information occupies th
     assert.match(stage, new RegExp(`id="view-${key}" type="checkbox"`));
   }
   assert.match(stage, /id="view-step-framing"[^>]*>Step framing<\/label>\s*<label><input id="view-ribs"/);
+  assert.match(stage, /id="view-risers"[^>]*>Risers<\/label>\s*<label><input id="view-treads"/);
   assert.match(stage, /id="view-show-all"[^>]*>Show all<\/button>/);
   assert.doesNotMatch(html, /parts-subset/);
   assert.doesNotMatch(stage, /id="model-information"/);
@@ -3112,6 +3149,12 @@ test("show URLs restore independent categories, preserve hidden selections, and 
   const point = visiblePartPoint(controls, model, visibleGroups, selectedKey);
   tapPart(controls, point);
   assert.equal(inventory.findOccurrence(controls.url.searchParams.get("part")).key, selectedKey);
+  controls.restoreURL("?show=risers");
+  assert.equal(controls.node("#view-risers").checked, true);
+  assert.equal(controls.node("#view-treads").checked, false);
+  assert.equal(controls.node("#view-uprights").checked, false);
+  assert.deepEqual(controls.geometry,
+    expectedPartsGeometry(model, inventory.filter().groups, null, ["risers"]));
   for (const show of ["show=missing", "show=treads+treads", "show=ribs&show=foundation"]) {
     controls.restoreURL(`?${show}`);
     assert.ok(["castle", ...stairwayCategories].every(key => controls.node(`#view-${key}`).checked));

@@ -1,18 +1,34 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  Board, OneByFour, NotchedBoard, Siding, Tread, BentPlywood, ProfiledPlywood, SUPPORT_BEAM_TOP_HEIGHT, SpindleShim, Caster, CASTER_DIMENSIONS, INNER_RADIUS,
-  buildStairway, combineGeometries, OAK, PLYWOOD, PARTICLE_BOARD, TOTAL_HEIGHT,
+  Board, OneByFour, NotchedBoard, Siding, Tread, BentPlywood, ProfiledPlywood, SUPPORT_BEAM_TOP_HEIGHT, SpindleShim, Caster, CASTER_DIMENSIONS, ThreadedFlange, THREADED_FLANGE_DIMENSIONS, MendingPlate, INNER_RADIUS,
+  ThreadedInsert, THREADED_INSERT_DIMENSIONS,
+  buildStairway, combineGeometries, PINE, DOUGLAS_FIR, PLYWOOD, PARTICLE_BOARD, TOTAL_HEIGHT,
   PANEL_STIFFENER_THICKNESS, PANEL_STIFFENER_WIDTH, PANEL_STIFFENER_BOTTOM_HEIGHT,
   PANEL_SUPPORT_BLOCK_BOTTOM_HEIGHT, PANEL_SUPPORT_BLOCK_LENGTH, Spindle,
   SIDING_RIB_THICKNESS, SIDING_RIB_WIDTH, SIDING_RIB_BLOCK_LENGTH,
 } from "./model.js";
 import { Piece } from "./parts.js";
+import { PartCatalog, transformGeometry } from "./part-design.js";
 import { PartInventory } from "./part-list.js";
 import { outlinePoint, outlineArea, outlineBounds, tessellateOutline, clipOutline, constructionTrapezoid, constructionTangentExtension, notchRectangle, constructionProfile, profileContains, reverseOutline } from "./plywood-outline.js";
 
 function close(actual, expected, tolerance = 1e-5) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} differs from ${expected}`);
+}
+
+function horizontalSurfaceCovers(mesh, point) {
+  for (let i = 0; i < mesh.indices.length; i += 3) {
+    if (Math.abs(mesh.normals[mesh.indices[i] * 3 + 1]) < 0.99) continue;
+    const triangle = Array.from(mesh.indices.slice(i, i + 3), index =>
+      [mesh.positions[index * 3], mesh.positions[index * 3 + 2]]);
+    const sides = triangle.map((a, j) => {
+      const b = triangle[(j + 1) % 3];
+      return (b[0] - a[0]) * (point[1] - a[1]) - (b[1] - a[1]) * (point[0] - a[0]);
+    });
+    if (sides.every(value => value >= -1e-8) || sides.every(value => value <= 1e-8)) return true;
+  }
+  return false;
 }
 
 function contactArea(footprint, boundary) {
@@ -211,6 +227,155 @@ test("radial side cuts derive trapezoid vertices and preserve signed perpendicul
     const recipe = structuredClone(construction);
     change(recipe);
     assert.throws(() => constructionTrapezoid(recipe), RangeError);
+  }
+});
+
+test("threaded flange mesh retains reference plate dimensions and three open bores", () => {
+  const flange = new ThreadedFlange(), mesh = flange.createGeometry();
+  assertBoardsGeometry(mesh);
+  const bounds = [0, 1, 2].map(axis => {
+    const values = mesh.positions.filter((_, i) => i % 3 === axis);
+    return [Math.min(...values), Math.max(...values)];
+  });
+  close(bounds[0][1] - bounds[0][0], 2.75);
+  close(bounds[2][1] - bounds[2][0], 1.27);
+  close(bounds[1][0], 0);
+  assert.ok(bounds[1][1] > 5 / 25.4, "The boss must project beyond the mounting plate.");
+  assert.ok(mesh.positions.some((value, i) => i % 3 === 1 && Math.abs(value - 5 / 25.4) < 1e-6));
+  assert.ok(mesh.grain.every(value => value === 0), "Hardware must not have a wood texture.");
+  const covered = point => horizontalSurfaceCovers(mesh, point);
+  for (const point of [[0, 0], [0.18, 0], [-0.18, 0],
+    [-1, 0], [-1.13, 0], [-0.87, 0], [1, 0], [1.13, 0], [0.87, 0]]) {
+    assert.equal(covered(point), false, "The threaded and mounting holes must pass through the mesh.");
+  }
+  assert.equal(covered([0.6, 0.4]), true, "Material outside the openings must remain.");
+  assert.equal(covered([0.2, 0]), true, "The boss must surround the nominal threaded opening.");
+  const original = mesh.positions[0];
+  mesh.positions[0] = 100;
+  close(flange.createGeometry().positions[0], original);
+});
+
+test("threaded flange defines a reusable purchased Part with the requested name and source description", () => {
+  const flange = new ThreadedFlange(), catalog = new PartCatalog();
+  const description = flange.getPartDescription();
+  const part = catalog.define(description, { createDesign: () => flange.createDesign() });
+  assert.equal(flange.partKind, "hardware");
+  assert.equal(part.kind, "hardware");
+  assert.equal(part.issue, null);
+  assert.equal(part.description.productName, "Threaded flange");
+  assert.match(part.description.summary, /galvanized ceiling flange for ⅜-inch threaded rod/i);
+  assert.equal(part.description.productUrl, "https://www.amazon.com/dp/B0F4N3DTHR");
+  assert.match(part.description.note, /illustrative, not published dimensions/);
+  assert.match(part.description.specifications.join(" "), /thread pitch is not specified/i);
+  const second = new ThreadedFlange();
+  assert.equal(catalog.define(second.getPartDescription(), { createDesign: () => second.createDesign() }), part);
+  assert.deepEqual(part.createGeometry(), flange.createGeometry());
+  assert.equal(part.material, null);
+  assert.equal(part.volume, undefined, "Unspecified hardware weight must not become a wood estimate.");
+});
+
+test("mending plate is reusable purchased hardware with an open clearance bore and two mounting slots", () => {
+  const plate = new MendingPlate(), mesh = plate.createGeometry(), catalog = new PartCatalog();
+  assertBoardsGeometry(mesh);
+  for (const [axis, expected] of [[0, 4.33], [1, 0.12], [2, 1.22]]) {
+    const values = mesh.positions.filter((_, i) => i % 3 === axis);
+    close(Math.max(...values) - Math.min(...values), expected);
+  }
+  close(Math.min(...mesh.positions.filter((_, i) => i % 3 === 1)), 0);
+  assert.ok(mesh.grain.every(value => value === 0));
+  for (const point of [[0, 0], [3 / 16, 0], [-3 / 16, 0],
+    [-28 / 25.4, 0], [28 / 25.4, 0], [-37 / 25.4, 0], [37 / 25.4, 0]]) {
+    assert.equal(horizontalSurfaceCovers(mesh, point), false, "The bolt bore and slots must remain open.");
+  }
+  for (const point of [[0.3, 0], [0, 0.4], [28 / 25.4, 0.4]]) {
+    assert.equal(horizontalSurfaceCovers(mesh, point), true, "The plate must retain material around the openings.");
+  }
+  const part = catalog.define(plate.getPartDescription(), { createDesign: () => plate.createDesign() });
+  assert.equal(plate.partKind, "hardware");
+  assert.equal(part.kind, "hardware");
+  assert.equal(part.issue, null);
+  assert.equal(part.description.productName, "Mending plate");
+  assert.equal(part.description.productUrl, "https://www.amazon.com/dp/B0F7Z44BS2");
+  assert.match(part.description.note, /neither is specified/);
+  assert.equal(part.material, null);
+  assert.equal(part.volume, undefined);
+  const second = new MendingPlate();
+  assert.equal(catalog.define(second.getPartDescription(), { createDesign: () => second.createDesign() }), part);
+  assert.deepEqual(part.createGeometry(), mesh);
+  mesh.positions[0] = 100;
+  assert.deepEqual(plate.createGeometry(), part.createGeometry(), "Callers must not mutate the cached mesh.");
+});
+
+test("threaded insert keeps full and flange-only closed meshes under one purchased Part", () => {
+  const insert = new ThreadedInsert(), catalog = new PartCatalog();
+  const part = catalog.define(insert.getPartDescription(), { createDesign: () => insert.createDesign() });
+  const full = part.createGeometry(), installed = part.createInstalledGeometry();
+  assert.notEqual(full, installed);
+  for (const mesh of [full, installed]) {
+    assertBoardsGeometry(mesh);
+    for (const axis of [0, 2]) {
+      const values = mesh.positions.filter((_, i) => i % 3 === axis);
+      close(Math.max(...values) - Math.min(...values), THREADED_INSERT_DIMENSIONS.flangeDiameter);
+    }
+    assert.equal(horizontalSurfaceCovers(mesh, [0, 0]), mesh === installed);
+    assert.equal(horizontalSurfaceCovers(mesh, [0.12, 0]), mesh === installed);
+    assert.equal(horizontalSurfaceCovers(mesh, [0.21, 0]), true);
+    assert.ok(mesh.grain.every(value => value === 0));
+  }
+  const fullHeights = full.positions.filter((_, i) => i % 3 === 1);
+  const installedHeights = installed.positions.filter((_, i) => i % 3 === 1);
+  close(Math.max(...fullHeights) - Math.min(...fullHeights), 10 / 25.4);
+  close(Math.min(...installedHeights), 0);
+  close(Math.max(...installedHeights), Math.max(...fullHeights));
+  assert.ok(Math.max(...installedHeights) < THREADED_INSERT_DIMENSIONS.length / 10);
+  assert.equal(part.description.productUrl, "https://www.amazon.com/dp/B0HFHNMTGR");
+  assert.match(part.description.summary, /1\/4-20 x 10 mm/);
+  assert.match(part.description.note, /illustrative/);
+  assert.equal(part.material, null);
+  assert.equal(part.volume, undefined);
+  const second = new ThreadedInsert();
+  assert.equal(catalog.define(second.getPartDescription(), { createDesign: () => second.createDesign() }), part);
+  assert.deepEqual(insert.createGeometry(), installed);
+  const mutable = insert.createGeometry();
+  mutable.positions[0] = 100;
+  assert.deepEqual(insert.createGeometry(), installed);
+});
+
+test("spindle joins install only insert flanges on the front faces of module 1 and 2 rear spindles", () => {
+  for (const width of [20, 24, 36]) {
+    const model = buildStairway(width);
+    const pieces = model.partTree.getLeaves().filter(piece => piece.key === "rearSpindleInsert");
+    assert.deepEqual(pieces.map(piece => piece.stepNumber), [3, 6]);
+    assert.equal(pieces[0].part, pieces[1].part);
+    const entry = new PartInventory(model.partTree).entries.find(entry => entry.key === pieces[0].part.key);
+    assert.equal(entry.quantity, 2);
+    for (const [index, piece] of pieces.entries()) {
+      const step = model.modules[index].steps.at(-1), rear = step.parts.rearSpindle;
+      const insert = step.parts.rearSpindleInsert, placement = insert.getPlacement();
+      const normal = rear.getStockAxes()[1], across = rear.getStockAxes()[2];
+      close(placement[12], (rear.footprint[0][0] + rear.footprint[1][0]) / 2);
+      close(placement[14], -(rear.footprint[0][1] + rear.footprint[1][1]) / 2);
+      close(placement[13], step.parts.spindleShim.vertices[0][1] + 2);
+      assert.deepEqual(placement.slice(4, 7), normal);
+      assert.ok(THREADED_INSERT_DIMENSIONS.flangeDiameter < rear.width);
+      const local = insert.createGeometry();
+      for (let i = 0; i < local.positions.length; i += 3) {
+        const offset = Array.from(local.positions.slice(i, i + 3),
+          (value, axis) => value - placement[12 + axis]);
+        const projection = axis => offset.reduce((sum, value, j) => sum + value * axis[j], 0);
+        assert.ok(projection(normal) >= -1e-5, "The flange must project outward, not into the wood.");
+        assert.ok(Math.abs(projection(across)) < rear.width / 2);
+      }
+      assert.deepEqual(model.createNodeGeometry(piece.id),
+        transformGeometry(piece.part.createInstalledGeometry(), model.getPieceTransform(piece.id)));
+      for (const [explosion, moduleExplosion] of [[1, 0], [0, 1], [0.5, 0.5]]) {
+        assert.deepEqual(model.createNodeGeometry(piece.id, explosion, moduleExplosion),
+          transformGeometry(piece.part.createInstalledGeometry(),
+            model.getPieceTransform(piece.id, explosion, moduleExplosion)));
+      }
+    }
+    assert.equal(model.modules[2].steps.at(-1).parts.rearSpindleInsert, undefined);
+    if (width === 20) close(model.estimateNodeWeightLb(), 181.86270468948476);
   }
 });
 
@@ -847,110 +1012,327 @@ test("intermediate side supports stop at the next post faces without tongue notc
   }
 });
 
-test("upper modules have minimal rear gussets on the front faces without expanding their footprints", () => {
+test("module backs have no plywood gussets or panels obstructing removable attachments", () => {
   for (const width of [20, 24, 36]) {
     const model = buildStairway(width), pieces = model.partTree.getLeaves();
-    const gussets = pieces.filter(piece => piece.key === "upperBackGusset");
-    assert.equal(gussets.length, 2);
-    assert.equal(gussets[0].part, gussets[1].part);
+    assert.ok(!pieces.some(piece =>
+      ["upperBackGusset", "lowerBackGusset", "rearUprightBrace", "backPanel"].includes(piece.key)));
     for (const module of model.modules) {
       const step = module.steps.at(-1);
       assert.equal(step.parts.backPanel, undefined);
       assert.equal(step.parts.lowerBackGusset, undefined);
-      for (const step of module.steps) {
-        assert.equal(step.parts.topFrame.boards.frontBearingCap, undefined);
-      }
-      if (!module.startIndex) {
-        assert.equal(step.parts.upperBackGusset, undefined);
-        continue;
-      }
-      const gusset = step.parts.upperBackGusset, post = step.parts.uprights.boards.leftRearUpright;
-      const rear = step.parts.topFrame.boards.northCrossPiece;
-      close(gusset.length, 8);
-      close(gusset.width, 8);
-      close(gusset.thickness, 0.25);
-      close(gusset.bottomHeight + gusset.width, rear.bottomHeight + rear.width);
-      const plane = post.footprint[0].reduce((sum, value, axis) => sum + value * post.along[axis], 0);
-      for (const [index, point] of gusset.footprint.entries()) {
-        close(point.reduce((sum, value, axis) => sum + value * post.along[axis], 0),
-          plane - (index < 2 ? gusset.thickness : 0));
-        for (const [i, a] of step.footprint.entries()) {
-          const b = step.footprint[(i + 1) % step.footprint.length];
-          assert.ok((b[0] - a[0]) * (point[1] - a[1]) -
-            (b[1] - a[1]) * (point[0] - a[0]) >= -1e-8);
-        }
-      }
-      for (const point of rear.footprint.slice(0, 2)) {
-        close(point.reduce((sum, value, axis) => sum + value * post.along[axis], 0), plane);
-      }
-      const across = point => point.reduce((sum, value, axis) =>
-        sum + (value - gusset.footprint[3][axis]) * post.across[axis], 0);
-      const outline = gusset.outline.map(edge => edge.from);
-      for (const [board, face, minimum] of [
-        [post, post.footprint.slice(0, 2), 8], [rear, rear.footprint.slice(0, 2), 20],
-      ]) {
-        const left = across(face[0]), right = across(face[1]);
-        const bottom = board.bottomHeight - gusset.bottomHeight;
-        const top = bottom + (board === post ? board.length : board.width);
-        assert.ok(contactArea(outline, [[left, bottom], [right, bottom], [right, top], [left, top]]) > minimum,
-          "The gusset must overlap both the upright face and the rear tread-support face.");
-      }
-      const description = gusset.getManufacturingDescription();
-      assert.equal(description.kind, "plywood");
-      assert.equal(description.outline.length, 3);
-      const piece = gussets.find(piece => piece.stepNumber === step.height / step.stepRise);
-      for (const geometry of [gusset.createGeometry(), gusset.createStockGeometry(),
-        model.createNodeGeometry(piece.id)]) {
-        assertBoardsGeometry(geometry);
-        close(meshVolume(geometry), 8, 0.001);
-      }
+      assert.equal(step.parts.upperBackGusset, undefined);
+      assert.equal(step.parts.rearUprightBrace, undefined);
     }
   }
 });
 
-test("lower rear plywood braces seat on the beams, span the upright edges, and move blocks forward", () => {
+test("lower front plywood braces retain the rear panel size and fill the module-front setback", () => {
   for (const width of [20, 24, 36]) {
     const model = buildStairway(width);
-    const pieces = model.partTree.getLeaves().filter(piece => piece.key === "rearUprightBrace");
+    const pieces = model.partTree.getLeaves().filter(piece => piece.key === "frontUprightBrace");
     assert.equal(pieces.length, 2);
     assert.equal(pieces[0].part, pieces[1].part);
+    assert.ok(model.steps.every(step => step.parts.rearUprightBrace === undefined));
     for (const [moduleIndex, module] of model.modules.entries()) {
-      const step = module.steps.at(-1), brace = step.parts.rearUprightBrace;
+      const step = module.steps[0], brace = step.parts.frontUprightBrace;
       if (!moduleIndex) {
         assert.equal(brace, undefined);
         continue;
       }
       const posts = step.parts.uprights.boards, frame = step.parts.bottomFrame.boards;
-      const left = posts.leftRearUpright, right = posts.rightRearUpright;
-      const beam = frame.rearSupportCrossPiece;
+      const left = posts.leftUpright, right = posts.rightUpright;
+      const rear = module.steps.at(-1).parts.uprights.boards;
+      const beam = frame.supportCrossPiece;
       close(brace.width, 8);
       close(brace.thickness, 0.25);
-      close(brace.bottomHeight, beam.bottomHeight + beam.thickness);
-      for (const [actual, expected] of [[brace.footprint[3], left.footprint[0]],
-        [brace.footprint[2], right.footprint[1]]]) {
-        for (const axis of [0, 1]) close(actual[axis], expected[axis]);
-      }
-      close(brace.length, Math.hypot(...right.footprint[1].map((value, axis) =>
-        value - left.footprint[0][axis])));
-      const frontPlane = brace.footprint[0].reduce((sum, value, axis) =>
-        sum + value * left.along[axis], 0);
+      close(brace.bottomHeight, beam.bottomHeight);
+      close(brace.bottomHeight, 5.75);
+      close(brace.length, Math.hypot(...rear.rightRearUpright.footprint[1].map((value, axis) =>
+        value - rear.leftRearUpright.footprint[0][axis])));
+      close((brace.footprint[0][0] + brace.footprint[1][0]) / 2,
+        (left.footprint[0][0] + right.footprint[1][0]) / 2);
+      for (const point of brace.footprint.slice(0, 2)) close(point[1], 0);
+      for (const point of brace.footprint.slice(2)) close(point[1], 0.25);
       for (const side of ["left", "right"]) {
-        const block = frame[`${side}RearSupportBlock`];
-        for (const point of block.footprint.slice(2)) {
-          close(point.reduce((sum, value, axis) => sum + value * left.along[axis], 0), frontPlane);
-        }
+        const post = posts[`${side}Upright`];
+        close(post.footprint[0][1], brace.footprint[3][1]);
+        const overlap = Math.min(brace.footprint[2][0], post.footprint[1][0]) -
+          Math.max(brace.footprint[3][0], post.footprint[0][0]);
+        assert.ok(overlap > 3.4, "Both front posts must have broad-face contact with the brace.");
+        const preceding = model.modules[moduleIndex - 1].steps.at(-1);
+        const previousPost = preceding.parts.uprights.boards[`${side}RearUpright`];
+        const c = Math.cos(step.angle), s = Math.sin(step.angle);
+        const matingFace = previousPost.footprint.slice(2).map(([east, north]) => [
+          c * (east + INNER_RADIUS) + s * north - INNER_RADIUS,
+          -s * (east + INNER_RADIUS) + c * north,
+        ]);
+        for (const point of matingFace) close(point[1], brace.footprint[0][1]);
+        const faceMin = Math.min(...matingFace.map(point => point[0]));
+        const faceMax = Math.max(...matingFace.map(point => point[0]));
+        const area = contactArea([
+          [brace.footprint[0][0], brace.bottomHeight],
+          [brace.footprint[1][0], brace.bottomHeight],
+          [brace.footprint[1][0], brace.bottomHeight + brace.width],
+          [brace.footprint[0][0], brace.bottomHeight + brace.width],
+        ], [[faceMin, previousPost.bottomHeight], [faceMax, previousPost.bottomHeight],
+          [faceMax, previousPost.bottomHeight + previousPost.length],
+          [faceMin, previousPost.bottomHeight + previousPost.length]]);
+        assert.ok(area > 20, "Each preceding rear post must meet the panel flush over a broad fastening face.");
       }
-      const prefix = `stairway/module-${moduleIndex + 1}/step-${module.startIndex + module.steps.length}`;
+      const prefix = `stairway/module-${moduleIndex + 1}/step-${module.startIndex + 1}`;
       const installed = key => ({ createGeometry: () => model.createNodeGeometry(`${prefix}-${key}`) });
-      assert.ok(horizontalContactArea(installed("rearSupportCrossPiece"),
-        installed("rearUprightBrace"), brace.bottomHeight) > brace.length * 0.249,
-      "The rectangular brace's entire bottom edge must bear on the rear cross-beam.");
       assert.equal(brace.getManufacturingDescription().kind, "plywood");
       for (const geometry of [brace.createGeometry(), brace.createStockGeometry(),
-        installed("rearUprightBrace").createGeometry()]) {
+        installed("frontUprightBrace").createGeometry()]) {
         assertBoardsGeometry(geometry);
         close(meshVolume(geometry), brace.length * 8 * 0.25, 0.001);
       }
+    }
+  }
+});
+
+test("rear tread attachment blocks face forward and meet the treads and side support inside faces", () => {
+  for (const width of [20, 24, 36]) {
+    const model = buildStairway(width), leaves = model.partTree.getLeaves();
+    const pieces = leaves.filter(piece => /^(left|right)RearTreadBlock$/.test(piece.key));
+    assert.equal(pieces.length, 4);
+    assert.equal(new Set(pieces.map(piece => piece.part)).size, 1);
+    assert.deepEqual([...new Set(pieces.map(piece => piece.stepNumber))], [3, 6]);
+    for (const piece of pieces) {
+      const step = model.steps[piece.stepNumber - 1], left = piece.key.startsWith("left");
+      const block = step.parts.topFrame.boards[piece.key], side = left ? "left" : "right";
+      const support = step.parts.topFrame.boards[`${side}StepSupport`];
+      const edge = left ? [support.footprint[1], support.footprint[2]]
+        : [support.footprint[0], support.footprint[3]];
+      const depth = Math.hypot(...edge[1].map((value, axis) => value - edge[0][axis]));
+      const along = edge[1].map((value, axis) => (value - edge[0][axis]) / depth);
+      const distance = point => (point[0] - edge[0][0]) * along[1] -
+        (point[1] - edge[0][1]) * along[0];
+      const broadEdge = block.footprint[3].map((value, axis) => value - block.footprint[0][axis]);
+      const rear = step.parts.topFrame.boards.northCrossPiece;
+      const rearEdge = rear.footprint[1].map((value, axis) => value - rear.footprint[0][axis]);
+      close(broadEdge[0] * rearEdge[1] - broadEdge[1] * rearEdge[0], 0);
+      close(block.bottomHeight, piece.stepNumber === 3 ? 18 : 43.5);
+      close(block.bottomHeight + block.length, step.parts.tread.bottomHeight);
+      assert.equal(block.stock.nominalSize, "1x4");
+      assert.deepEqual(block.grain.direction, [0, 1, 0]);
+      const blank = piece.getDescription().blank;
+      close(blank.length, 7);
+      close(blank.width, block.width);
+      close(blank.thickness, 0.75);
+      {
+        const upright = step.parts.uprights.boards[`${side}RearUpright`];
+        const project = point => point.reduce((sum, value, axis) => sum + value * upright.across[axis], 0);
+        close(project(block.footprint[2]), project(upright.footprint[left ? 1 : 0]));
+        close(project(block.footprint[3]), project(upright.footprint[left ? 1 : 0]));
+        assert.ok(block.width < 3.5);
+        assert.ok(piece.getDescription().widthTrim, "The narrower block must record its rip from 1x4 stock.");
+      }
+      const [a, b] = rear.footprint;
+      const rearClearance = block.footprint.map(point =>
+        ((b[1] - a[1]) * (point[0] - a[0]) - (b[0] - a[0]) * (point[1] - a[1])) /
+          Math.hypot(b[0] - a[0], b[1] - a[1]));
+      assert.ok(rearClearance.every(value => value >= -1e-8));
+      close(Math.min(...rearClearance), 0, 1e-8);
+      const bevel = 0.75 * Math.tan(step.angle / 2);
+      const area = 0.75 * (block.width - bevel / 2);
+      close(horizontalContactArea(block, step.parts.tread, step.parts.tread.bottomHeight), area);
+      const mesh = block.createGeometry();
+      let sideContact = 0;
+      const rearSurfaces = new Set();
+      for (let i = 0; i < mesh.indices.length; i += 3) {
+        const triangle = Array.from(mesh.indices.slice(i, i + 3), vertex =>
+          [mesh.positions[vertex * 3], mesh.positions[vertex * 3 + 1], -mesh.positions[vertex * 3 + 2]]);
+        if (triangle.every(point => Math.abs(distance([point[0], point[2]])) < 1e-5)) {
+          sideContact += contactArea(triangle.map(point => [
+            (point[0] - edge[0][0]) * along[0] + (point[2] - edge[0][1]) * along[1], point[1],
+          ]), [[0, support.bottomHeight], [depth, support.bottomHeight],
+            [depth, step.parts.tread.bottomHeight], [0, step.parts.tread.bottomHeight]]);
+        }
+        const onRear = triangle.every(point =>
+          Math.abs(rearEdge[1] * (point[0] - a[0]) - rearEdge[0] * (point[2] - a[1])) < 1e-4);
+        if (onRear) {
+          const across = rearEdge.map(value => value / Math.hypot(...rearEdge));
+          const project = ([east, north]) => east * across[0] + north * across[1];
+          const face = triangle.map(point => [project([point[0], point[2]]), point[1]]);
+          for (const [name, board] of [["rear support", rear],
+            ["rear upright", step.parts.uprights.boards[`${side}RearUpright`]]]) {
+            const xs = board.footprint.slice(0, 2).map(project);
+            const bottom = board.bottomHeight, top = bottom + (board === rear ? board.width : board.length);
+            if (contactArea(face, [[xs[0], bottom], [xs[1], bottom], [xs[1], top], [xs[0], top]]) > 0.01) {
+              rearSurfaces.add(name);
+            }
+          }
+        }
+      }
+      close(sideContact, 0.75 / Math.cos(step.angle / 2) * 3.5);
+      assert.deepEqual(rearSurfaces, new Set(["rear support", "rear upright"]));
+      for (const mesh of [block.createGeometry(), block.createStockGeometry(), model.createNodeGeometry(piece.id)]) {
+        assertBoardsGeometry(mesh);
+        close(meshVolume(mesh), 7 * area, 0.001);
+      }
+    }
+  }
+});
+
+test("four threaded flanges mount vertically, centered across the blocks and one eighth inch above their bottoms", () => {
+  for (const width of [20, 24, 36]) {
+    const model = buildStairway(width);
+    const pieces = model.partTree.getLeaves().filter(piece => /^(left|right)RearTreadFlange$/.test(piece.key));
+    assert.equal(pieces.length, 4);
+    assert.equal(new Set(pieces.map(piece => piece.part)).size, 1);
+    assert.deepEqual([...new Set(pieces.map(piece => piece.stepNumber))], [3, 6]);
+    for (const piece of pieces) {
+      const step = model.steps[piece.stepNumber - 1], left = piece.key.startsWith("left");
+      const flange = step.parts[piece.key];
+      const block = step.parts.topFrame.boards[`${left ? "left" : "right"}RearTreadBlock`];
+      const face = left ? block.footprint.slice(1, 3) : [block.footprint[0], block.footprint[3]];
+      const bevel = block.rebates[0].depth[left ? 1 : 0];
+      face[0] = face[0].map((value, axis) => value + (face[1][axis] - value) * bevel / block.width);
+      const center = face[0].map((value, axis) => (value + face[1][axis]) / 2);
+      const placement = flange.getPlacement();
+      close(placement[12], center[0]);
+      close(placement[13], block.bottomHeight + 1 / 8 + 2.75 / 2);
+      close(placement[14], -center[1]);
+      close(placement[0], 0);
+      close(placement[1], 1, 1e-8);
+      close(placement[2], 0);
+      const mesh = flange.createGeometry();
+      close(Math.min(...mesh.positions.filter((_, i) => i % 3 === 1)), block.bottomHeight + 1 / 8);
+      const coordinates = [[], [], []];
+      for (let i = 0; i < mesh.positions.length; i += 3) {
+        for (let axis = 0; axis < 3; axis++) {
+          coordinates[axis].push([0, 1, 2].reduce((sum, column) =>
+            sum + (mesh.positions[i + column] - placement[12 + column]) * placement[axis * 4 + column], 0));
+        }
+      }
+      close(Math.min(...coordinates[0]), -2.75 / 2);
+      close(Math.max(...coordinates[0]), 2.75 / 2);
+      close(Math.min(...coordinates[2]), -1.27 / 2);
+      close(Math.max(...coordinates[2]), 1.27 / 2);
+      close(Math.min(...coordinates[1]), 0);
+      assert.ok(Math.max(...coordinates[1]) > 5 / 25.4, "The boss must project out from the block's front face.");
+      assert.ok(placement[6] > 0.98, "The boss faces forward, not into the board or across the stairway.");
+      assert.equal(piece.kind, "hardware");
+      assert.equal(piece.part.issue, null);
+      assert.equal(model.estimateNodeWeightLb(piece.id), 0);
+      assertBoardsGeometry(mesh);
+      close(meshVolume(model.createNodeGeometry(piece.id)), meshVolume(mesh), 0.001);
+    }
+  }
+});
+
+test("eight mending plates contact the backs of module-front uprights and align with the threaded flange axes", () => {
+  for (const width of [20, 24, 36]) {
+    const model = buildStairway(width), leaves = model.partTree.getLeaves();
+    const plates = leaves.filter(piece => /^(left|right)(FrontUpright|LowerUpright)MendingPlate$/.test(piece.key));
+    assert.equal(plates.length, 8);
+    assert.equal(new Set(plates.map(piece => piece.part)).size, 1);
+    assert.deepEqual(plates.map(piece => piece.stepNumber), [4, 4, 4, 4, 7, 7, 7, 7]);
+    for (const piece of plates) {
+      const side = piece.key.startsWith("left") ? "left" : "right";
+      const step = model.steps[piece.stepNumber - 1];
+      const upright = step.parts.uprights.boards[`${side}Upright`];
+      const plate = step.parts[piece.key], placement = plate.getPlacement();
+      const flangeKey = `${side}${piece.key.includes("LowerUpright") ? "LowerUprightFlange" : "RearTreadFlange"}`;
+      const flange = leaves.find(candidate =>
+        candidate.stepNumber === piece.stepNumber - 1 && candidate.key === flangeKey);
+      const a = model.getPieceTransform(piece.id), b = model.getPieceTransform(flange.id);
+      const difference = [0, 1, 2].map(axis => a[12 + axis] - b[12 + axis]);
+      const separation = difference.reduce((sum, value, axis) => sum + value * b[4 + axis], 0);
+      assert.ok(Math.abs(separation) > 1, "The plate and flange must lie on opposite sides of the joint.");
+      for (let axis = 0; axis < 3; axis++) {
+        close(difference[axis], separation * b[4 + axis], 1e-8);
+        close(a[4 + axis], -b[4 + axis], 1e-8);
+      }
+      close(placement[1], 1, 1e-8);
+      close(placement[6], -1, 1e-8);
+      const mesh = plate.createGeometry();
+      const bounds = [0, 1, 2].map(axis => {
+        const values = mesh.positions.filter((_, i) => i % 3 === axis);
+        return [Math.min(...values), Math.max(...values)];
+      });
+      close(bounds[2][1], -upright.footprint[3][1]);
+      close(bounds[2][0], -upright.footprint[3][1] - 0.12);
+      assert.ok(bounds[0][0] >= upright.footprint[3][0]);
+      assert.ok(bounds[0][1] <= upright.footprint[2][0]);
+      assert.ok(bounds[1][0] >= upright.bottomHeight);
+      assert.ok(bounds[1][1] <= upright.bottomHeight + upright.length);
+      assert.equal(piece.kind, "hardware");
+      assert.equal(piece.part.issue, null);
+      assert.equal(plate.category, "step-framing");
+      assert.equal(model.estimateNodeWeightLb(piece.id), 0);
+      assertBoardsGeometry(mesh);
+      close(meshVolume(model.createNodeGeometry(piece.id)), meshVolume(mesh), 0.001);
+      assert.deepEqual(plate.createDesign(), new MendingPlate().createDesign(),
+        "Installed placement must not alter the canonical Part.");
+    }
+  }
+});
+
+test("both lower module connector pairs sit above upright blocks and use the existing front braces without spacers", () => {
+  for (const width of [20, 24, 36]) {
+    const model = buildStairway(width), leaves = model.partTree.getLeaves();
+    const flanges = leaves.filter(piece => /^(left|right)LowerUprightFlange$/.test(piece.key));
+    assert.equal(flanges.length, 4);
+    assert.deepEqual(flanges.map(piece => piece.stepNumber), [3, 3, 6, 6]);
+    assert.ok(!leaves.some(piece => /FrontUprightSpacer|ExtendedSupport(Flange|MendingPlate)/.test(piece.key)));
+    const existing = leaves.find(piece => piece.key === "leftRearTreadFlange");
+    for (const piece of flanges) {
+      assert.equal(piece.part, existing.part);
+      const side = piece.key.startsWith("left") ? "left" : "right";
+      const step = model.steps[piece.stepNumber - 1], next = model.steps[piece.stepNumber];
+      const upright = step.parts.uprights.boards[`${side}RearUpright`];
+      const rearBlock = step.parts.bottomFrame.boards[`${side}RearSupportBlock`];
+      const frontBlock = next.parts.bottomFrame.boards[`${side}SupportBlock`];
+      const flange = step.parts[piece.key], placement = flange.getPlacement();
+      close(placement[13], 13.04);
+      close(placement[12], (upright.footprint[0][0] + upright.footprint[1][0]) / 2);
+      close(placement[14], -(upright.footprint[0][1] + upright.footprint[1][1]) / 2);
+      for (const [east, north] of upright.footprint.slice(0, 2)) {
+        close((east - placement[12]) * placement[4] + (-north - placement[14]) * placement[6], 0);
+      }
+      const mesh = flange.createGeometry();
+      const heights = mesh.positions.filter((_, i) => i % 3 === 1);
+      assert.ok(Math.min(...heights) > rearBlock.bottomHeight + rearBlock.width);
+      for (let i = 0; i < mesh.positions.length; i += 3) {
+        const distance = (mesh.positions[i] - placement[12]) * placement[4] +
+          (mesh.positions[i + 2] - placement[14]) * placement[6];
+        assert.ok(distance >= -1e-5, "The flange must project forward, not into the rear upright.");
+      }
+      assertBoardsGeometry(mesh);
+      const plate = next.parts[`${side}LowerUprightMendingPlate`];
+      const plateBottom = Math.min(...plate.createGeometry().positions.filter((_, i) => i % 3 === 1));
+      close(plateBottom, Math.max(rearBlock.bottomHeight + rearBlock.width,
+        frontBlock.bottomHeight + frontBlock.width) + 1 / 8);
+      const brace = next.parts.frontUprightBrace, boltRadius = 3 / 16;
+      assert.ok(placement[13] - boltRadius > brace.bottomHeight);
+      assert.ok(placement[13] + boltRadius < brace.bottomHeight + brace.width);
+      const east = plate.getPlacement()[12];
+      assert.ok(east - boltRadius > brace.footprint[0][0]);
+      assert.ok(east + boltRadius < brace.footprint[1][0]);
+    }
+  }
+});
+
+test("module 2 and 3 front riser bottoms align with the preceding rear tread attachment block bottoms", () => {
+  for (const width of [20, 24, 36]) {
+    const model = buildStairway(width);
+    for (const [index, step] of model.steps.entries()) {
+      const extended = index === 3 || index === 6;
+      const riser = step.parts.riser;
+      const bottom = index === 0 ? 1 : extended
+        ? model.steps[index - 1].parts.topFrame.boards.leftRearTreadBlock.bottomHeight
+        : index * model.stepRise - 0.5;
+      close(riser.bottomHeight, bottom);
+      if (extended) close(bottom, model.steps[index - 1].parts.topFrame.boards.rightRearTreadBlock.bottomHeight);
+      close(riser.bottomHeight + riser.width, step.parts.tread.bottomHeight);
+      if (index > 0) close(riser.width, extended ? 15.5 : model.stepRise);
+      const piece = model.partTree.getLeaves().find(piece =>
+        piece.key === "riser" && piece.stepNumber === index + 1);
+      close(piece.getDescription().blank.width, riser.width);
+      close(meshVolume(model.createNodeGeometry(piece.id)), meshVolume(riser.createGeometry()), 0.001);
     }
   }
 });
@@ -1078,7 +1460,7 @@ test("step 1 keeps both flat siding pieces around the newel; curved siding start
   }
 });
 
-test("lower upright blocks meet the posts or rear braces and retain full cross-beam bearing", () => {
+test("lower upright blocks meet the posts directly and retain full cross-beam bearing", () => {
   for (const width of [20, 24, 36]) for (const step of buildStairway(width).steps) {
     const frame = step.parts.bottomFrame.boards;
     const beams = [frame.supportCrossPiece, frame.rearSupportCrossPiece].filter(Boolean);
@@ -1091,9 +1473,8 @@ test("lower upright blocks meet the posts or rear braces and retain full cross-b
       assert.ok(block, `${role} requires its own face attachment block.`);
       const postFace = rear ? upright.footprint.slice(0, 2) : upright.footprint.slice(2).reverse();
       const blockFace = rear ? block.footprint.slice(2).reverse() : block.footprint.slice(0, 2);
-      const setback = rear ? step.parts.rearUprightBrace?.thickness ?? 0 : 0;
       for (let i = 0; i < 2; i++) for (let axis = 0; axis < 2; axis++) {
-        close(blockFace[i][axis] + upright.along[axis] * setback, postFace[i][axis]);
+        close(blockFace[i][axis], postFace[i][axis]);
       }
       const description = block.getManufacturingDescription();
       close(description.blank.length, 3.5);
@@ -1476,7 +1857,15 @@ test("spindles mount flush on vertical front supports or retained broad-face blo
       const ribBearing = vertical && [4, 7].includes(step.height / step.stepRise);
       close(top, upright.bottomHeight + upright.length - (ribBearing ? SIDING_RIB_THICKNESS : 0));
       if (vertical) assert.deepEqual(block.footprint[1], upright.footprint[2]);
-      else assert.deepEqual(block.footprint[rear ? 3 : 0], upright.footprint[rear ? 0 : 3]);
+      else if (rear && step.parts.topFrame.boards.rightRearTreadBlock) {
+        const support = step.parts.topFrame.boards.rightStepSupport;
+        const a = support.footprint[0], b = support.footprint[3];
+        for (const point of [block.footprint[0], block.footprint[3]]) {
+          close((b[0] - a[0]) * (point[1] - a[1]) - (b[1] - a[1]) * (point[0] - a[0]), 0);
+        }
+        close(block.thickness, 1.5);
+        assert.ok(block.length > 0.75, "The retained outboard block must support the spindle face.");
+      } else assert.deepEqual(block.footprint[rear ? 3 : 0], upright.footprint[rear ? 0 : 3]);
       const face = block.footprint.slice(1, 3);
       const normal = [face[1][1] - face[0][1], face[0][0] - face[1][0]];
       for (const point of [spindle.footprint[0], spindle.footprint[3]]) {
@@ -1528,6 +1917,123 @@ test("vertical pine 2x2 spindle supports bear the framing or first upper rib flu
   }
 });
 
+function spindleBearingSection(board, height, north) {
+  const { positions, indices } = board.createGeometry(), intersections = [];
+  const cross = (a, b) => a[0] * b[1] - a[1] * b[0];
+  for (let i = 0; i < indices.length; i += 3) {
+    const [a, b, c] = Array.from(indices.slice(i, i + 3),
+      index => Array.from(positions.slice(index * 3, index * 3 + 3)));
+    const u = [b[1] - a[1], b[2] - a[2]], v = [c[1] - a[1], c[2] - a[2]];
+    const determinant = cross(u, v);
+    if (Math.abs(determinant) < 1e-10) continue;
+    const p = [height - a[1], -north - a[2]];
+    const s = cross(p, v) / determinant, t = cross(u, p) / determinant;
+    if (s >= -1e-7 && t >= -1e-7 && s + t <= 1 + 1e-7) {
+      intersections.push(a[0] + s * (b[0] - a[0]) + t * (c[0] - a[0]));
+    }
+  }
+  assert.ok(intersections.length >= 2, `${board.name} must contain the attachment axis.`);
+  return [Math.min(...intersections), Math.max(...intersections)];
+}
+
+test("six upper-module front spindles have aligned flanges and uninterrupted equal-length bolt stacks", () => {
+  for (const width of [20, 24, 36]) {
+    const model = buildStairway(width), flangeParts = new Set();
+    for (const [index, step] of model.steps.entries()) {
+      const boards = step.parts.topFrame.boards;
+      if (index < 3) {
+        assert.equal(step.parts.upperFrontSpindleFlange, undefined);
+        assert.equal(step.parts.lowerFrontSpindleFlange, undefined);
+        assert.equal(boards.frontSpindleBackingBlock, undefined);
+        assert.equal(Boolean(boards.frontSpindleBearingShim), index > 0);
+        continue;
+      }
+      const mount = boards.frontSpindleBlock, support = boards.rightStepSupport;
+      const upper = step.parts.upperFrontSpindleFlange.getPlacement();
+      const lower = step.parts.lowerFrontSpindleFlange.getPlacement();
+      close(upper[12], lower[12]);
+      close(upper[14], lower[14]);
+      close(lower[12], mount.footprint[0][0]);
+      close(upper[13], support.bottomHeight + support.width / 2);
+      close(lower[13] - THREADED_FLANGE_DIMENSIONS.plateLength / 2, mount.bottomHeight + 1 / 8);
+      assert.ok(lower[13] + THREADED_FLANGE_DIMENSIONS.plateLength / 2 < mount.bottomHeight + mount.length);
+      for (const [placement, backing] of [
+        [upper, [boards.frontSpindleBackingBlock, support, boards.frontSpindleBearingShim]],
+        [lower, [mount]],
+      ]) {
+        assert.deepEqual(Array.from(placement.slice(0, 3)), [0, 1, 0]);
+        assert.deepEqual(Array.from(placement.slice(4, 7)), [-1, 0, 0]);
+        const stack = [...backing, step.parts.frontSpindle].map(board =>
+          spindleBearingSection(board, placement[13], -placement[14]));
+        close(stack[0][0], placement[12]);
+        for (let i = 1; i < stack.length; i++) close(stack[i - 1][1], stack[i][0]);
+        close(stack.at(-1)[1] - placement[12], 3);
+        assert.ok(-placement[14] - THREADED_FLANGE_DIMENSIONS.plateWidth / 2 > mount.footprint[0][1]);
+        assert.ok(-placement[14] + THREADED_FLANGE_DIMENSIONS.plateWidth / 2 < mount.footprint[3][1]);
+      }
+      const leaves = model.partTree.getLeaves().filter(piece => piece.stepNumber === index + 1);
+      for (const key of ["upperFrontSpindleFlange", "lowerFrontSpindleFlange"]) {
+        const piece = leaves.find(piece => piece.key === key);
+        assert.equal(piece.category, "step-framing");
+        flangeParts.add(piece.part);
+      }
+    }
+    assert.equal(flangeParts.size, 1, "Reuse the existing threaded-flange design.");
+  }
+});
+
+test("module-one permanent front spindles have fitted upper bearing shims without removable hardware", () => {
+  for (const width of [20, 24, 36]) {
+    const model = buildStairway(width);
+    for (const step of model.modules[0].steps.slice(1)) {
+      const boards = step.parts.topFrame.boards, spindle = step.parts.frontSpindle;
+      const height = boards.rightStepSupport.bottomHeight + boards.rightStepSupport.width / 2;
+      const north = (spindle.footprint[0][1] + spindle.footprint[3][1]) / 2;
+      const stack = [boards.rightStepSupport, boards.frontSpindleBearingShim, spindle]
+        .map(board => spindleBearingSection(board, height, north));
+      close(stack[0][1], stack[1][0]);
+      close(stack[1][1], stack[2][0]);
+      assert.equal(boards.frontSpindleBackingBlock, undefined);
+      assert.equal(step.parts.upperFrontSpindleFlange, undefined);
+      assert.equal(step.parts.lowerFrontSpindleFlange, undefined);
+    }
+    const shims = model.partTree.getLeaves().filter(piece => piece.key === "frontSpindleBearingShim");
+    assert.equal(shims.length, 8);
+    assert.equal(shims.find(piece => piece.stepNumber === 3).part,
+      shims.find(piece => piece.stepNumber === 6).part);
+  }
+});
+
+test("fitted spindle backing and bearing shims retain full 1x4 blanks and face-cut instructions", () => {
+  for (const width of [20, 24, 36]) {
+    const model = buildStairway(width);
+    for (const [key, length] of [["frontSpindleBackingBlock", 3.5], ["frontSpindleBearingShim", 1.5]]) {
+      const parts = new Set();
+      for (const piece of model.partTree.getLeaves().filter(piece => piece.key === key)) {
+        const board = constructionBoard(model, piece), description = piece.getDescription();
+        assert.equal(piece.category, "step-framing");
+        assert.equal(description.stock.nominalSize, "1x4");
+        assert.equal(description.stock.materialKey, "pine");
+        close(description.blank.length, length);
+        close(description.blank.thickness, 0.75);
+        close(description.blank.width, 3.5);
+        const cut = description.edgeCuts.find(cut => cut.surfaceCut);
+        assert.ok(cut);
+        close(cut.bevelDegrees, piece.stepNumber === 2 ? 0 : 5);
+        assert.ok(piece.part.volume > 0 && piece.part.volume < length * 0.75 * 3.5);
+        for (const geometry of [board.createGeometry(), board.createStockGeometry()]) {
+          assertBoardsGeometry(geometry);
+          assert.ok(geometry.grain.every(Number.isFinite));
+          close(meshVolume(geometry), piece.part.volume, 0.001);
+        }
+        parts.add(piece.part);
+      }
+      assert.equal(parts.size, key === "frontSpindleBearingShim" ? 3 : 2,
+        "Step 2 needs parallel packing; intermediate and module-back supports need distinct tapers.");
+    }
+  }
+});
+
 test("invalid stock and manufacturing shapes fail explicitly", () => {
   const dimensions = { length: 12, width: 3.75, thickness: 0.75 };
   for (const stock of [
@@ -1553,6 +2059,28 @@ function meshVolume({ positions: p, indices }) {
   }
   return volume / 6;
 }
+
+test("banister wood uses Douglas fir descriptions, reduced weights and a color between pine and former oak", () => {
+  const model = buildStairway();
+  const roles = new Set(["newel", "frontSpindle", "rearSpindle", "spindleShim"]);
+  const parts = model.partTree.getLeaves().filter(piece => roles.has(piece.key));
+  assert.equal(parts.length, 14);
+  assert.ok(model.partTree.getLeaves().every(piece => piece.getDescription().stock?.materialKey !== "oak"));
+  for (const piece of parts) {
+    const { stock } = piece.getDescription();
+    assert.equal(stock.materialKey, "douglas-fir");
+    assert.equal(stock.material, "Douglas fir");
+    assert.equal(constructionBoard(model, piece).material, DOUGLAS_FIR);
+    close(model.estimateNodeWeightLb(piece.id), piece.part.volume / 1728 * 32, 1e-10);
+    const mesh = model.createNodeGeometry(piece.id);
+    for (let i = 0; i < mesh.colors.length; i++) {
+      const axis = i % 3, value = mesh.colors[i];
+      close(value, DOUGLAS_FIR.color[axis]);
+      assert.ok(value < PINE.color[axis]);
+      assert.ok(value > [0.58, 0.32, 0.20][axis]);
+    }
+  }
+});
 
 test("particle board preserves sheet geometry and uses grain-free texture on every face", () => {
   const dimensions = { length: 12, width: 8, thickness: 0.25,
@@ -2078,14 +2606,14 @@ test("board construction replaces continuous notches with a narrower blank befor
 });
 
 test("broad-face dados preserve stock, material, grain, and the exact uncut helper path", () => {
-  const dimensions = { length: 10, width: 4, thickness: 1, material: OAK };
+  const dimensions = { length: 10, width: 4, thickness: 1, material: DOUGLAS_FIR };
   const notches = { startNear: { length: 2, depth: [0.5, 1] } };
   assert.deepEqual(new NotchedBoard(dimensions, notches, []).createGeometry(),
     new NotchedBoard(dimensions, notches).createGeometry());
   for (const face of ["negativeY", "positiveY"]) {
     const dado = { face, start: 4, width: 0.75, depth: 0.125 };
     const board = new NotchedBoard(dimensions, {}, [dado]), geometry = board.createGeometry();
-    assert.equal(board.material, OAK);
+    assert.equal(board.material, DOUGLAS_FIR);
     assert.equal(board.length, 10);
     assert.equal(board.width, 4);
     assert.equal(board.thickness, 1);
@@ -2098,7 +2626,7 @@ test("broad-face dados preserve stock, material, grain, and the exact uncut help
       const normal = geometry.normals.subarray(i * 3, i * 3 + 3);
       assert.equal(geometry.grain[i * 4 + 2], Math.abs(normal[0]) > 0.99 ? 1 : 0);
       close(geometry.grain[i * 4 + 1], Math.abs(normal[0]) > 0.99 ? y + 0.5 : x + board.length / 2);
-      for (let axis = 0; axis < 3; axis++) close(geometry.colors[i * 3 + axis], OAK.color[axis]);
+      for (let axis = 0; axis < 3; axis++) close(geometry.colors[i * 3 + axis], DOUGLAS_FIR.color[axis]);
       if (Math.abs(y - (face === "negativeY" ? -0.375 : 0.375)) < 1e-6 &&
         Math.abs(normal[1]) > 0.99) {
         close(normal[1], face === "negativeY" ? -1 : 1);
@@ -2124,7 +2652,7 @@ test("constructor normalization preserves original cut surfaces, input data, and
     { startFar: { length: 5, depth: [1, 1.5] }, endFar: { length: 5, depth: [0.5, 1] } },
     { startNear: { length: 5, depth: 1 }, endNear: { length: 5, depth: [1, 1.5] } },
   ]) {
-    const dimensions = { length: 10, width: 4, thickness: 1, material: OAK };
+    const dimensions = { length: 10, width: 4, thickness: 1, material: DOUGLAS_FIR };
     const snapshot = structuredClone(notches);
     const initial = new NotchedBoard(dimensions, notches);
     for (const edge of ["Near", "Far"]) {
@@ -2134,7 +2662,7 @@ test("constructor normalization preserves original cut surfaces, input data, and
     assert.deepEqual(notches, snapshot);
     assert.equal(dimensions.width, 4);
     assert.equal(initial.stock.width, 4);
-    assert.equal(initial.material, OAK);
+    assert.equal(initial.material, DOUGLAS_FIR);
     assert.equal(initial.width, initial.getManufacturingDescription().blank.width);
     const dado = { face: "positiveY", start: 4.5, width: 1, depth: 0.25 };
     const board = new NotchedBoard(initial, initial.notches, [dado]);

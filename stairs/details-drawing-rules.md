@@ -370,8 +370,11 @@ For the default model:
 | Inner/outer faces | Small nonzero inclinations, approximately 0.227 / 0.286 degrees; standard-direction coverage |
 | Newel corner bevel | 10 degrees; standard end views, with its finite stopped outline retained |
 
-The default assessment covers **67 unique wooden patterns / 189 physical
-wooden parts**, with all 12 purchased hardware occurrences reported separately.
+The default assessment covers **73 unique wooden patterns / 205 physical
+wooden parts**, with all 42 purchased hardware occurrences reported separately.
+The fitted spindle backing blocks and bearing shims retain full-thickness
+1x4 blank descriptions with authored surface cuts: 5-degree tapers except for
+the thin parallel-sided packing at step 2.
 It accounts for every cutting blank, width rip, and authored machining feature.
 Derived joinery planes are additional assessment records, not additional
 manufactured parts or operations. Synthetic fixtures retain notch/dado and

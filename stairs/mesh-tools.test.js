@@ -29,7 +29,7 @@ test("scene export is deterministic and includes every physical part in assemble
   const castle = xml.slice(xml.indexOf('<part id="castle"'), xml.lastIndexOf("</part>"));
   assert.deepEqual(castle.match(/<vertices>([\s\S]*?)<\/vertices>/)[1].trim().split(/\s+/).map(Number),
     Array.from(model.createCastleGeometry().positions, value => value === 0 ? 0 : value));
-  assert.equal((xml.match(/kind="hardware"/g) ?? []).length, 12);
+  assert.equal((xml.match(/kind="hardware"/g) ?? []).length, 42);
   for (const node of model.partTree.getLeaves()) {
     const start = xml.indexOf(`<part id="${node.id}"`);
     assert.ok(start >= 0);

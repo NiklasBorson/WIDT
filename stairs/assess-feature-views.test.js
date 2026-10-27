@@ -190,9 +190,9 @@ test("default model is exhaustively inventoried without invoking render-mesh gen
     () => assert.fail("Cutting geometry must not be read."));
   const inventory = new PartInventory(model.partTree), actual = assessModel(model);
   assert.equal(actual.summary.occurrences, leaves.length);
-  assert.equal(actual.summary.woodenPatterns, 67);
-  assert.equal(actual.summary.woodenOccurrences, 189);
-  assert.equal(actual.summary.hardwareOccurrences, 12);
+  assert.equal(actual.summary.woodenPatterns, 73);
+  assert.equal(actual.summary.woodenOccurrences, 205);
+  assert.equal(actual.summary.hardwareOccurrences, 42);
   assert.equal(actual.parts.length + actual.hardware.length, inventory.entries.length);
   const occurrenceIds = [...actual.parts, ...actual.hardware].flatMap(part => part.occurrenceIds);
   assert.equal(new Set(occurrenceIds).size, leaves.length);

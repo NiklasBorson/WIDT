@@ -10,8 +10,9 @@ Parts row shows the total wood weight for its filtered occurrence count.
 The sidebar filters only by Module and Material. Independent canvas checkboxes
 control Stairway visibility without filtering Parts; **Show all** checks every
 box, including Castle, and all boxes are checked by default.
-The current default inventory contains 189 wooden pieces (67 patterns) and
-12 casters; modeled wood weighs approximately 192.2 lb.
+The current default inventory contains 205 wooden pieces (73 patterns),
+12 casters, 20 threaded flanges, 8 mending plates, and 2 threaded inserts;
+modeled wood weighs approximately 181.9 lb.
 
 **Model update:** the current implementation creates canonical, geometry-bearing
 Parts during model construction, then installs Pieces referencing those Parts.
@@ -290,7 +291,7 @@ Use this order:
 2. Plywood, grouped by material/specification and thickness.
 3. Hardware, grouped by product category.
 
-For lumber, use a documented material order, initially pine then oak, with
+For lumber, use a documented material order, initially pine then Douglas fir, with
 nominal sizes sorted numerically rather than lexically. Preserve actual
 thickness and width in the stock key: two supplies both labeled `1x4` must
 not merge if their actual dimensions differ.
@@ -302,7 +303,7 @@ by their formatted fractional strings.
 
 Grouping by stock is broader than grouping identical cut pieces. Several
 entries may share `Pine - 1x4` but have different lengths, rips, or notches.
-Oak and pine versions of the same shape belong to different sections.
+Douglas fir and pine versions of the same shape belong to different sections.
 
 ### 5.3 Names and disambiguation
 
@@ -586,7 +587,7 @@ the dependency-free codebase.
 
 ### 7.3 Small extensions to structured descriptions
 
-Add stable material keys to the current Pine/Oak/Plywood catalog records and
+Add stable material keys to the current Pine/Douglas fir/Plywood catalog records and
 carry them into structured stock descriptions. Keep human-readable material
 names for display. Add the caster product key and category.
 
@@ -914,7 +915,7 @@ fixtures and pure inventory tests over prolonged browser automation.
 
 **Identity cases:** same part at different placements; same name with
 different lengths; same rounded length but different raw dimensions; pine vs.
-oak; full vs. ripped width; differing notch face depths and shoulder lengths;
+Douglas fir; full vs. ripped width; differing notch face depths and shoulder lengths;
 different dado faces; mirrored asymmetric cuts; different array/face ordering;
 hardware with different headings but the same product; unknown metadata.
 

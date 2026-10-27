@@ -3,7 +3,7 @@ export { manufacturingSpecification } from "./part-design.js";
 
 const compareText = new Intl.Collator("en", { numeric: true }).compare;
 const kindOrder = { lumber: 0, plywood: 1, hardware: 2 };
-const materialOrder = { pine: 0, oak: 1 };
+const materialOrder = { pine: 0, "douglas-fir": 1 };
 
 export const PART_SUBSETS = Object.freeze([
   { key: "foundation", label: "Foundation" },
@@ -18,6 +18,7 @@ export const PART_VISIBILITY_CATEGORIES = Object.freeze([
   { key: "foundation", label: "Foundation" },
   { key: "uprights", label: "Uprights" },
   { key: "step-framing", label: "Step framing" },
+  { key: "risers", label: "Risers" },
   { key: "treads", label: "Treads" },
   { key: "banister", label: "Banister" },
   { key: "ribs", label: "Ribs" },
@@ -31,20 +32,20 @@ const foundationRoles = new Set([
   "frontStepFrontBearing", "frontStepRearBearing",
 ]);
 const uprightRoles = new Set([
-  "leftUpright", "rightUpright", "leftRearUpright", "rightRearUpright", "rearUprightBrace",
+  "leftUpright", "rightUpright", "leftRearUpright", "rightRearUpright", "frontUprightBrace",
 ]);
 const uprightBlockRoles = new Set([
   "leftSupportBlock", "rightSupportBlock", "leftRearSupportBlock", "rightRearSupportBlock",
 ]);
 const stepFramingRoles = new Set([
-  "frontBearingCap", "lowerBackGusset", "upperBackGusset",
+  "frontBearingCap", "lowerBackGusset",
   "southCrossPiece", "northCrossPiece", "leftStepSupport", "rightStepSupport",
   "leftSupportBlock", "rightSupportBlock", "leftBackSupportBlock", "rightBackSupportBlock",
   "leftRearSupportBlock", "rightRearSupportBlock",
 ]);
 const banisterRoles = new Set([
   "frontSpindleBlock", "rearSpindleBlock",
-  "newel", "frontSpindle", "rearSpindle", "spindleShim", "newelInnerBlock", "newelRearBlock",
+  "newel", "frontSpindle", "rearSpindle", "spindleShim", "rearSpindleInsert", "newelInnerBlock", "newelRearBlock",
 ]);
 
 function partStage(node) {
@@ -56,10 +57,11 @@ function partStage(node) {
 }
 
 export function partVisibilityCategory(node) {
+  if (["riser", "frontUprightBrace"].includes(node.key)) return "risers";
   if (uprightBlockRoles.has(node.key)) return "uprights";
   const stage = partStage(node);
   if (stage) return stage;
-  if (["tread", "riser"].includes(node.key)) return "treads";
+  if (node.key === "tread") return "treads";
   if (node.category === "siding") return "siding";
   throw new RangeError(`Unknown Stairway visibility category for piece: ${node.id}`);
 }

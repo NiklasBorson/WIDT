@@ -26,6 +26,25 @@ header {
 }
 
 .page-header { grid-row: 1; flex-wrap: wrap; padding: 0.75rem 1rem; }
+body.shopping-page { display: block; height: auto; min-height: 100dvh; }
+.shopping-list { max-width: 70rem; margin: 0 auto; padding: 1.5rem 1rem; }
+.shopping-list, .shopping-list section, #shopping-results { display: grid; gap: 1.5rem; }
+.shopping-list section { gap: 0.75rem; }
+.shopping-list h2 { margin: 0; font-size: 1.2rem; }
+.shopping-list ul { margin: 0; padding-left: 1.5rem; }
+.shopping-list li + li { margin-top: 0.4rem; }
+.shopping-table { overflow-x: auto; }
+.shopping-table table { width: 100%; border-collapse: collapse; }
+.shopping-table th, .shopping-table td {
+  padding: 0.75rem 0.5rem;
+  border-bottom: 1px solid #2a3645;
+  text-align: left;
+  vertical-align: top;
+}
+.shopping-table th[scope="row"] { font-weight: normal; }
+.shopping-table small { display: block; margin-top: 0.25rem; color: #b6c3d1; }
+.shopping-table td > div > div + div { margin-top: 0.75rem; }
+#shopping-error { color: #f0c4ba; }
 #view-notice { grid-row: 2; padding: 0.5rem 1rem; background: #452824; color: #f0c4ba; }
 
 h1 { margin: 0; font-size: clamp(1.2rem, 4vw, 1.6rem); }

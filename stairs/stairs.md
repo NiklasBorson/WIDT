@@ -281,7 +281,7 @@ The removed base rails have no installed Pieces or Parts category.
 
 ### Banister spindles
 
-Each front right upright on steps 2 onward carries an oak 2x2 spindle
+Each front right upright on steps 2 onward carries a Douglas fir 2x2 spindle
 (`1.5 x 1.5 in` actual). Each module's rear right upright carries another.
 Their inner faces meet the outside faces of separate pine mounts.
 Steps 3-9 use vertical **Spindle support - front** 2x2s behind the front posts,
@@ -292,7 +292,35 @@ All seven vertical supports are classified as **Step framing**, not Banister.
 Step 2 and the rear uprights retain fitted 2x4 **Spindle block - front/rear**
 mounts, 3.5 inches high and 1.5 inches deep fore-aft.
 Spindles meet these mounts' outside faces. No fasteners attach only to a thin post edge.
-Bolt hardware and holes are not yet modeled.
+Steps 4-9 have two modeled threaded flanges per front spindle for removable
+through-bolted connections, without mending plates. The upper flange mounts on
+the inboard face of a fitted pine 1x4 backing block against the left broad face
+of the right tread support, near its front. Its blank is `3.5 in` long and
+`3.5 in` high; a full-face 5-degree taper fits the support without entering
+the front half-lap. A separate pine **Spindle shim - upper bearing**, cut
+from a `1.5 in` long 1x4 blank, fills the angled gap between the support's
+outboard face and the spindle. Keep this shim attached to the framing when
+removing the spindle.
+
+Module 1's spindles are intended to be screwed on permanently. Steps 2 and 3
+also have upper bearing shims, without the removable spindle flanges or
+inboard backing blocks. Step 2's spindle follows the tread support's angle,
+so its shim is thin, parallel-sided packing; step 3 reuses the 5-degree
+tapered pattern from steps 6 and 9.
+
+The lower flange mounts on the inboard face of the existing vertical 2x2
+support, with its plate bottom `1/8 in` above the support bottom. Both plates
+are vertical and centered fore-aft on the spindle. Upper centers are at
+the tread supports' mid-height. The fitted backing leaves both flange
+mounting planes exactly `3 in` inboard of the spindle's outside face,
+providing continuous wood bearing and equal required bolt reach before
+allowing for identical heads/washers and thread engagement. Exact bolt lengths
+and flange thread pitch remain unspecified.
+
+These six backing blocks, eight bearing shims, and twelve flanges belong to
+**Step framing**. Rear spindle mounts are unchanged and do not yet have a
+modeled removable connection. Bolts, retaining screws, and wood holes remain
+unmodeled.
 
 The baseline joins the top front-right corners of consecutive front
 cross-pieces (the front step supports). Ascent and descent are vertical
@@ -312,7 +340,7 @@ the top or notch shoulders. Its 45-degree cut rises toward the outside, leaving 
 edge against the upright, and does not slope front-to-back.
 At each joint between modules, a separate **Spindle shim** fills the wedge
 between the rear spindle and the next module's front spindle. It belongs to
-the preceding module. It is cut from vertical oak 2x4 stock (`1.5 x 3.5 in`
+the preceding module. It is cut from vertical Douglas fir 2x4 stock (`1.5 x 3.5 in`
 actual): centering the spindles leaves a gap too wide for 2x2 stock.
 Its top and bottom are level, square-cut ends, `4 in` apart vertically.
 The top meets the notch shoulder of the spindle in front of the shim (the
@@ -322,14 +350,22 @@ Both adjoining side faces remain beveled to fit flush against the spindles;
 the shim does not follow the banister slope.
 There is no shim after the last module.
 
-Spindles and shims share the model's **Spindles** category and the Stairway
-**Banister** checkbox, along with normal
+Each joint has one **Threaded insert**, centered on the front face of the
+preceding module's rear spindle, at the shim's mid-height (2 inches below its
+top). These are IRONCODE `1/4-20 x 10 mm` flanged inserts. The intended bolt
+enters from behind the next module's front spindle, through that spindle and
+the fitted shim into the insert. Its washer will bear in a shallow,
+flat-bottomed counterbore aligned to the bolt axis. Only the insert flange
+is shown installed; bolts, washers, wood holes and counterbores are unmodeled.
+
+Spindles and Douglas fir intermodule shims share the model's **Spindles** category and the Stairway
+**Banister** checkbox, along with the two inserts. Wooden parts retain normal
 Parts, stock views, cutting descriptions, and weight estimates.
 Handrails are not yet modeled.
 
 ### Newel and boxed first-step connection
 
-Step 1 carries an oak **Newel post** cut from actual `3.5 x 3.5 in` 4x4 stock.
+Step 1 carries a Douglas fir **Newel post** cut from actual `3.5 x 3.5 in` 4x4 stock.
 Its side faces follow the first tread's straight right edge, tangent to step 2's
 outer arc at the shared radial boundary. Its right face is `2 in` outside that line, measured
 perpendicular to it. The post is shifted forward along that edge until
@@ -342,7 +378,7 @@ between the cross-piece's bottom and top elevations. This is a `10 deg`
 bevel in the fixed nine-step layout, following the right-edge
 orientation. The post remains square above
 the joint, and below it wherever the cross-piece starts above the post bottom.
-The original oak 4x4 stock blank is retained, with the bevel and shoulder
+The original Douglas fir 4x4 stock blank is retained, with the bevel and shoulder
 planes included in the manufacturing description.
 
 The post's square, level bottom is `1 in` above the floor. Its square, level
@@ -394,28 +430,37 @@ This models the timber arrangement, not a rated railing connection.
 Fasteners, holes, and metal connectors are not modeled; fastening details,
 connection capacity, and overall stair stability still require verification.
 
-### Rear plywood gussets
+### Module-front plywood braces and mating faces
 
-Modules 2 and 3 each have one `8 x 8 in` right-triangular, `1/4 in` plywood
-gusset at the upper-left rear framing corner. Its back face meets the front
-faces of the left rear upright and rear tread support, with its top flush
-with the support top. It is inset one inch from the upright's outer edge
-to clear the side-support half-lap. Both plates remain inside the existing
-module footprints and share one cutting pattern; together they add about
-`0.37 lb`. There is no gusset in module 1 and no lower rear gusset.
+Modules 2 and 3 each have a rectangular `1/4 in` plywood **Front brace - lower**,
+`8 in` high, on the front faces of their first-step uprights. These retain the
+former rear panels' widths (`19.656 in` at the default stair width), centered
+across the front posts. Their front faces lie on the module boundary, filling
+the posts' quarter-inch setback, and their back faces meet both posts and the
+front cross-beam. Their bottoms align with the cross-beam bottoms at `5.75 in`;
+their tops are at `13.75 in`. There are no lower rear panels, and the rear
+attachment blocks meet the posts directly, retaining full cross-beam bearing.
+These rectangles follow **Risers** visibility. Their front faces contact the
+preceding modules' rear uprights flush, providing broad mating faces for
+removable bolts. Bolt holes, bolts, and threaded rods are not modeled.
+There are no rear triangular gussets or rear plywood panels to obstruct
+attachment access. The right-side plywood panel remains; castle attachments
+are still conceptual and unmodeled.
 
-The gussets follow **Step framing** visibility. There is no rear particle-board
-panel. The right-side plywood panel remains; castle attachments are still
-conceptual and unmodeled.
-
-Modules 2 and 3 also each have a rectangular `1/4 in` plywood **Rear brace - lower**,
-`8 in` high, spanning exactly between the outer edges of their rear uprights
-(`19.656 in` at the default stair width). Its bottom bears on the rear cross-beam
-at `7.25 in`, and its rear face meets both upright front faces. The two rear
-upright attachment blocks move forward `1/4 in` to meet the brace's front face,
-retaining full lower cross-beam bearing. These rectangles follow **Uprights**
-visibility; the triangular upper gussets still follow **Step framing**.
-Module 1 is unchanged.
+The rear treads of modules 1 and 2 (steps 3 and 6) each have two vertical pine
+1x4 attachment blocks, `7 in` long, with their tops against the tread undersides.
+Their broad faces face forward/backward. Their rear faces lie flush against
+both the rear uprights and the rear tread support, and their outer narrow edges
+have a `5 degree` full-length bevel against the side tread supports' inside faces.
+Both blocks are ripped to approximately `2.878 in` wide so their inner edges
+align with their rear uprights' inner edges; these are mirrored installations
+of one manufacturing Part. Their bottoms are at `18 in` and `43.5 in`.
+Each front face carries a vertically oriented **Threaded flange**, horizontally
+centered on the finished face, with its mounting plate's bottom edge `1/8 in`
+above the block bottom. The blocks and flanges belong to **Step framing** visibility
+and construction stage. The adjacent rear spindle blocks' inboard ends are
+shortened to the right side-support inside face to avoid interference; their
+outboard spindle mounting faces and height are unchanged.
 
 ### Module support beams
 
@@ -513,10 +558,13 @@ Step 1, which has no lower support cross-piece, has no such blocks.
 
 ### Bearing-ended framing
 
-All risers above step 1 have height `stepRise`, running between the undersides
-of consecutive treads. This gives `1/2 in` of overlap with the lower tread;
-module boundaries do not change the panel height. Step 1 retains its existing
-one-inch floor clearance. There are no extended module-last riser panels.
+Most risers above step 1 have height `stepRise`, running between the undersides
+of consecutive treads. This gives `1/2 in` of overlap with the lower tread.
+The first risers of modules 2 and 3 (steps 4 and 7) extend downward to the
+bottoms of the adjoining lower modules' rear tread attachment blocks, at `18 in`
+and `43.5 in` respectively; their heights are `15.5 in`.
+Step 1 retains its existing one-inch floor clearance.
+There are no extended module-last riser panels.
 
 Every step above step 1 has two rotated pine 1x4 front posts: their
 3.5-inch faces point front/back and their 3/4-inch edges point left/right.
@@ -566,7 +614,7 @@ the existing square-end setbacks and whole-inch lengths.
 ### Board materials
 
 Boards carry a `material` with a name, density in pounds per cubic foot, and
-rendering color. The exported materials are `PINE`, `OAK`, `PLYWOOD`, and
+rendering color. The exported materials are `PINE`, `DOUGLAS_FIR`, `PLYWOOD`, and
 `PARTICLE_BOARD`. Particle board uses the same plywood sheet-stock kind for
 geometry, cutting descriptions, inventory grouping, and part views, but has
 its own material identity and visibility category. Its darker brown surface
@@ -577,12 +625,13 @@ including on cut faces.
 All default to pine. For example:
 
 ```js
-new Board({ thickness: 0.75, width: 3.5, length: 12, material: OAK });
-new OneByFour(12, OAK);
+new Board({ thickness: 0.75, width: 3.5, length: 12, material: DOUGLAS_FIR });
+new OneByFour(12, DOUGLAS_FIR);
 ```
 
-The density assumptions are pine `30 lb/ft^3`, oak `45 lb/ft^3`
-(`OAK_DENSITY`), plywood `40 lb/ft^3`, and particle board `45 lb/ft^3`.
+The density assumptions are pine `30 lb/ft^3`, Douglas fir `32 lb/ft^3`
+(`DOUGLAS_FIR_DENSITY`), plywood `40 lb/ft^3`, and particle board `45 lb/ft^3`.
+Douglas fir renders darker than pine but lighter than the former oak material.
 Materials do not change stock dimensions or notch geometry.
 
 ### Notched-board and dado helper
@@ -658,8 +707,8 @@ are not modeled yet.
 
 The footer estimates the heaviest module's weight and the total stairway weight,
 rounded to whole pounds. Estimates use each board's actual modeled wood volume
-and material density: pine at `30 lb/ft^3`, oak and particle board at `45 lb/ft^3`,
-and plywood at `40 lb/ft^3`. Module weights are calculated from
+and material density: pine at `30 lb/ft^3`, Douglas fir at `32 lb/ft^3`,
+particle board at `45 lb/ft^3`, and plywood at `40 lb/ft^3`. Module weights are calculated from
 their constituent steps; the largest value is used, not necessarily the highest
 module. These are wood-only estimates: casters, fasteners, handrails, and
 unmodeled connections are excluded. Source geometry changes update the estimates;
@@ -734,7 +783,7 @@ Orbit drags, multi-touch gestures, and cancelled touches do not select parts.
 The Parts panel starts with an always-visible **Filter parts** section containing:
 
 - **Module:** All modules, then Module 1, Module 2, and Module 3.
-- **Material:** All materials, or a stock/material category such as pine 2x4, oak 4x4,
+- **Material:** All materials, or a stock/material category such as pine 2x4, Douglas fir 4x4,
   a particular plywood thickness, or a hardware category. These are not
   manufacturing-specification groups.
 
@@ -746,9 +795,10 @@ none includes another category. All are checked by default, including Castle.
 | Stairway checkbox | Included parts |
 |---|---|
 | Foundation | Caster beams, front/rear support cross-pieces, casters, and the special first-step front cross-piece, flat carriers, and edge-on ripped tread supports. |
-| Uprights | Front and rear upright posts, their lower face attachment blocks, and lower rear plywood braces. |
-| Step framing | Upper cross-pieces, half-lapped tread side supports, rear plywood gussets, vertical 2x2 spindle supports, and framing blocks shared with ribs. |
-| Treads | Treads and risers. |
+| Uprights | Front and rear upright posts and their lower face attachment blocks. |
+| Step framing | Upper cross-pieces, half-lapped tread side supports, rear tread attachment blocks, threaded flanges and front-upright mending plates (including lower pairs at both module joins), vertical 2x2 spindle supports, fitted upper spindle backing blocks and bearing shims, paired spindle flanges in modules 2-3, and framing blocks shared with ribs. |
+| Risers | Risers and lower front plywood braces. |
+| Treads | Treads only. |
 | Banister | Newel post, spindles, spindle mounting blocks, spindle shims, and newel blocks. |
 | Ribs | Upper and bottom ribs and their dedicated attachment/support blocks. |
 | Siding | Curved and flat side panels. |
@@ -1170,6 +1220,33 @@ presentation is required.
 The stopping point is a retained, inspectable tree with complete descriptions
 for current wooden leaves, correct subtree geometry, and tested headless
 navigation. A later task can bind these APIs to the chosen browser UI.
+
+## Shopping list
+
+`shopping-list.html`, linked from Home with a link back, generates raw-stock
+purchase estimates from `PartInventory(buildStairway().partTree)`. The wood
+tables group purchases by species and stock size rather than listing individual
+manufactured pieces. Hardware counts are individual pieces, not retail packs,
+and include the model's Amazon product links. Screws and bolts are omitted;
+the threaded flange's exact thread pitch and assembly bolt lengths are not
+specified well enough to generate bolt purchases.
+
+`shopping-list.js` uses full manufacturing `blank` dimensions. Each blank gets
+a 1/2-inch allowance, rounded up to 1/4 inch, plus a 1/8-inch saw kerf.
+Lumber reserves 2 inches at each end. Simple longest-first layouts compare
+8-, 10-, and 12-foot capacities, then shorten each packed board to the smallest
+standard length that fits. Distinct purchase combinations appear as OR choices;
+the first uses the least total footage among those layouts. Alternatives cover
+different availability and reusable-leftover preferences; no price optimization
+or exhaustive cutting-stock search is attempted.
+
+Plywood uses 4-by-8-foot sheets with 1/2-inch edge margins and rectangular rows,
+without irregular nesting, cutout reuse, or individually rotating blanks.
+One common axis orientation must fit every blank of a sheet-stock group.
+Curved siding requires the eight-foot sheet direction along panel height;
+the page asks builders to confirm supplier bending/grain direction. Estimates
+include cutting allowances, not extra whole stock for major mistakes, and
+provide Eastern white pine and Douglas fir reference links.
 
 ## Part Placement
 
@@ -1722,7 +1799,9 @@ The controller sums `model.estimateNodeWeightLb(location.id)` for the matching
 occurrences to produce the filtered wood-weight summary.
 
 Parts expose `createStockGeometry()` for the shared flat cutting mesh and
-`createGeometry()` for the shared finished mesh. Flat coordinates are normalized
+`createGeometry()` for the shared finished/detail mesh.
+`createInstalledGeometry()` uses an optional simplified installed mesh,
+falling back to the finished mesh for all other Parts. Flat coordinates are normalized
 to the cutting blank's origin. Details uses these Part meshes directly; Placement
 and clash exports use transformed Piece geometry. Curvature belongs to the Part:
 a different bend radius or sweep produces a different manufacturing definition.
@@ -1825,7 +1904,7 @@ material. Lumber stock records `kind: "lumber"`, actual `thickness` and
 their own stock: 1x4 for upper horizontal framing and plain uprights,
 1x3 for the ripped first-step left support, 1x6 for the deep first front member,
 2x2 for spindles, 2x4 for pine support beams, lower support cross-pieces,
-attachment blocks, and oak spindle shims, and
+attachment blocks, and Douglas fir spindle shims, and
 plywood of the appropriate thickness for risers, treads, and siding. A plain, nonstandard
 `Board` defaults to its supplied actual cross section without guessing a
 nominal lumber size. Stock cannot be thinner or narrower than the board.
@@ -2068,15 +2147,103 @@ or `1,050 lb` counting only three supporting casters. The latter allows for one
 caster being unloaded on an uneven floor; it is not a separate manufacturer
 rating or a complete dynamic-load/stability assessment.
 
-For context, the current default wooden stairway is approximately `192.2 lb`,
-with modules approximately `59.3`, `61.0`, and `71.9 lb`. The earlier design
+For context, the current default wooden stairway is approximately `181.9 lb`,
+with modules approximately `53.0`, `59.1`, and `69.8 lb`. The earlier design
 was approximately `265 lb`. These estimates include the
 support cross-pieces, attachment blocks, flat beams, siding, panel support blocks,
-newel blocking, and oak spindles, shims, and newel but exclude all caster hardware weight. The working planning allowance
+newel blocking, and Douglas fir spindles, shims, and newel but exclude all hardware weight. The working planning allowance
 is up to `200 lb` for a finished module including cladding and banister, and
 approximately `800 lb` with two people. Those are estimates, not measured
 finished weights. Do not credit adjacent modules with carrying part of that
 load when choosing caster capacity.
+
+### Reusable hardware: Threaded flange
+
+`ThreadedFlange` defines a purchased **Threaded flange**, described as a
+galvanized ceiling flange for ⅜-inch threaded rod.
+Reference: [Amazon ASIN B0F4N3DTHR](https://www.amazon.com/dp/B0F4N3DTHR),
+sold in a 20-piece package. Twenty flanges are installed: four on the front broad
+faces of the rear tread attachment blocks in modules 1 and 2, vertically oriented
+and horizontally centered on the finished face. The mounting plate's bottom
+edge is `1/8 in` above the block bottom.
+
+Four more flanges attach to the front broad faces of modules 1 and 2's rear
+uprights, centered across each upright. They connect to the next module just above the
+lower upright support blocks, rather than at the rib-obstructed extended-left-support
+cross-beam. Their axes are at `13.04 in`, set so the corresponding taller mending
+plates start `1/8 in` above the support-block tops (`10.75 in`). The existing
+module-front brace fills the quarter-inch gap at these bolt axes; no extra
+plywood spacers are installed.
+
+The other twelve form upper/lower pairs for the six front spindles on steps
+4-9. Upper flanges attach to fitted 1x4 backing blocks on the inboard faces
+of the right tread supports; lower flanges attach near the bottoms of the
+vertical 2x2 spindle supports. Their mounting planes align for equal bolt
+reach. No mending plates are used for these spindle connections.
+
+The supplied dimensional image specifies a `2.75 x 1.27 in` plate, `5 mm`
+plate thickness, two `7 mm` mounting holes, and a nominal `3/8 in` threaded
+opening. `THREADED_FLANGE_DIMENSIONS` stores inch dimensions, converting the
+thickness and mounting-hole diameter from millimeters. The image's corresponding
+inch labels (`0.19` and `0.27`) are approximate; thread pitch is unspecified.
+
+The reusable mesh is a single closed shell incorporating the plate, raised boss,
+and three through-openings, without internal caps at the plate/boss junction.
+Boss diameter (`0.85 in`), boss projection (`0.2 in`), and mounting-hole
+center spacing (`2 in`) are illustrative, not published dimensions.
+Rounded corners, markings, helical threads, and the rear recess are omitted;
+the threaded bore uses its nominal diameter. The mounting face lies on
+local `Y = 0`, with the boss projecting toward `+Y`. Hardware weight is
+unspecified. Product details and these limitations are returned by
+`getPartDescription()`; `createDesign()` supplies canonical Part geometry.
+
+### Reusable hardware: Mending plate
+
+`MendingPlate` defines a purchased **Mending plate**.
+Reference: [Amazon ASIN B0F7Z44BS2](https://www.amazon.com/dp/B0F7Z44BS2).
+Eight plates are installed vertically against the backs of the left and right
+front uprights on steps 4 and 7 (the first steps in modules 2 and 3).
+Four center holes share the rear-tread attachment flange axes, at
+`19.5 in` and `45 in` elevations. The other four plates mount lower on steps 4 and 7,
+aligned with the preceding modules' lower upright flanges at `13.04 in`; their bottom
+edges are at `10.875 in`, just above the upright support blocks.
+The plates project into their own modules,
+not between the flush module mating faces, and follow Step framing visibility.
+
+The plate is `4.33 x 1.22 x 0.12 in`, with a `9.8 mm` center clearance hole
+for a nominal `3/8 in` bolt and two `20 mm` mounting slots separated by
+`36 mm` between their inner ends. `MENDING_PLATE_DIMENSIONS` stores the
+inch dimensions, converting the hole and slot dimensions from millimeters.
+Slot width is illustrated as `9.8 mm`; outer corner radius is illustrated as
+one quarter of the plate width. Neither is specified in the reference image.
+The reusable mesh is a closed shell with all three openings passing through.
+The mounting face is local `Y = 0`, and the plate projects toward `+Y`.
+Bolts, retaining screws, and holes through the wood remain unmodeled.
+Hardware weights remain unspecified and excluded from wood estimates.
+
+### Reusable hardware: Threaded insert
+
+`ThreadedInsert` defines a purchased **Threaded insert**.
+Reference: [Amazon ASIN B0HFHNMTGR](https://www.amazon.com/dp/B0HFHNMTGR),
+IRONCODE's **1/4-20 x 10 mm** zinc-alloy softwood insert variant.
+Its drawing specifies a `0.450 in` flange diameter and approximately
+`0.394 in` overall length; `THREADED_INSERT_DIMENSIONS` uses the listed
+`10 mm` length converted to inches. The package includes 15 inserts,
+a drill and a drive tool, but inventory counts the **two individual inserts**
+installed on the front faces of modules 1 and 2's rear spindles.
+
+One shared Part supplies two closed meshes. Details uses the full body,
+flange and through-opening; installed rendering, selection, Placement and
+clash exports use only the flange, with a solid black center disc to suggest
+a dark hole and make the center clickable. The detail mesh retains its open bore.
+The mounting plane is local `Y = 0`;
+the flange projects toward `+Y` and the concealed body extends toward `-Y`.
+Flange thickness (`0.025 in`), body diameters and five annular external
+thread ridges are illustrative, not published machining dimensions.
+The bore uses nominal `1/4 in` diameter; internal helical threads and the
+hex socket are omitted. Wood holes, washer counterbores, bolts and washers
+are not modeled. Clash checks do not validate concealed-body clearance.
+Wood volumes and weights are unchanged; hardware weight is unspecified.
 
 ### Mounting elevations and estimated clearances
 
@@ -2437,8 +2604,7 @@ There are no intermediate side-support tongue seats.
 Rear posts and module-front posts remain
 unnotched; there are no post dados or full-height bevels.
 
-The Stairway **Uprights** checkbox controls all posts, their base attachment blocks,
-and the lower rear plywood braces independently
+The Stairway **Uprights** checkbox controls all posts and their base attachment blocks independently
 of Foundation and Step framing. Parts module/material filters also constrain
 which installed pieces are shown, but visibility checkboxes do not filter Parts.
 Visibility changes preserve joints, material assignments, full-model wood
@@ -2447,7 +2613,9 @@ weight estimates, and full-assembly framing.
 ## Named part: riser
 
 `Step.parts.riser` is a separate board added at the **All parts**
-construction stage in Parts.
+construction stage in Parts. The independent **Risers** checkbox immediately
+before **Treads** controls risers and the lower front plywood braces; the braces
+retain their Uprights construction stage in Parts.
 It is edge-on, `RISER_THICKNESS` deep in local North. Its front face is
 on the front radial boundary, local North `0`, and its back face is on local
 North `RISER_THICKNESS`. It spans the complete front width, from the inside
@@ -2460,16 +2628,19 @@ riserTop = height - TREAD_THICKNESS;
 ```
 
 Step `0` is unchanged: it starts at `FLOOR_CLEARANCE`, one inch above the floor.
-Every higher riser has height `stepRise`, regardless of module placement:
+Most higher risers have height `stepRise`:
 
 ```js
 riserBottom = height - stepRise - TREAD_THICKNESS;
 riserHeight = stepRise;
 ```
 
-Its bottom meets the preceding tread's underside, giving exactly `1/2 in`
-of overlap with that tread. Its back face meets its own step's front cross-piece.
-No panel extends down over the preceding back step support or to the lower cross-pieces.
+Their bottoms meet the preceding tread's underside, giving exactly `1/2 in`
+of overlap with that tread. Steps 4 and 7 instead use the bottom of the
+preceding module's rear tread attachment blocks as `riserBottom`, at `18 in`
+and `43.5 in`, covering the full rear support height and extending down to the
+blocks' bottoms. Their riser heights are `15.5 in`. No riser reaches the lower cross-pieces.
+Each riser's back face meets its own step's front cross-piece.
 The riser attaches to the front upper cross-piece, not a thin post edge;
 vertical 2x2 riser cleats remain absent.
 

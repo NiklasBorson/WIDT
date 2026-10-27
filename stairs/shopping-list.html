@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WIDT Stairs Project - Shopping List</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./shopping-list-page.js"></script>
+</head>
+<body class="shopping-page">
+  <header class="page-header">
+    <h1>WIDT Stairs Project - Shopping List</h1>
+    <a href="./index.html">Home</a>
+  </header>
+  <main class="shopping-list">
+    <p>Raw-stock purchase estimates for the current nine-step, three-module model.
+      Quantities are generated from its complete cutting blanks, not just finished wood volume.</p>
+    <section aria-labelledby="shopping-assumptions">
+      <h2 id="shopping-assumptions">Planning assumptions</h2>
+      <ul>
+        <li>Lumber: compare standard 8-, 10-, and 12-ft boards and mixes of those lengths,
+          reserving 2 in at each end for trimming and defects. Confirm local availability
+          for the species and cross section before choosing an option.</li>
+        <li>Sheet goods: standard 4 x 8-ft sheets, reserving 1/2 in at every edge.
+          Use 1/8-in plywood suitable for the curved side panels and confirm its bending direction.</li>
+        <li>Add 1/2 in to each blank length (and each sheet blank width), round up to the
+          next 1/4 in, and allow a 1/8-in saw kerf.</li>
+        <li>Simple long-first board cutting and rectangular sheet rows, not minimum-waste
+          optimization. No individual sheet-blank rotations, irregular nesting, shared rip
+          strips, or reuse of cutouts. Actual store dimensions must meet the stated sizes.</li>
+        <li>Quantities include those cutting allowances, but not extra whole boards or sheets
+          for major mistakes. Reusable leftovers are expected. Check existing offcuts before
+          buying whole boards for small groups.</li>
+      </ul>
+      <p>Wood references:
+        <a href="https://www.wood-database.com/eastern-white-pine/">Eastern white pine</a>
+        and <a href="https://www.wood-database.com/douglas-fir/">Douglas fir</a>.
+        Lumber sizes below are nominal; actual cross sections are shown underneath.</p>
+    </section>
+    <p id="shopping-loading" role="status">Generating shopping list from the model...</p>
+    <p id="shopping-error" role="alert" hidden></p>
+    <noscript>Enable JavaScript to generate the shopping list from the model.</noscript>
+    <div id="shopping-results" hidden>
+      <section aria-labelledby="shopping-lumber-heading">
+        <h2 id="shopping-lumber-heading">Lumber</h2>
+        <p>Choose ONE option per row; do not add the OR alternatives together.
+          The suggested option uses the least total footage among the simple layouts
+          considered, not necessarily the lowest price. Longer-board layouts shorten
+          partly used boards to the smallest listed length that still fits.</p>
+        <div class="shopping-table">
+          <table aria-labelledby="shopping-lumber-heading">
+            <thead><tr><th scope="col">Raw stock</th><th scope="col">Buy</th><th scope="col">Modeled pieces covered</th></tr></thead>
+            <tbody id="shopping-lumber"></tbody>
+          </table>
+        </div>
+      </section>
+      <section aria-labelledby="shopping-sheets-heading">
+        <h2 id="shopping-sheets-heading">Sheet goods</h2>
+        <div class="shopping-table">
+          <table aria-labelledby="shopping-sheets-heading">
+            <thead><tr><th scope="col">Raw stock</th><th scope="col">Buy</th><th scope="col">Modeled pieces covered</th></tr></thead>
+            <tbody id="shopping-sheets"></tbody>
+          </table>
+        </div>
+      </section>
+      <section aria-labelledby="shopping-hardware-heading">
+        <h2 id="shopping-hardware-heading">Hardware</h2>
+        <p>Counts are individual pieces, not retail packs. Screws and bolts are excluded.</p>
+        <div class="shopping-table">
+          <table aria-labelledby="shopping-hardware-heading">
+            <thead><tr><th scope="col">Purchased part / Amazon listing</th><th scope="col">Buy</th></tr></thead>
+            <tbody id="shopping-hardware"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

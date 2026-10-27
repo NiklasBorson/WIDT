@@ -33,12 +33,23 @@ export const PANEL_STIFFENER_BOTTOM_HEIGHT = PANEL_SUPPORT_BLOCK_BOTTOM_HEIGHT -
 export const CASTER_DIMENSIONS = Object.freeze({
   height: CASTER_HEIGHT, wheelDiameter: 3, wheelWidth: 1.25, plateLength: 3.62, plateWidth: 2.5,
 });
+export const THREADED_FLANGE_DIMENSIONS = Object.freeze({
+  plateLength: 2.75, plateWidth: 1.27, plateThickness: 5 / 25.4,
+  mountingHoleDiameter: 7 / 25.4, threadDiameter: 3 / 8,
+});
+export const MENDING_PLATE_DIMENSIONS = Object.freeze({
+  plateLength: 4.33, plateWidth: 1.22, plateThickness: 0.12,
+  holeDiameter: 9.8 / 25.4, slotLength: 20 / 25.4, slotInnerGap: 36 / 25.4,
+});
+export const THREADED_INSERT_DIMENSIONS = Object.freeze({
+  flangeDiameter: 0.450, length: 10 / 25.4, threadDiameter: 0.25,
+});
 
 const PINE_DENSITY_LB_PER_FT3 = 30;
 const PLYWOOD_DENSITY_LB_PER_FT3 = 40;
-export const OAK_DENSITY = 45;
+export const DOUGLAS_FIR_DENSITY = 32;
 export const PINE = { key: "pine", name: "Pine", density: PINE_DENSITY_LB_PER_FT3, color: [0.80, 0.60, 0.37] };
-export const OAK = { key: "oak", name: "Oak", density: OAK_DENSITY, color: [0.58, 0.32, 0.20] };
+export const DOUGLAS_FIR = { key: "douglas-fir", name: "Douglas fir", density: DOUGLAS_FIR_DENSITY, color: [0.69, 0.46, 0.29] };
 export const PLYWOOD = { key: "plywood", name: "Plywood", density: PLYWOOD_DENSITY_LB_PER_FT3, color: [0.86, 0.72, 0.50] };
 export const PARTICLE_BOARD = { key: "particle-board", name: "Particle board", density: 45,
   color: [0.60, 0.43, 0.25], texture: "particle-board" };
@@ -135,15 +146,36 @@ function extrudeFootprint(footprint, bottomHeight, height, color, grain, triangu
   return geometryFromFaces(faces, color, grain);
 }
 
-function footprintGrain(footprint, lengthEdge) {
+function extrudeProfile(profile, thickness, color, grain, sag = 0.001) {
+  const points = bridgeProfile(profile, sag), faces = [], endFaces = [];
+  for (const triangle of triangulateProfile(points, true)) {
+    for (const surface of [0, thickness]) {
+      const corners = triangle.map(i => [points[i][0], surface, points[i][1]]);
+      faces.push(surface === 0 ? corners : corners.reverse());
+    }
+  }
+  for (const loop of [profile.outline, ...profile.holes]) {
+    const boundary = tessellateOutline(loop, sag);
+    for (const [i, a] of boundary.entries()) {
+      const b = boundary[(i + 1) % boundary.length];
+      endFaces.push(faces.length);
+      faces.push([[a[0], 0, a[1]], [a[0], thickness, a[1]],
+        [b[0], thickness, b[1]], [b[0], 0, b[1]]]);
+    }
+  }
+  return geometryFromFaces(faces, color, { ...grain, endFaces });
+}
+
+function footprintGrain(footprint, lengthEdge, cutFootprint = null) {
   const start = footprint[lengthEdge], end = footprint[(lengthEdge + 1) % footprint.length];
   const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
   const direction = [(end[0] - start[0]) / length, 0, -(end[1] - start[1]) / length];
+  const outline = cutFootprint ?? footprint;
   return {
     direction,
-    endFaces: footprint.length === 4 ? lengthEdge % 2 === 0 ? [3, 5] : [2, 4]
-      : footprint.flatMap((point, i) => {
-        const next = footprint[(i + 1) % footprint.length];
+    endFaces: !cutFootprint && footprint.length === 4 ? lengthEdge % 2 === 0 ? [3, 5] : [2, 4]
+      : outline.flatMap((point, i) => {
+        const next = outline[(i + 1) % outline.length];
         const along = (next[0] - point[0]) * direction[0] - (next[1] - point[1]) * direction[2];
         const across = (next[0] - point[0]) * direction[2] + (next[1] - point[1]) * direction[0];
         return Math.abs(across) > Math.abs(along) ? [i + 2] : [];
@@ -340,6 +372,247 @@ export class Caster {
   }
 
   createDesign() { return { geometry: casterGeometry ??= createCasterGeometry() }; }
+}
+
+let threadedFlangeGeometry;
+
+function createThreadedFlangeGeometry() {
+  const { plateLength, plateWidth, plateThickness, mountingHoleDiameter, threadDiameter } =
+    THREADED_FLANGE_DIMENSIONS;
+  const circle = (center, radius, clockwise = false) => [{
+    type: "arc", center, radius, startAngle: 0,
+    sweepRadians: (clockwise ? -1 : 1) * Math.PI * 2,
+  }];
+  const corners = [[-plateLength / 2, -plateWidth / 2], [plateLength / 2, -plateWidth / 2],
+    [plateLength / 2, plateWidth / 2], [-plateLength / 2, plateWidth / 2]];
+  const outline = corners.map((from, i) => ({ type: "line", from, to: corners[(i + 1) % corners.length] }));
+  // The size guide does not dimension the boss or mounting-hole centers.
+  const bossRadius = 0.425, bossHeight = 0.2, mountingHoleOffset = 1;
+  const holes = [circle([0, 0], threadDiameter / 2, true),
+    ...[-1, 1].map(sign => circle([sign * mountingHoleOffset, 0], mountingHoleDiameter / 2, true))];
+  const bossOutline = circle([0, 0], bossRadius), faces = [];
+  const at = (point, height) => [point[0], height, point[1]]
+    .map(value => Math.abs(value) < 1e-10 ? 0 : value);
+  // The plate and boss share one shell, with no internal caps at their junction.
+  for (const [profile, height, up] of [
+    [{ outline, holes }, 0, false],
+    [{ outline, holes: [circle([0, 0], bossRadius, true), ...holes.slice(1)] }, plateThickness, true],
+    [{ outline: bossOutline, holes: [holes[0]] }, plateThickness + bossHeight, true],
+  ]) {
+    const points = bridgeProfile(profile, 0.001);
+    for (const triangle of triangulateProfile(points, true)) {
+      const corners = triangle.map(i => at(points[i], height));
+      faces.push(up ? corners.reverse() : corners);
+    }
+  }
+  for (const [loop, bottom, top] of [
+    ...[outline, ...holes.slice(1)].map(loop => [loop, 0, plateThickness]),
+    [holes[0], 0, plateThickness + bossHeight],
+    [bossOutline, plateThickness, plateThickness + bossHeight],
+  ]) {
+    const boundary = tessellateOutline(loop, 0.001);
+    for (const [i, a] of boundary.entries()) {
+      const b = boundary[(i + 1) % boundary.length];
+      faces.push([at(a, bottom), at(a, top), at(b, top), at(b, bottom)]);
+    }
+  }
+  return geometryFromFaces(faces, [0.67, 0.70, 0.74],
+    { direction: [1, 0, 0], endFaces: [], solidColor: true });
+}
+
+export class ThreadedFlange {
+  constructor({ placement = null } = {}) {
+    this.partKind = "hardware";
+    this.placement = placement;
+  }
+
+  getPartDescription() {
+    const { plateLength, plateWidth } = THREADED_FLANGE_DIMENSIONS;
+    return {
+      kind: "hardware",
+      productKey: "threaded-flange-3-8in-b0f4n3dthr",
+      category: "Threaded flanges",
+      productName: "Threaded flange",
+      productUrl: "https://www.amazon.com/dp/B0F4N3DTHR",
+      summary: "Galvanized ceiling flange for ⅜-inch threaded rod, with two mounting holes.",
+      specifications: [
+        `Mounting plate: ${plateLength} x ${plateWidth} in.`,
+        "Plate thickness: 5 mm (approximately 0.197 in; the image labels it 0.19 in).",
+        "Two mounting holes: 7 mm diameter (the image labels them 0.27 in).",
+        "Threaded opening: nominal 3/8 in; thread pitch is not specified in the size guide.",
+        "Reference listing package: 20 pieces.",
+      ],
+      note: "The 3D model is approximate. Boss diameter (0.85 in), boss projection (0.2 in), and mounting-hole center spacing (2 in) are illustrative, not published dimensions. The threaded bore uses the nominal 3/8-inch diameter without helical threads. Rounded corners, markings, and the rear recess are omitted. The mounting plane is local Y = 0; the boss projects toward +Y.",
+    };
+  }
+
+  getPlacement() {
+    return this.placement ?? placementMatrix([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0, 0, 0]);
+  }
+
+  createGeometry() {
+    const mesh = threadedFlangeGeometry ??= createThreadedFlangeGeometry();
+    return this.placement ? transformGeometry(mesh, this.placement)
+      : Object.fromEntries(Object.entries(mesh).map(([key, values]) => [key, values.slice()]));
+  }
+
+  createDesign() { return { geometry: threadedFlangeGeometry ??= createThreadedFlangeGeometry() }; }
+}
+
+let mendingPlateGeometry;
+
+function createMendingPlateGeometry() {
+  const { plateLength, plateWidth, plateThickness, holeDiameter, slotLength, slotInnerGap } =
+    MENDING_PLATE_DIMENSIONS;
+  const x = plateLength / 2, z = plateWidth / 2, radius = plateWidth / 4;
+  const centers = [[x - radius, -z + radius], [x - radius, z - radius],
+    [-x + radius, z - radius], [-x + radius, -z + radius]];
+  const outline = centers.flatMap((center, i) => {
+    const startAngle = (i - 1) * Math.PI / 2, endAngle = i * Math.PI / 2;
+    const next = centers[(i + 1) % centers.length];
+    return [{ type: "arc", center, radius, startAngle, sweepRadians: Math.PI / 2 },
+      { type: "line", from: center.map((value, axis) =>
+        value + radius * (axis === 0 ? Math.cos(endAngle) : Math.sin(endAngle))),
+      to: next.map((value, axis) =>
+        value + radius * (axis === 0 ? Math.cos(endAngle) : Math.sin(endAngle))) }];
+  });
+  const holes = [[{ type: "arc", center: [0, 0], radius: holeDiameter / 2,
+    startAngle: 0, sweepRadians: -Math.PI * 2 }]];
+  for (const sign of [-1, 1]) {
+    const center = sign * (slotInnerGap + slotLength) / 2;
+    const half = (slotLength - holeDiameter) / 2, r = holeDiameter / 2;
+    holes.push([
+      { type: "arc", center: [center - half, 0], radius: r, startAngle: -Math.PI / 2, sweepRadians: -Math.PI },
+      { type: "line", from: [center - half, r], to: [center + half, r] },
+      { type: "arc", center: [center + half, 0], radius: r, startAngle: Math.PI / 2, sweepRadians: -Math.PI },
+      { type: "line", from: [center + half, -r], to: [center - half, -r] },
+    ]);
+  }
+  // Share exact boundary vertices between caps and walls, including arc/line joins.
+  const linearize = loop => {
+    const points = tessellateOutline(loop, 0.001)
+      .map(point => point.map(value => Math.abs(value) < 1e-10 ? 0 : value));
+    return points.map((from, i) => ({ type: "line", from, to: points[(i + 1) % points.length] }));
+  };
+  holes.sort((a, b) => a[0].center[0] - b[0].center[0]);
+  return extrudeProfile({ outline: linearize(outline), holes: holes.map(linearize) },
+    plateThickness, [0.18, 0.19, 0.21], { direction: [1, 0, 0], solidColor: true });
+}
+
+export class MendingPlate {
+  constructor({ placement = null } = {}) {
+    this.partKind = "hardware";
+    this.placement = placement;
+  }
+
+  getPartDescription() {
+    return {
+      kind: "hardware",
+      productKey: "mending-plate-b0f7z44bs2",
+      category: "Mending plates",
+      productName: "Mending plate",
+      productUrl: "https://www.amazon.com/dp/B0F7Z44BS2",
+      summary: "Flat mending plate with a center clearance hole for a 3/8-inch bolt and two mounting slots.",
+      specifications: [
+        "Overall dimensions: 4.33 x 1.22 x 0.12 in.",
+        "Center hole: 9.8 mm diameter; a close clearance fit for a nominal 3/8-inch bolt.",
+        "Mounting slots: 20 mm long, with 36 mm between their inner ends.",
+      ],
+      note: "The 3D model is approximate. Slot width is illustrated as 9.8 mm and outer corner radius as one quarter of the plate width; neither is specified in the reference image. The mounting plane is local Y = 0; the plate projects toward +Y. Fasteners are omitted. Hardware weight is unspecified.",
+    };
+  }
+
+  getPlacement() {
+    return this.placement ?? placementMatrix([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0, 0, 0]);
+  }
+
+  createGeometry() {
+    const mesh = mendingPlateGeometry ??= createMendingPlateGeometry();
+    return this.placement ? transformGeometry(mesh, this.placement)
+      : Object.fromEntries(Object.entries(mesh).map(([key, values]) => [key, values.slice()]));
+  }
+
+  createDesign() { return { geometry: mendingPlateGeometry ??= createMendingPlateGeometry() }; }
+}
+
+let threadedInsertGeometry, installedThreadedInsertGeometry;
+
+function createThreadedInsertGeometry(installedOnly = false) {
+  const { flangeDiameter, length, threadDiameter } = THREADED_INSERT_DIMENSIONS;
+  // Flange thickness, body diameters, and annular thread ridges are illustrative.
+  const thickness = 0.025, bodyDepth = length - thickness, bore = threadDiameter / 2;
+  const profile = installedOnly ? [[bore, 0]] : [[bore, -bodyDepth], [0.15, -bodyDepth],
+    [0.16, -bodyDepth + 0.02]];
+  if (!installedOnly) {
+    for (let i = 0; i < 5; i++) {
+      const height = -bodyDepth + (i + 0.75) * bodyDepth / 5;
+      profile.push([0.16, height - 0.015], [0.20, height], [0.16, height + 0.015]);
+    }
+    profile.push([0.16, 0]);
+  }
+  profile.push([flangeDiameter / 2, 0], [flangeDiameter / 2, thickness], [bore, thickness]);
+  const rings = Array.from({ length: 48 }, (_, i) => {
+    const angle = i * Math.PI * 2 / 48;
+    return profile.map(([radius, height]) =>
+      [radius * Math.cos(angle), height, radius * Math.sin(angle)]);
+  });
+  const faces = rings.flatMap((ring, i) => ring.slice(0, installedOnly ? ring.length - 1 : ring.length).map((point, j) => {
+    const nextRing = rings[(i + 1) % rings.length], next = (j + 1) % ring.length;
+    return [point, ring[next], nextRing[next], nextRing[j]];
+  }));
+  const solid = { direction: [0, 1, 0], endFaces: [], solidColor: true };
+  const metal = geometryFromFaces(faces, [0.67, 0.70, 0.74], solid);
+  if (!installedOnly) return metal;
+  const center = geometryFromFaces([
+    rings.map(ring => ring[0]), rings.map(ring => ring.at(-1)).reverse(),
+  ], [0, 0, 0], solid);
+  return combineGeometries([metal, center]);
+}
+
+export class ThreadedInsert {
+  constructor({ placement = null } = {}) {
+    this.partKind = "hardware";
+    this.placement = placement;
+  }
+
+  getPartDescription() {
+    return {
+      kind: "hardware", productKey: "threaded-insert-1-4-20x10mm-b0hfhnmtgr",
+      category: "Threaded inserts", productName: "Threaded insert",
+      productUrl: "https://www.amazon.com/dp/B0HFHNMTGR",
+      summary: "IRONCODE flanged 1/4-20 x 10 mm threaded insert for softwood.",
+      specifications: [
+        "Internal thread: 1/4-20 UNC",
+        "Overall length: 10 mm (approximately 0.394 in)",
+        "Flange diameter: 0.450 in",
+        "Material: zinc alloy",
+        "Package: 15 inserts, drill and drive tool; quantities count individual inserts",
+      ],
+      note: "Installed views and clash exports show the flange with a solid black center representing the hole " +
+        "and providing a click target; Details shows the full insert with an open bore. " +
+        "Flange thickness, body diameters and annular external thread ridges are illustrative. " +
+        "The bore uses nominal thread diameter; internal threads and the hex socket are omitted. " +
+        "Wood holes, washer recesses, bolts and washers are not modeled; concealed fit is not checked. " +
+        "Hardware weight is unspecified.",
+    };
+  }
+
+  getPlacement() {
+    return this.placement ?? placementMatrix([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0, 0, 0]);
+  }
+
+  createGeometry() {
+    const geometry = installedThreadedInsertGeometry ??= createThreadedInsertGeometry(true);
+    return this.placement ? transformGeometry(geometry, this.placement)
+      : Object.fromEntries(Object.entries(geometry).map(([key, values]) => [key, values.slice()]));
+  }
+
+  createDesign() {
+    return {
+      geometry: threadedInsertGeometry ??= createThreadedInsertGeometry(),
+      installedGeometry: installedThreadedInsertGeometry ??= createThreadedInsertGeometry(true),
+    };
+  }
 }
 
 export class Board {
@@ -805,7 +1078,7 @@ class FrameBoard extends Board {
     this.notches = {};
   }
 
-  get grain() { return { ...super.grain, ...footprintGrain(this.footprint, this.lengthEdge) }; }
+  get grain() { return { ...super.grain, ...footprintGrain(this.footprint, this.lengthEdge, this.cutFootprint) }; }
 
   get faceCuts() { return describePlanCuts(this); }
 
@@ -1095,7 +1368,7 @@ function describePlanCuts(board) {
   };
   const height = board instanceof FlatFrameBoard ? board.thickness : board.width;
   return board.planCuts.map(([front, back], i) =>
-    describeSurfaceCut(`Newel cutout face ${i + 1}`, [
+    describeSurfaceCut(`${board.planCutName ?? "Newel cutout face"} ${i + 1}`, [
       stockPoint(front, 0), stockPoint(back, 0),
       stockPoint(back, height), stockPoint(front, height),
     ]));
@@ -1310,7 +1583,7 @@ function addRearSupportCrossPiece(step) {
   step.parts.bottomFrame.boards.rearSupportCrossPiece = crossPiece;
 }
 
-function uprightFaceBlock(step, upright, bottomHeight, front = false, height = FRAME_WIDTH, faceSetback = 0) {
+function uprightFaceBlock(step, upright, bottomHeight, front = false, height = FRAME_WIDTH) {
   const { across, along } = upright, depth = TWO_BY_FOUR_STOCK.thickness;
   const face = front ? upright.footprint.slice(0, 2) : upright.footprint.slice(2).reverse();
   const project = (point, direction) => point.reduce((sum, value, axis) =>
@@ -1323,8 +1596,8 @@ function uprightFaceBlock(step, upright, bottomHeight, front = false, height = F
     return project(shifted, across) < project(left, across) ? left
       : project(shifted, across) > project(right, across) ? right : shifted;
   });
-  const [a, b] = fittedFace(front ? -depth - faceSetback : faceSetback);
-  const [d, c] = fittedFace(front ? -faceSetback : depth + faceSetback);
+  const [a, b] = fittedFace(front ? -depth : 0);
+  const [d, c] = fittedFace(front ? 0 : depth);
   const block = new FrameBoard([a, b, c, d], {
     thickness: depth, width: height, length: upright.width, stock: TWO_BY_FOUR_STOCK,
   }, bottomHeight);
@@ -1347,27 +1620,118 @@ function addSupportBlocks(step) {
     }
     const rear = step.parts.uprights.boards[`${side}RearUpright`];
     if (rear) {
-      const rearBlock = uprightFaceBlock(step, rear, crossTop, true, FRAME_WIDTH,
-        step.parts.rearUprightBrace?.thickness ?? 0);
+      const rearBlock = uprightFaceBlock(step, rear, crossTop, true);
       rearBlock.name = `Attachment block - upright rear ${side}`;
       step.parts.bottomFrame.boards[`${side}RearSupportBlock`] = rearBlock;
     }
   }
 }
 
-function addRearUprightBrace(step) {
-  const { leftRearUpright: left, rightRearUpright: right } = step.parts.uprights.boards;
-  const back = [left.footprint[0], right.footprint[1]];
+function addFrontUprightBrace(first, last) {
+  const { leftUpright: left, rightUpright: right } = first.parts.uprights.boards;
+  const rear = last.parts.uprights.boards;
+  // Preserve the former rear panel's width, centered across the front posts.
+  const length = Math.hypot(...rear.rightRearUpright.footprint[1].map((value, axis) =>
+    value - rear.leftRearUpright.footprint[0][axis]));
+  const center = left.footprint[0].map((value, axis) =>
+    (value + right.footprint[1][axis]) / 2);
+  const back = [-1, 1].map(sign => center.map((value, axis) =>
+    value + sign * left.across[axis] * length / 2));
   const front = back.map(point => point.map((value, axis) => value - left.along[axis] * RISER_THICKNESS));
-  const beam = step.parts.bottomFrame.boards.rearSupportCrossPiece;
+  const beam = first.parts.bottomFrame.boards.supportCrossPiece;
   const brace = new FrameBoard([...front, back[1], back[0]], {
-    length: Math.hypot(...back[1].map((value, axis) => value - back[0][axis])),
-    width: 8, thickness: RISER_THICKNESS, material: PLYWOOD,
+    length, width: 8, thickness: RISER_THICKNESS, material: PLYWOOD,
     stock: { kind: "plywood", thickness: RISER_THICKNESS },
-  }, beam.bottomHeight + beam.thickness);
-  brace.name = "Rear brace - lower";
-  validateFootprints(brace.name, [brace.footprint], step.footprint);
-  step.parts.rearUprightBrace = brace;
+  }, beam.bottomHeight);
+  brace.name = "Front brace - lower";
+  validateFootprints(brace.name, [brace.footprint], first.footprint);
+  first.parts.frontUprightBrace = brace;
+}
+
+function addRearTreadAttachmentBlocks(step) {
+  const boards = step.parts.topFrame.boards;
+  const rearBoundary = boards.northCrossPiece.footprint.slice(0, 2);
+  const span = Math.hypot(...rearBoundary[1].map((value, axis) => value - rearBoundary[0][axis]));
+  const across = rearBoundary[1].map((value, axis) => (value - rearBoundary[0][axis]) / span);
+  const along = [-across[1], across[0]];
+  const offset = rearBoundary[0].reduce((sum, value, axis) => sum + value * along[axis], 0);
+  for (const side of ["left", "right"]) {
+    const left = side === "left", support = boards[`${side}StepSupport`];
+    const edge = left ? [support.footprint[1], support.footprint[2]]
+      : [support.footprint[0], support.footprint[3]];
+    const depth = Math.hypot(...edge[1].map((value, axis) => value - edge[0][axis]));
+    const sideInward = [(edge[1][1] - edge[0][1]) / depth, (edge[0][0] - edge[1][0]) / depth]
+      .map(value => value * (left ? 1 : -1));
+    const inward = across.map(value => value * (left ? 1 : -1));
+    let front = pointAtOffset(...edge, along, offset).map((value, axis) => value - along[axis] * FRAME_THICKNESS);
+    // Keep the rear face radial and bevel the outer edge to fit the angled side support.
+    const inset = Math.max(0, front.reduce((sum, value, axis) =>
+      sum + (value - edge[0][axis]) * sideInward[axis], 0)) /
+      inward.reduce((sum, value, axis) => sum + value * sideInward[axis], 0);
+    front = front.map((value, axis) => value - inward[axis] * inset);
+    const upright = step.parts.uprights.boards[`${side}RearUpright`];
+    const width = upright.footprint[left ? 1 : 0]
+      .reduce((sum, value, axis) => sum + (value - front[axis]) * inward[axis], 0);
+    const block = new UprightBoard(front, front.map((value, axis) => value + inward[axis]),
+      left ? -1 : 1, step.height, {
+      thickness: FRAME_THICKNESS, width,
+      bottomHeight: step.parts.tread.bottomHeight - 7,
+      frontSetback: front[1], stock: ONE_BY_FOUR_STOCK,
+    });
+    const bevel = block.notchDepth(edge).map(value => Math.max(0, value));
+    block.notchedStock = new NotchedBoard(block, {}, [], [{ corner: "endNear", length: block.length, depth: bevel }]);
+    block.name = `Attachment block - rear tread ${side}`;
+    block.category = "step-framing";
+    validateFootprints(block.name, [block.footprint], step.footprint);
+    boards[`${side}RearTreadBlock`] = block;
+    const frontOuter = pointAtOffset(...edge, along, offset - FRAME_THICKNESS);
+    const center = frontOuter.map((value, axis) => (value + front[axis] + inward[axis] * block.width) / 2);
+    const flange = new ThreadedFlange({ placement: placementMatrix(
+      [[0, 1, 0], [-along[0], 0, along[1]], [along[1], 0, along[0]]],
+      [center[0], block.bottomHeight + 1 / 8 + THREADED_FLANGE_DIMENSIONS.plateLength / 2, -center[1]]) });
+    flange.name = "Threaded flange";
+    flange.category = "step-framing";
+    step.parts[`${side}RearTreadFlange`] = flange;
+  }
+}
+
+function frontUprightMendingPlate(step, side, flange) {
+  const c = Math.cos(step.angle), s = Math.sin(step.angle);
+  const placement = flange.getPlacement();
+  const upright = step.parts.uprights.boards[`${side}Upright`];
+  const east = c * (placement[12] + INNER_RADIUS) - s * placement[14] - INNER_RADIUS;
+  const plate = new MendingPlate({ placement: placementMatrix(
+    [[0, 1, 0], [0, 0, -1], [-1, 0, 0]],
+    [east, placement[13], -upright.footprint[3][1]]) });
+  plate.name = "Mending plate";
+  plate.category = "step-framing";
+  return plate;
+}
+
+function addFrontUprightMendingPlates(step, preceding) {
+  for (const side of ["left", "right"]) {
+    step.parts[`${side}FrontUprightMendingPlate`] =
+      frontUprightMendingPlate(step, side, preceding.parts[`${side}RearTreadFlange`]);
+  }
+}
+
+function addLowerUprightConnectors(step, next) {
+  for (const side of ["left", "right"]) {
+    const upright = step.parts.uprights.boards[`${side}RearUpright`];
+    const rearBlock = step.parts.bottomFrame.boards[`${side}RearSupportBlock`];
+    const frontBlock = next.parts.bottomFrame.boards[`${side}SupportBlock`];
+    const blockTop = Math.max(rearBlock.bottomHeight + rearBlock.width,
+      frontBlock.bottomHeight + frontBlock.width);
+    const centerHeight = blockTop + 1 / 8 + MENDING_PLATE_DIMENSIONS.plateLength / 2;
+    const center = upright.footprint[0].map((value, axis) => (value + upright.footprint[1][axis]) / 2);
+    const flange = new ThreadedFlange({ placement: placementMatrix(
+      [[0, 1, 0], [-upright.along[0], 0, upright.along[1]], [upright.across[0], 0, -upright.across[1]]],
+      [center[0], centerHeight, -center[1]]) });
+    flange.name = "Threaded flange";
+    flange.category = "step-framing";
+    step.parts[`${side}LowerUprightFlange`] = flange;
+    next.parts[`${side}LowerUprightMendingPlate`] = frontUprightMendingPlate(next, side, flange);
+  }
 }
 
 function addPanelRibSupportBlock(step, uprightKey, position, topHeight, intermediate) {
@@ -1632,11 +1996,16 @@ function addSpindleBlock(step, rear = false) {
   const backOffset = far[0].reduce((sum, value, i) => sum + value * along[i], 0);
   const outerFront = pointAtOffset(...outer, along, frontOffset);
   const outerBack = pointAtOffset(...outer, along, backOffset);
-  const footprint = [near[0], outerFront, outerBack, far[0]];
+  const inside = rear && step.parts.topFrame.boards.rightRearTreadBlock
+    ? [step.parts.topFrame.boards.rightStepSupport.footprint[0],
+      step.parts.topFrame.boards.rightStepSupport.footprint[3]] : null;
+  const innerFront = inside ? pointAtOffset(...inside, along, frontOffset) : near[0];
+  const innerBack = inside ? pointAtOffset(...inside, along, backOffset) : far[0];
+  const footprint = [innerFront, outerFront, outerBack, innerBack];
   const block = new FrameBoard(footprint, {
     thickness: depth, width: FRAME_WIDTH,
     length: Math.max(...[outerFront, outerBack].map(point =>
-      point.reduce((sum, value, i) => sum + (value - near[0][i]) * upright.across[i], 0))),
+      point.reduce((sum, value, i) => sum + (value - innerFront[i]) * upright.across[i], 0))),
     stock: TWO_BY_FOUR_STOCK,
   }, upright.bottomHeight + upright.length - FRAME_WIDTH);
   block.name = `Spindle block - ${rear ? "rear" : "front"}`;
@@ -1646,6 +2015,57 @@ function addSpindleBlock(step, rear = false) {
   const direction = outerBack.map((value, i) => (value - outerFront[i]) / run);
   const inner = point => point.map((value, i) => value + [-direction[1], direction[0]][i] * depth);
   return { footprint: [inner(outerFront), outerFront, outerBack, inner(outerBack)], width: run };
+}
+
+function addFrontSpindleAttachments(step, removable) {
+  const boards = step.parts.topFrame.boards;
+  const support = boards.rightStepSupport, mount = boards.frontSpindleBlock;
+  const north = mount.footprint[0][1];
+  const fittedBlock = (name, footprint, edge, outboard = false) => {
+    const along = footprint[3].map((value, axis) => value - footprint[0][axis]);
+    const length = Math.hypot(...along);
+    const block = new FrameBoard(footprint, {
+      thickness: FRAME_THICKNESS, width: FRAME_WIDTH, length, stock: ONE_BY_FOUR_STOCK,
+    }, support.bottomHeight, 3);
+    const normal = [edge[0][1] - edge[1][1], edge[1][0] - edge[0][0]]
+      .map(value => value * (outboard ? -1 : 1));
+    const offset = edge[0].reduce((sum, value, axis) => sum + value * normal[axis], 0);
+    const fitted = clipFootprint(footprint, normal, offset);
+    block.cutFootprint = fitted.filter((point, index) =>
+      Math.hypot(...point.map((value, axis) =>
+        value - fitted[(index + 1) % fitted.length][axis])) > 1e-8);
+    const cut = [0, 3].map(index => pointAtOffset(...edge, along,
+      footprint[index].reduce((sum, value, axis) => sum + value * along[axis], 0)));
+    block.planCuts = [outboard ? cut.reverse() : cut];
+    block.planCutName = "Fitted tread-support face";
+    block.name = name;
+    block.category = "step-framing";
+    return block;
+  };
+  const spindle = step.parts.frontSpindle, front = spindle.footprint[0], back = spindle.footprint[3];
+  const run = Math.hypot(...back.map((value, axis) => value - front[axis]));
+  const inward = [(front[1] - back[1]) / run, (back[0] - front[0]) / run];
+  const inner = point => point.map((value, axis) => value + inward[axis] * FRAME_THICKNESS);
+  boards.frontSpindleBearingShim = fittedBlock("Spindle shim - upper bearing",
+    [inner(front), front, back, inner(back)], support.footprint.slice(1, 3), true);
+  if (!removable) return;
+  const east = mount.footprint[0][0];
+  boards.frontSpindleBackingBlock = fittedBlock("Attachment block - spindle upper", [
+    [east, north], [east + FRAME_THICKNESS, north],
+    [east + FRAME_THICKNESS, north + FRAME_WIDTH], [east, north + FRAME_WIDTH],
+  ], [support.footprint[0], support.footprint[3]]);
+  const centerNorth = north + mount.width / 2;
+  for (const [position, height] of [
+    ["upper", support.bottomHeight + FRAME_WIDTH / 2],
+    ["lower", mount.bottomHeight + 1 / 8 + THREADED_FLANGE_DIMENSIONS.plateLength / 2],
+  ]) {
+    const flange = new ThreadedFlange({ placement: placementMatrix(
+      [[0, 1, 0], [-1, 0, 0], [0, 0, 1]],
+      [mount.footprint[0][0], height, -centerNorth]) });
+    flange.name = "Threaded flange";
+    flange.category = "step-framing";
+    step.parts[`${position}FrontSpindleFlange`] = flange;
+  }
 }
 
 export class Uprights {
@@ -2123,23 +2543,7 @@ export class ProfiledPlywood extends Board {
   }
 
   createStockGeometry(sag = 0.001) {
-    const profile = bridgeProfile(this, sag), faces = [], endFaces = [];
-    for (const triangle of triangulateProfile(profile, true)) {
-      for (const surface of [0, this.thickness]) {
-        const corners = triangle.map(i => [profile[i][0], surface, profile[i][1]]);
-        faces.push(surface === 0 ? corners : corners.reverse());
-      }
-    }
-    for (const loop of [this.outline, ...this.holes]) {
-      const points = tessellateOutline(loop, sag);
-      for (const [i, a] of points.entries()) {
-        const b = points[(i + 1) % points.length];
-        endFaces.push(faces.length);
-        faces.push([[a[0], 0, a[1]], [a[0], this.thickness, a[1]],
-          [b[0], this.thickness, b[1]], [b[0], 0, b[1]]]);
-      }
-    }
-    return geometryFromFaces(faces, this.color, { ...this.grain, endFaces });
+    return extrudeProfile(this, this.thickness, this.color, this.grain, sag);
   }
 
   createGeometry() {
@@ -2530,36 +2934,6 @@ function createModuleSiding(module, spindles) {
   return board;
 }
 
-export class BackGusset extends FrameBoard {
-  constructor(step) {
-    const upright = step.parts.uprights.boards.leftRearUpright;
-    const inset = 1, length = 8, height = 8;
-    // Keep the side-support half-lap clear at the post's outer edge.
-    const back = upright.footprint[0].map((value, axis) => value + upright.across[axis] * inset);
-    const front = back.map((value, axis) => value - upright.along[axis] * RISER_THICKNESS);
-    const across = point => point.map((value, axis) => value + upright.across[axis] * length);
-    const support = step.parts.topFrame.boards.northCrossPiece;
-    const top = support.bottomHeight + support.width;
-    super([front, across(front), across(back), back], {
-      thickness: RISER_THICKNESS, width: height, length,
-      material: PLYWOOD, stock: { kind: "plywood", thickness: RISER_THICKNESS },
-    }, top - height);
-    const points = [[0, 0], [length, height], [0, height]];
-    this.outline = points.map((from, i) => ({ type: "line", from, to: points[(i + 1) % points.length] }));
-    validateFootprints("Rear gusset", [this.footprint], step.footprint);
-  }
-
-  getManufacturingDescription() { return { ...super.getManufacturingDescription(), outline: this.outline }; }
-  getMaterialVolume() { return this.length * this.width * this.thickness / 2; }
-  createStockGeometry() {
-    const profile = this.outline.map(edge => edge.from);
-    return geometryFromProfiles([profile, profile], [0, this.thickness], this.color,
-      { ...this.grain, direction: [1, 0, 0], origin: [0, 0, 0],
-        plyDirection: [0, 1, 0], plyThickness: this.thickness / 3 }, [0, 1, 2]);
-  }
-  createGeometry() { return placeStockGeometry(this, this.createStockGeometry()); }
-}
-
 export class Newel extends UprightBoard {
   constructor(first, second, shoulderAscent = RAILING_BOTTOM_ASCENT) {
     const size = FOUR_BY_FOUR_STOCK.width;
@@ -2586,7 +2960,7 @@ export class Newel extends UprightBoard {
       width: size, thickness: size, bottomHeight: FLOOR_CLEARANCE, frontSetback: front[1],
       stock: FOUR_BY_FOUR_STOCK,
     });
-    this.material = OAK;
+    this.material = DOUGLAS_FIR;
     const north = support.footprint[2][1];
     this.cornerBevel = {
       bottomHeight: Math.max(this.bottomHeight, support.bottomHeight),
@@ -2681,7 +3055,7 @@ export class Spindle extends Board {
     const descent = step.stepRise + 5;
     const frontHeight = shoulderAscent + 2 + descent;
     super({ length: frontHeight + slope * size, width: size, thickness: size,
-      material: OAK, stock: TWO_BY_TWO_STOCK });
+      material: DOUGLAS_FIR, stock: TWO_BY_TWO_STOCK });
     const front = upright.footprint[1].map((value, axis) =>
       value + along[axis] * (upright.width - size) / 2);
     const back = front.map((value, axis) => value + along[axis] * size);
@@ -2756,10 +3130,10 @@ export class SpindleShim extends Board {
     const minimum = [0, 1, 2].map(axis => Math.min(...stockVertices.map(point => point[axis])));
     const maximum = [0, 1, 2].map(axis => Math.max(...stockVertices.map(point => point[axis])));
     if (maximum[1] - minimum[1] > TWO_BY_FOUR_STOCK.thickness + 1e-8) {
-      throw new RangeError(`A spindle shim must fit the thickness of oak 2x4 stock (requires ${maximum[1] - minimum[1]} inches).`);
+      throw new RangeError(`A spindle shim must fit the thickness of Douglas fir 2x4 stock (requires ${maximum[1] - minimum[1]} inches).`);
     }
     super({ length: maximum[0] - minimum[0], thickness: TWO_BY_FOUR_STOCK.thickness,
-      width: maximum[2] - minimum[2], material: OAK, stock: TWO_BY_FOUR_STOCK });
+      width: maximum[2] - minimum[2], material: DOUGLAS_FIR, stock: TWO_BY_FOUR_STOCK });
     this.vertices = vertices;
     this.stockVertices = stockVertices.map(point => point.map((value, axis) => value - minimum[axis]));
     this.axes = axes;
@@ -2872,12 +3246,16 @@ export function buildStairway(stairWidth = 20) {
     steps.push(new Step({
       width: stairWidth, angle, height: (i + 1) * stepRise, stepRise,
       rearUprights: isModuleBack,
+      riserBottom: i >= bottomModuleSize && (i - bottomModuleSize) % stepsPerModule === 0
+        ? steps[i - 1].parts.topFrame.boards.leftRearTreadBlock.bottomHeight : undefined,
       rightStepSupport: i > 0,
       extendRightEdge: i === 0,
     }));
+    if (isModuleBack && i < stepCount - 1) addRearTreadAttachmentBlocks(steps.at(-1));
   }
   for (let start = bottomModuleSize; start < stepCount; start += stepsPerModule) {
     addExtendedLeftSupport(steps.slice(start, start + stepsPerModule));
+    addFrontUprightMendingPlates(steps[start], steps[start - 1]);
   }
   delete steps[0].parts.topFrame.boards.northCrossPiece;
   const first = steps[0], cross = first.parts.topFrame.boards.southCrossPiece;
@@ -2900,10 +3278,11 @@ export function buildStairway(stairWidth = 20) {
       if (step !== steps[0]) {
         addSupportCrossPiece(step);
         step.parts.frontSpindle = new Spindle(step, addSpindleBlock(step), spindleShoulderAscent);
+        addFrontSpindleAttachments(step, startIndex > 0);
       }
     }
     addRearSupportCrossPiece(moduleSteps.at(-1));
-    if (startIndex > 0) addRearUprightBrace(moduleSteps.at(-1));
+    if (startIndex > 0) addFrontUprightBrace(moduleSteps[0], moduleSteps.at(-1));
     if (startIndex === 0) {
       addNewelFraming(moduleSteps[0], moduleSteps[1], boards);
       addFrontStepTreadSupports(moduleSteps[0]);
@@ -2914,9 +3293,11 @@ export function buildStairway(stairWidth = 20) {
     for (const step of moduleSteps) addSupportBlocks(step);
     const lastStep = moduleSteps.at(-1);
     lastStep.parts.rearSpindle = new Spindle(lastStep, addSpindleBlock(lastStep, true), spindleShoulderAscent);
-    if (startIndex > 0) lastStep.parts.upperBackGusset = new BackGusset(lastStep);
     modules.push({ startIndex, steps: moduleSteps, boards });
     startIndex += size;
+  }
+  for (let i = 0; i < modules.length - 1; i++) {
+    addLowerUprightConnectors(modules[i].steps.at(-1), modules[i + 1].steps[0]);
   }
   const spindles = steps.flatMap((step, index) =>
     [step.parts.frontSpindle, step.parts.rearSpindle].filter(Boolean).map(spindle => ({ spindle, index })));
@@ -2934,6 +3315,10 @@ export function buildStairway(stairWidth = 20) {
     step.parts.spindleShim = new SpindleShim(
       [rear.footprint[3], rear.footprint[2], boundary[1], boundary[0]],
       rearTop, Math.atan2(-gap[0], gap[1]));
+    const center = rear.footprint[0].map((value, axis) => (value + rear.footprint[1][axis]) / 2);
+    step.parts.rearSpindleInsert = new ThreadedInsert({
+      placement: placementMatrix(rear.getStockAxes(), [center[0], rearTop - 2, -center[1]]),
+    });
   }
   for (const module of modules) {
     module.boards.siding = createModuleSiding(module, spindles);
@@ -3163,7 +3548,7 @@ export function buildStairway(stairWidth = 20) {
       }
       return combineGeometries(this.partTree.getLeaves(nodeId ?? this.partTree.root.id)
         .filter(piece => !hiddenCategories.includes(piece.category) && visibility[piece.visibilityKey] !== false)
-        .map(piece => transformGeometry(piece.part.createGeometry(),
+        .map(piece => transformGeometry(piece.part.createInstalledGeometry(),
           this.getPieceTransform(piece.id, explosion, moduleExplosion))));
     },
   };

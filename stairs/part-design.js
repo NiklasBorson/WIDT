@@ -127,7 +127,7 @@ export function inverseTransform(matrix) {
 }
 
 export class Part {
-  constructor({ key, stockKey, kind, description, specification, issue, flatGeometry, geometry, material, volume }) {
+  constructor({ key, stockKey, kind, description, specification, issue, flatGeometry, geometry, installedGeometry, material, volume }) {
     this.key = key;
     this.stockKey = stockKey;
     this.kind = kind;
@@ -136,6 +136,7 @@ export class Part {
     this.issue = issue;
     this.flatGeometry = flatGeometry ? Object.freeze(flatGeometry) : null;
     this.geometry = geometry ? Object.freeze(geometry) : this.flatGeometry;
+    this.installedGeometry = installedGeometry ? Object.freeze(installedGeometry) : null;
     this.material = material ? freezeRecord(structuredClone(material)) : null;
     if (volume === undefined && material && this.geometry) {
       const { positions: p, indices } = this.geometry;
@@ -168,6 +169,10 @@ export class Part {
   createGeometry() {
     if (!this.geometry) throw new Error(this.issue ?? "This Part has no finished geometry.");
     return this.geometry;
+  }
+
+  createInstalledGeometry() {
+    return this.installedGeometry ?? this.createGeometry();
   }
 }
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildStairway, NotchedBoard, Siding, BentPlywood, ProfiledPlywood, SpindleShim, PINE, OAK, PARTICLE_BOARD } from "./model.js";
+import { buildStairway, NotchedBoard, Siding, BentPlywood, ProfiledPlywood, SpindleShim, PINE, DOUGLAS_FIR, PARTICLE_BOARD } from "./model.js";
 import { PartInventory, PART_SUBSETS, PART_VISIBILITY_CATEGORIES, partVisibilityCategory,
   manufacturingSpecification } from "./part-list.js";
 import { formatLength, formatPartDescription, getSimpleEdgeBevel } from "./part-description.js";
@@ -211,12 +211,21 @@ test("modeled part names use family-first qualifiers across every supported layo
     frontStepRightRearSupport: "Tread support - first-step right rear",
     frontStepFrontBearing: "Beam - first-step front", frontStepRearBearing: "Beam - first-step rear",
     extendedLeftSupportCrossPiece: "Beam - extended left support",
-    upperBackGusset: "Rear gusset - upper",
-    rearUprightBrace: "Rear brace - lower",
+    frontUprightBrace: "Front brace - lower",
+    leftRearTreadBlock: "Attachment block - rear tread left",
+    rightRearTreadBlock: "Attachment block - rear tread right",
+    leftRearTreadFlange: "Threaded flange", rightRearTreadFlange: "Threaded flange",
+    leftFrontUprightMendingPlate: "Mending plate", rightFrontUprightMendingPlate: "Mending plate",
+    leftLowerUprightFlange: "Threaded flange", rightLowerUprightFlange: "Threaded flange",
+    leftLowerUprightMendingPlate: "Mending plate", rightLowerUprightMendingPlate: "Mending plate",
+    upperFrontSpindleFlange: "Threaded flange", lowerFrontSpindleFlange: "Threaded flange",
+    frontSpindleBackingBlock: "Attachment block - spindle upper",
+    frontSpindleBearingShim: "Spindle shim - upper bearing",
     newelInnerBlock: "Newel block - inner", newelRearBlock: "Newel block - rear",
     newel: "Newel post", riser: "Riser", tread: "Tread",
     frontSpindleBlock: ["Spindle block - front", "Spindle support - front"], rearSpindleBlock: "Spindle block - rear",
     frontSpindle: "Spindle - front", rearSpindle: "Spindle - rear", spindleShim: "Spindle shim",
+    rearSpindleInsert: "Threaded insert",
     siding: ["Side panel - curved", "Side panel - right rear section"],
     frontSiding: "Side panel - right front section",
     sidingStiffener: ["Bottom rib - curved", "Bottom rib - rear section"],
@@ -250,6 +259,21 @@ test("modeled part names use family-first qualifiers across every supported layo
   assert.deepEqual([...seen].sort(), [...new Set(Object.values(names).flat())].sort());
 });
 
+test("Douglas fir replaces oak in material sections and filters while retaining pine-first ordering", () => {
+  const inventory = new PartInventory(buildStairway().partTree);
+  assert.deepEqual([...new Set(inventory.sections.filter(section => section.kind === "lumber")
+    .map(section => section.stock.materialKey))], ["pine", "douglas-fir"]);
+  const sections = inventory.sections.filter(section => section.stock?.materialKey === "douglas-fir");
+  assert.equal(sections.length, 3);
+  assert.equal(sections.reduce((sum, section) => sum + section.quantity, 0), 14);
+  for (const section of sections) {
+    assert.equal(section.stock.material, "Douglas fir");
+    const filtered = inventory.filter({ stockKey: section.key });
+    assert.equal(filtered.occurrences.length, section.quantity);
+    assert.ok(filtered.occurrences.every(({ entry }) => entry.description.stock.materialKey === "douglas-fir"));
+  }
+});
+
 test("Parts inventory filters intersect module, subset, and stock category", () => {
   const model = buildStairway(), inventory = new PartInventory(model.partTree);
   const all = inventory.filter();
@@ -273,7 +297,7 @@ test("Parts inventory filters intersect module, subset, and stock category", () 
   assert.ok(framing.occurrences.length);
   assert.ok(framing.occurrences.every(({ entry, location }) =>
     ["lumber", "hardware"].includes(entry.kind) || location.category === "base-rails" ||
-      location.name.startsWith("Rear gusset - ") || location.name === "Rear brace - lower"));
+      location.name === "Front brace - lower"));
   assert.throws(() => inventory.filter({ subset: "missing" }), /Unknown part subset/);
 });
 
@@ -282,11 +306,13 @@ test("Stairway visibility partitions installed pieces by role instead of accumul
   for (const [category, roles] of [
     ["foundation", ["leftCaster", "frontStepFrontBearing", "frontStepRearBearing", "supportCrossPiece",
       "frontStepLeftSupport", "frontStepRightSupport", "frontStepRightRearSupport"]],
-    ["uprights", ["leftUpright", "rightRearUpright", "rearUprightBrace",
+    ["uprights", ["leftUpright", "rightRearUpright",
       "leftSupportBlock", "rightSupportBlock", "leftRearSupportBlock", "rightRearSupportBlock"]],
-    ["step-framing", ["northCrossPiece", "leftStepSupport", "extendedLeftSupportCrossPiece", "upperBackGusset"]],
-    ["treads", ["tread", "riser"]],
-    ["banister", ["newel", "newelInnerBlock", "frontSpindle", "rearSpindleBlock", "spindleShim"]],
+    ["step-framing", ["northCrossPiece", "leftStepSupport", "extendedLeftSupportCrossPiece",
+      "leftRearTreadBlock", "rightRearTreadBlock", "leftRearTreadFlange", "rightRearTreadFlange"]],
+    ["risers", ["riser", "frontUprightBrace"]],
+    ["treads", ["tread"]],
+    ["banister", ["newel", "newelInnerBlock", "frontSpindle", "rearSpindleBlock", "spindleShim", "rearSpindleInsert"]],
     ["ribs", ["sidingRib", "sidingStiffener", "frontRibSupportBlock", "rearPanelSupportBlock"]],
     ["siding", ["siding", "frontSiding"]],
   ]) {
@@ -312,12 +338,19 @@ test("construction subsets are cumulative and add each role at its construction 
       "frontStepFrontBearing", "frontStepRearBearing", "leftSupportBeam", "rightSupportBeam",
       "supportCrossPiece", "rearSupportCrossPiece",
       "frontStepRightSupport", "frontStepRightRearSupport", "frontStepLeftSupport"],
-    uprights: ["leftUpright", "rightUpright", "leftRearUpright", "rightRearUpright", "rearUprightBrace"],
+    uprights: ["leftUpright", "rightUpright", "leftRearUpright", "rightRearUpright", "frontUprightBrace"],
     "step-framing": [
-      "southCrossPiece", "northCrossPiece", "leftStepSupport", "rightStepSupport", "extendedLeftSupportCrossPiece", "upperBackGusset",
+      "southCrossPiece", "northCrossPiece", "leftStepSupport", "rightStepSupport", "extendedLeftSupportCrossPiece",
+      "leftRearTreadBlock", "rightRearTreadBlock",
+      "leftRearTreadFlange", "rightRearTreadFlange",
+      "leftFrontUprightMendingPlate", "rightFrontUprightMendingPlate",
+      "leftLowerUprightFlange", "rightLowerUprightFlange",
+      "leftLowerUprightMendingPlate", "rightLowerUprightMendingPlate",
+      "upperFrontSpindleFlange", "lowerFrontSpindleFlange",
+      "frontSpindleBackingBlock", "frontSpindleBearingShim",
       "leftSupportBlock", "rightSupportBlock", "leftRearSupportBlock", "rightRearSupportBlock"],
     banister: ["frontSpindleBlock", "rearSpindleBlock",
-      "newel", "frontSpindle", "rearSpindle", "spindleShim", "newelInnerBlock", "newelRearBlock"],
+      "newel", "frontSpindle", "rearSpindle", "spindleShim", "rearSpindleInsert", "newelInnerBlock", "newelRearBlock"],
     ribs: ["sidingRib", "sidingStiffener", "sidingStiffenerUpper", "frontPanelSupportBlock", "rearPanelSupportBlock",
       "frontRibSupportBlock", "rearRibSupportBlock", "intermediateSidingRib",
       "frontIntermediateRibSupportBlock", "rearIntermediateRibSupportBlock",
@@ -449,7 +482,7 @@ test("scoped Parts titles merge positional pairs only when both roles remain vis
 test("role-specific visibility categories override the plywood category without changing stock kind", () => {
   const sheet = new NotchedBoard({ length: 12, width: 8, thickness: 0.125,
     stock: { kind: "plywood", thickness: 0.125 } });
-  const post = new NotchedBoard({ length: 40, width: 3.5, thickness: 3.5, material: OAK,
+  const post = new NotchedBoard({ length: 40, width: 3.5, thickness: 3.5, material: DOUGLAS_FIR,
     stock: { kind: "lumber", nominalSize: "4x4", thickness: 3.5, width: 3.5 } });
   const tree = pieceTree({
     label: "Fixture", stepCount: 1,
@@ -495,7 +528,7 @@ test("particle board has independent visibility and inventory identity while rem
 
 test("the inventory lists existing catalog Parts and counts every Piece exactly once", () => {
   const tree = inventoryTree([
-    boardDescription(), boardDescription(), boardDescription(10, OAK),
+    boardDescription(), boardDescription(), boardDescription(10, DOUGLAS_FIR),
     hardwareDescription, hardwareDescription,
   ]), inventory = new PartInventory(tree);
   assert.equal(inventory.quantity, 5);
@@ -551,7 +584,7 @@ test("rounded lengths mark errors greater than one hundredth inch as approximate
 test("stock, widths, full precision, and asymmetric joinery distinguish patterns", () => {
   const original = boardDescription();
   const a = specification(original);
-  assert.notEqual(a, specification(boardDescription(10, OAK)));
+  assert.notEqual(a, specification(boardDescription(10, DOUGLAS_FIR)));
   assert.notEqual(a, specification(boardDescription(10.0001)));
   assert.equal(formatLength(10), formatLength(10.0001));
   const narrower = structuredClone(original);

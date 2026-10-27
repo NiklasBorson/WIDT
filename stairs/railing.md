@@ -49,13 +49,35 @@ it without a left half-lap. The next two left front posts are shortened
 from below and bottom-notched to bear on the extended support; their lower
 attachment blocks are omitted. A half-inch top-edge seat in each new
 cross-piece accommodates the upper panel rib without cutting that rib.
-Modules 2 and 3 each have one 8-by-8-inch triangular quarter-inch plywood
-gusset on the front faces of the left rear upright and upper rear tread
-support, without extending the module footprint. They belong to Step framing.
-Each also has an 8-inch-high rectangular quarter-inch plywood brace at the
-bottom rear, spanning the rear uprights' outer edges and seated on the rear
-cross-beam. Its rear face meets the upright fronts; the rear attachment blocks
-move forward a quarter inch against the brace. These rectangles belong to Uprights.
+Modules 2 and 3 each have an 8-inch-high rectangular quarter-inch plywood brace against
+its first-step upright fronts and front cross-beam, filling the quarter-inch
+module-front setback. Its bottom aligns with the beam bottom at 5.75 inches.
+The former rear-panel width is preserved and centered across the front posts.
+These rectangles belong to the separate Risers visibility category immediately
+before Treads, without changing their Uprights construction stage.
+The rear treads of modules 1 and 2 each have two 7-inch-long vertical 1x4 blocks.
+Their rear broad faces meet the rear uprights and tread supports flush; their
+outer edges are beveled against the side supports, and their widths are ripped
+to approximately 2.878 inches to align their inner edges with the rear uprights.
+Their tops meet the tread undersides. Each front face carries a horizontally
+centered, vertical threaded flange, with its mounting plate's bottom edge
+1/8 inch above the block bottom. These blocks and flanges belong to Step framing.
+Four vertical mending plates sit against the backs of the first-step front
+uprights in modules 2 and 3, with their center holes aligned to the preceding
+modules' flange axes at 19.5 and 45 inches. The plates are 4.33 x 1.22 x 0.12
+inches with 9.8 mm center holes and also belong to Step framing.
+Four additional threaded flanges attach to the front faces of modules 1 and 2's rear
+uprights at 13.04 inches, aligned with four more mending plates on the backs of
+the next modules' front uprights. The plates' bottom edges clear the lower upright
+support blocks by 1/8 inch. These lower joints use the existing front brace
+to fill the quarter-inch module-front gap; no square spacers are installed.
+They are below the ribs, not on the extended-left-support cross-beam.
+The adjacent rear spindle blocks are shortened inboard, retaining their spindle
+mounting faces. The first risers of modules 2 and 3 extend downward to the new
+blocks' bottoms, at 18 and 43.5 inches respectively, making both risers 15.5 inches high.
+The front panels meet the preceding modules' rear uprights flush for removable
+bolt attachment. Rear triangular gussets and lower rear panels are omitted to
+leave attachment access clear; bolt holes, bolts, and threaded rods are not modeled.
 The right-side plywood panel remains.
 The first step instead has a newel and three fore-and-aft tread supports:
 a ripped 1x3 on the left, and ripped 2x4s beside and behind the newel on the
@@ -64,8 +86,8 @@ on the caster beams.
 
 Lower 2x4 attachment blocks meet the posts' broad faces, not their narrow edges.
 Each has a 3.5-inch cross-grain length and rests on the lower cross-pieces.
-They sit behind the front posts and in front of the rear posts or their
-lower plywood braces. Most are
+They sit behind the front posts and directly in front of the rear posts.
+The rear blocks have no plywood setback. Most are
 3.5 inches tall; the step-2 right block is ripped to 2.25 inches tall to
 clear its spindle mount. Previous rear supports meet the next posts'
 broad front faces directly, without separate upper cleats.
@@ -76,7 +98,34 @@ the right tread supports. At steps 4 and 7, their tops are lowered half an
 inch (8-inch lengths) so they also bear the first upper panel rib.
 Step 2 and the rear uprights retain broad-face 2x4 spindle blocks.
 These mounts retain substantial attachment area without projecting through
-the risers or relying on narrow post edges. Castle hard points are proposed for lateral
+the risers or relying on narrow post edges.
+
+The six front spindles on steps 4-9 now have paired threaded flanges for
+removal with through bolts, without mending plates. Upper flanges mount on
+fitted 1x4 backing blocks on the left/inboard faces of the right tread
+supports, near the front and behind the half-laps. Small tapered pine shims
+fill the angled outboard gaps for solid spindle bearing. Lower flanges mount
+near the bottoms of the existing 2x2 supports, with plate bottoms 1/8 inch
+above the support bottoms. Both mounting planes are 3 inches from the spindle
+outside face for matched bolt reach. Flanges, backing blocks, and bearing
+shims belong to Step framing; bolts and wood holes remain unmodeled. Rear
+spindle-to-frame mounts do not yet have a modeled removable connection.
+
+The separate spindle-to-spindle module joints each have one IRONCODE
+1/4-20 x 10 mm threaded insert on the front face of modules 1 and 2's rear
+spindles, centered across the face and at the fitted shim's mid-height.
+The bolt is intended to enter from behind the next module's front spindle,
+with an ordinary washer in an aligned shallow, flat-bottomed counterbore.
+The installed model shows only each insert's flange; Details shows its full
+illustrative body. These two inserts belong to Banister visibility.
+Spindle holes, counterbores, bolts and washers remain unmodeled.
+
+Module 1's spindles are permanently screw-fastened. Its front spindles at
+steps 2 and 3 also have upper bearing shims, but no removable spindle flanges
+or inboard backing blocks. Step 2 uses thin parallel-sided packing against
+its already-angled spindle; step 3 uses the same tapered shim as steps 6 and 9.
+
+Castle hard points are proposed for lateral
 restraint but remain unmodeled, without bolt sizes or holes.
 
 Those locations should not be assumed adequate as freestanding railing

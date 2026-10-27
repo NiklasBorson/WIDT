@@ -389,13 +389,14 @@ test("unreachable template references report an underconstrained plan instead of
   assert.ok(top.notes.some(note => /0\/3 planar freedoms; placement needs an additional reference/.test(note)));
 });
 
-test("full-width cross beams use real contacts and straight tread references without fictitious end setbacks", () => {
+test("full-width cross beams use real contacts or template references when the front brace hides the joint", () => {
   const model = buildStairway(24), planner = new PlacementPlanner(model);
   for (const [module, step] of [[1, 3], [2, 4]]) {
-    const top = planner.plan(`stairway/module-${module}/step-${step}-supportCrossPiece`).views[0];
+    const plan = planner.plan(`stairway/module-${module}/step-${step}-supportCrossPiece`);
+    const top = plan.views[0];
     assert.equal(top.planar.complete, true);
-    assert.equal(top.dimensions.some(d => d.source === "template-setback"), false);
     if (step === 3) {
+      assert.equal(top.dimensions.some(d => d.source === "template-setback"), false);
       assert.equal(top.planar.implicitRank, 3);
       assert.ok(top.notes.some(note => note.startsWith("Surface contact:")));
       assert.equal(top.dimensions.length, 0);
@@ -403,10 +404,16 @@ test("full-width cross beams use real contacts and straight tread references wit
     else {
       assert.equal(top.planar.implicitRank, 0);
       assert.equal(top.dimensions.length, 3);
-      const clearance = top.dimensions.find(d => d.kind === "offset");
-      assert.equal(clearance.label, "Face clearance");
-      assert.ok(Math.abs(clearance.value - 0.25) < 1e-5);
-      assert.match(clearance.reference, /Beam - cross rear/);
+      assert.ok(top.occluded.includes("stairway/module-2/step-4-frontUprightBrace"));
+      assert.ok(!top.dimensions.some(d => d.label === "Face clearance"),
+        "The front brace fills the former quarter-inch gap; do not measure through it.");
+      const setback = top.dimensions.find(d => d.kind === "offset");
+      assert.equal(setback.source, "template-setback");
+      assert.equal(setback.purpose, "longitudinal");
+      assert.equal(setback.reference, "Tread template arc: Step 4");
+      assert.ok(setback.value > 0 && setback.value < 0.025);
+      assert.ok(plan.views.find(view => view.name === "Down").notes.some(note =>
+        note.startsWith("Surface contact:") && note.includes("Front brace - lower")));
       const alignments = top.dimensions.filter(d => d.kind === "alignment");
       assert.equal(alignments.length, 2);
       assert.ok(alignments.every(d => d.source === "template-extension" && d.value === 0));
