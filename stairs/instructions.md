@@ -11,7 +11,12 @@ agnostic about the format. A printable web page with SVG diagrams would be one p
 `index.html` is the project landing page, linking to the 3D viewer in `model.html`,
 module-2 assembly instructions in `module2.html`, and the shared cut list in `cuts.html`.
 Keep assembly instructions separate by module as modules 3 and 1 are added, but retain
-one global cutting document. Its current scope is module-2 framing.
+one global cutting document. It currently covers all treads and module-2 framing,
+with whole-project quantities and piece locations for every listed part.
+Global P-xxx numbers identify unique cutting parts, not installed pieces. Number
+the standard tread first and the first-step tread second. Defer spindle notches:
+steps 2-9 share one cutting part even though their finished model parts differ.
+Purchased hardware is shown by name and illustration, without cutting-part numbers.
 
 ## Current status and next steps
 
