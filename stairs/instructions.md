@@ -9,14 +9,16 @@ The instructions should be black-and-white or grayscale and suitable for printin
 agnostic about the format. A printable web page with SVG diagrams would be one possibility.
 
 `index.html` is the project landing page, linking to the 3D viewer in `model.html`,
-module-2 assembly instructions in `module2.html`, and the shared cut list in `cuts.html`.
-Keep assembly instructions separate by module as modules 3 and 1 are added, but retain
-one global cutting document. It currently covers all treads and module-2 framing,
+assembly instructions in `module2.html` and `module3.html`, and the shared cut list in `cuts.html`.
+Keep assembly instructions separate by module when module 1 is added, but retain
+one global cutting document. It currently covers all treads and framing for modules 2 and 3,
 with whole-project quantities and piece locations for every listed part.
 Global P-xxx numbers identify unique cutting parts, not installed pieces. Number
 the standard tread first and the first-step tread second. Defer spindle notches:
 steps 2-9 share one cutting part even though their finished model parts differ.
 Purchased hardware is shown by name and illustration, without cutting-part numbers.
+Modules 2 and 3 start with completed wooden foundations; their assembly documents
+cover the framing above those foundations, without casters or intermodule joining.
 
 ## Current status and next steps
 
@@ -24,9 +26,8 @@ Let's take an iterative approach to building instructions, so I can review each 
 before continuing. The wooden foundations for modules 2 and 3 are already built, but their
 casters will not be installed until the very end. We don't need foundation-building instructions.
 Use the tops of the foundation cross-pieces as the assembly height datum, not the floor.
-The next iteration should be instructions for finishing the framing
-for module 2, including parts classified in the model as treads, uprights, step framing,
-and risers.
+The current documents finish the framing for modules 2 and 3, including parts
+classified in the model as treads, uprights, step framing, and risers.
 
 ## Assembly instructions
 

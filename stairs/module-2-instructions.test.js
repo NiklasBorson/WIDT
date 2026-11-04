@@ -9,11 +9,11 @@ import { formatLength } from "./part-description.js";
 import { createCutPartCatalog } from "./cut-parts.js";
 import { tessellateOutline } from "./plywood-outline.js";
 
-const documents = new Map(["module2.html", "cuts.html"].map(filename =>
+const documents = new Map(["module2.html", "module3.html", "cuts.html"].map(filename =>
   [filename, readFileSync(new URL(`./${filename}`, import.meta.url), "utf8")]));
 const assemblyHtml = documents.get("module2.html");
 const cutsHtml = documents.get("cuts.html");
-const html = [...documents.values()].join("\n");
+const html = `${assemblyHtml}\n${cutsHtml}`;
 const manifest = JSON.parse(html.match(/<script type="application\/json" id="instruction-manifest">([^<]+)<\/script>/)[1]);
 const model = buildStairway();
 const hash = value => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -1204,7 +1204,10 @@ test("global cutting numbers group every wooden project piece once and merge onl
 test("each cutting part has one complete entry, a whole-project quantity and a bulleted list of every piece", () => {
   const published = manifest.parts;
   assert.equal(new Set(published.map(part => part.number)).size, published.length);
-  const assemblyPages = [...assemblyHtml.matchAll(/<section class="page [^"]*" id="([^"]+)"/g)].map(([, id]) => id);
+  const assemblyDocuments = [...documents].filter(([filename]) => filename !== "cuts.html").map(([filename, body]) => ({
+    filename, pages: [...body.matchAll(/<section class="page [^"]*" id="([^"]+)"/g)].map(([, id]) => id),
+    pieces: JSON.parse(body.match(/<script type="application\/json" id="instruction-manifest">([^<]+)<\/script>/)[1]).pieces,
+  }));
   for (const part of published) {
     const body = squareCutEntries.get(part.cutSheet) ??
       [...cutPages.values()].find(body => body.includes(`id="part-${part.number}"`));
@@ -1217,10 +1220,11 @@ test("each cutting part has one complete entry, a whole-project quantity and a b
     for (const [, id, use] of uses) {
       const location = expected.locations.find(location => location.id === id);
       assert.ok(use.includes(`Module ${location.moduleNumber}`));
-      const printed = byId.get(id);
-      if (printed) {
-        assert.ok(use.includes(`href="module2.html#${printed.assemblyStep}"`));
-        assert.ok(use.includes(`(p. ${assemblyPages.indexOf(printed.assemblyStep) + 1})`));
+      const document = assemblyDocuments.find(document => document.pieces.some(piece => piece.id === id));
+      if (document) {
+        const printed = document.pieces.find(piece => piece.id === id);
+        assert.ok(use.includes(`href="${document.filename}#${printed.assemblyStep}"`));
+        assert.ok(use.includes(`(p. ${document.pages.indexOf(printed.assemblyStep) + 1})`));
       } else {
         assert.doesNotMatch(use, /<a\b/);
       }
