@@ -1,6 +1,21 @@
 import { Tread } from "./model.js";
-import { PartInventory } from "./part-list.js";
+import { PartInventory, partVisibilityCategory } from "./part-list.js";
 import { manufacturingSpecification } from "./part-design.js";
+
+const assemblyCategories = new Set(["treads", "uprights", "step-framing", "risers"]);
+const firstModuleRoles = new Set(["newelInnerBlock", "newelRearBlock", "frontSpindleBlock", "newel"]);
+
+export function isInstructionCutPiece(piece) {
+  const category = partVisibilityCategory(piece);
+  return piece.kind !== "hardware" && (assemblyCategories.has(category) ||
+    piece.id.startsWith("stairway/module-1/") && (category === "foundation" || firstModuleRoles.has(piece.key)));
+}
+
+export function isSquareCutPart(description) {
+  return !description.outline && !description.widthTrim && !description.notches.length &&
+    !description.dados.length && !description.edgeNotches.length &&
+    description.edgeCuts.every(cut => cut.angleFromSquare < 1e-6);
+}
 
 export function createCutPartCatalog(model) {
   const inventory = new PartInventory(model.partTree);
@@ -29,7 +44,6 @@ export function createCutPartCatalog(model) {
     let part = bySpecification.get(key);
     if (!part) {
       part = {
-        number: `P-${String(parts.length + 1).padStart(3, "0")}`,
         title: piece.key === "tread" ? piece.stepNumber === 1 ? "First-step tread" : "Standard tread" : entry.title,
         specification, description, locations: [],
       };
@@ -39,7 +53,14 @@ export function createCutPartCatalog(model) {
     part.locations.push(location);
     byPiece.set(piece.id, part);
   }
-  for (const part of parts) {
+  const partRank = part => {
+    const pieces = part.locations.map(location => model.partTree.getNode(location.id));
+    if (pieces[0].key === "tread") return pieces[0].stepNumber === 1 ? 1 : 0;
+    return (pieces.some(isInstructionCutPiece) ? 2 : 4) + (isSquareCutPart(part.description) ? 0 : 1);
+  };
+  parts.sort((a, b) => partRank(a) - partRank(b));
+  for (const [index, part] of parts.entries()) {
+    part.number = `P-${String(index + 1).padStart(3, "0")}`;
     part.locations.sort((a, b) => a.moduleNumber - b.moduleNumber ||
       (a.stepNumber ?? 0) - (b.stepNumber ?? 0) || a.id.localeCompare(b.id, "en", { numeric: true }));
     part.quantity = part.locations.length;

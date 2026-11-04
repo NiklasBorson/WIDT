@@ -375,7 +375,7 @@ test("spindle joins install only insert flanges on the front faces of module 1 a
       }
     }
     assert.equal(model.modules[2].steps.at(-1).parts.rearSpindleInsert, undefined);
-    if (width === 20) close(model.estimateNodeWeightLb(), 181.86270468948476);
+    if (width === 20) close(model.estimateNodeWeightLb(), 181.85719447887348);
   }
 });
 
@@ -2293,24 +2293,29 @@ test("sheet edge cutouts preserve closed meshes and beveled floors at internal a
   }
 });
 
-test("stopped newel corner bevels preserve square stock and closed meshes", () => {
-  for (const stepCount of [9]) {
-    const first = buildStairway(24).steps[0], newel = first.parts.newel;
+test("newel corner bevels reach the bottom end and stop at apron height with closed meshes", () => {
+  for (const width of [20, 24, 36]) {
+    const first = buildStairway(width).steps[0], newel = first.parts.newel;
     const { front, side, bottomHeight, topHeight } = newel.cornerBevel;
+    close(bottomHeight, newel.bottomHeight);
+    close(topHeight - bottomHeight, 7);
+    close(topHeight, first.parts.topFrame.boards.southCrossPiece.bottomHeight +
+      first.parts.topFrame.boards.southCrossPiece.width);
     const [east, north] = newel.footprint[0];
     const removedArea = Math.abs((front[0] - east) * (side[1] - north) -
       (front[1] - north) * (side[0] - east)) / 2;
     const expectedVolume = newel.length * newel.thickness * newel.width - removedArea * (topHeight - bottomHeight);
     for (const geometry of [newel.createGeometry(), newel.createStockGeometry()]) {
       assertBoardsGeometry(geometry);
-      close(meshVolume(geometry), expectedVolume, 1e-4);
+      close(meshVolume(geometry), expectedVolume, expectedVolume * 1e-6);
     }
     const description = newel.getManufacturingDescription();
     close(description.cutLength, newel.length);
     close(description.finishedWidth, newel.width);
     const cuts = description.edgeCuts.filter(cut => cut.surfaceCut);
     close(cuts[0].angleFromSquare, first.angle * 180 / Math.PI);
-    assert.equal(cuts.length, bottomHeight > newel.bottomHeight ? 3 : 2);
+    assert.equal(cuts.length, 2);
+    assert.ok(!cuts.some(cut => cut.name === "Bevel bottom shoulder"));
     for (const cut of cuts) {
       for (const point of cut.points) {
         close(point.reduce((sum, value, axis) => sum + value * cut.plane.normal[axis], 0), cut.plane.offset);

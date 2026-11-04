@@ -11,16 +11,22 @@ agnostic about the format. A printable web page with SVG diagrams would be one p
 `index.html` is the project landing page, linking to the 3D viewer in `model.html`,
 assembly instructions in `module1.html`, `module2.html` and `module3.html`, and the shared cut list in `cuts.html`.
 Keep assembly instructions separate by module, but retain one global cutting document.
-It covers all treads and framing for all three modules, plus module 1's foundation and structural newel/spindle supports,
+It covers all treads and framing for all three modules, plus module 1's foundation, newel post and structural newel/spindle supports,
 with whole-project quantities and piece locations for every listed part.
 Global P-xxx numbers identify unique cutting parts, not installed pieces. Number
-the standard tread first and the first-step tread second. Defer spindle notches:
-steps 2-9 share one cutting part even though their finished model parts differ.
+the standard tread first and the first-step tread second.
+Number the diagram-free square-cut parts next, consecutively in their shared-page
+order, followed by the remaining illustrated parts. Keep deferred cutting parts
+after the currently documented parts in the global catalog.
+Defer spindle notches: steps 2-9 share one cutting part even though their finished model parts differ.
 Purchased hardware is shown by name and illustration, without cutting-part numbers.
 Modules 2 and 3 start with completed wooden foundations; their assembly documents
 cover the framing above those foundations, without casters or intermodule joining.
 Module 1 starts from an unbuilt foundation. Include its beams, cross-pieces, low first-step
-supports, apron and newel mounting blocks. Defer the newel itself with the other railing parts.
+supports, apron and newel mounting blocks. Fit the newel before the risers and treads, while
+its mounting blocks can still be screwed to it from inside the open frame. Defer the remaining railing parts.
+The newel corner bevel extends through its bottom 7 inches, with no bottom shoulder.
+Face A is the inner, stair-facing side; the NEAR-edge face is the front/downhill face.
 
 ## Current status and next steps
 
@@ -31,7 +37,7 @@ so its document includes foundation construction.
 Use the tops of the foundation cross-pieces as the assembly height datum, not the floor.
 The current documents finish the framing for all three modules, including parts
 classified in the model as treads, uprights, step framing, and risers. Module 1 also
-includes its wooden foundation, newel mounting blocks and both front-spindle supports.
+includes its wooden foundation, newel post and mounting blocks, and both front-spindle supports.
 
 ## Assembly instructions
 
@@ -51,6 +57,7 @@ For module 1, build the foundation first. Dry-fit all six upright bottoms on the
 tops to locate their attachment blocks, remove the posts for underside fastening, then add
 the low first-step supports before the step-2 and step-3 frames. There are no step-1 uprights.
 Fit the step-3 right-front post with the step-2 frame to receive its rear support.
+Fit the newel in section 7, before closing the frame with risers and treads in section 8.
 
 For modules 2 and 3, the revised approach is to assemble all three step frames and their uprights off the
 foundation first. Rest the six full-length upright bottoms in a common level plane,

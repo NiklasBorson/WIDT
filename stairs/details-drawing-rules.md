@@ -368,7 +368,7 @@ For the default model:
 | Top/bottom ends | Square cuts; 4-inch blank length; no miter or bevel angle annotation |
 | Front/back perimeter bevels | Approximately 2.796 / 7.204 degrees; Up/Down end views |
 | Inner/outer faces | Small nonzero inclinations, approximately 0.227 / 0.286 degrees; standard-direction coverage |
-| Newel corner bevel | 10 degrees; standard end views, with its finite stopped outline retained |
+| Newel corner bevel | 10 degrees in the bottom-end view; bottom 7 inches only, stopping at the top shoulder |
 
 The default assessment covers **73 unique wooden patterns / 205 physical
 wooden parts**, with all 42 purchased hardware occurrences reported separately.

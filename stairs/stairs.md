@@ -1038,8 +1038,9 @@ face. This measures their width difference, not the sloping bevel length or
 total removal from the blank. It describes the full-thickness bevel even when
 an end recess removes one face edge locally; no profile dimension is drawn to
 that missing edge. Shadowed bevels do not receive the extra measurement.
-The stopped newel bevel is
-located by its finite start/extent on a broad face. Single-view plywood can
+The newel corner bevel runs from the bottom end to a shoulder 7 inches above it.
+Its angle is exposed in the bottom-end view, and its finite extent is located
+on a broad face. Single-view plywood can
 include a separately named standard plane-profile direction for an angle that
 the main face view cannot expose. These angular constructions are not located
 material sections or additional projected outlines on the shaded part.

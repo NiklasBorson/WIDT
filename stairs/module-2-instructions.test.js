@@ -1254,6 +1254,24 @@ test("diagram-free cutting entries share pages without splitting a part", () => 
   }
 });
 
+test("cutting numbers follow printed order with consecutive square-cut parts immediately after treads", () => {
+  const numbers = [...cutsHtml.matchAll(/id="part-P-(\d+)"/g)].map(([, number]) => Number(number));
+  assert.deepEqual(numbers, Array.from({ length: numbers.length }, (_, i) => i + 1));
+  const squares = [...squareCutEntries.values()].map(body =>
+    Number(body.match(/id="part-P-(\d+)"/)[1]));
+  assert.deepEqual(squares, Array.from({ length: squares.length }, (_, i) => i + 3));
+  const pages = [...cutPages.values()];
+  assert.ok(pages.slice(2, 2 + pages.filter(body => body.includes('class="square-cut"')).length)
+    .every(body => body.includes('class="square-cut"')), "No illustrated parts interrupt the square-cut pages");
+  for (const number of squares) {
+    const part = catalog.parts[number - 1], d = part.description;
+    assert.ok(!d.outline && !d.widthTrim && !d.notches.length && !d.dados.length &&
+      !d.edgeNotches.length && d.edgeCuts.every(cut => cut.angleFromSquare < 1e-6));
+  }
+  assert.deepEqual(catalog.parts.map(part => Number(part.number.slice(2))),
+    Array.from({ length: catalog.parts.length }, (_, i) => i + 1));
+});
+
 test("both tread parts lead the cut list and the first-step drawing retains its newel cutout and right rear angle", () => {
   assert.deepEqual([...cutPages.keys()].slice(0, 2), ["tread-layout", "first-tread-layout"]);
   const body = cutPages.get("first-tread-layout");

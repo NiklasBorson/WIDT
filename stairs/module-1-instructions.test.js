@@ -15,7 +15,7 @@ const model = buildStairway();
 const module = model.modules[0];
 const catalog = createCutPartCatalog(model);
 const categories = new Set(["foundation", "treads", "uprights", "step-framing", "risers"]);
-const extraKeys = new Set(["newelInnerBlock", "newelRearBlock", "frontSpindleBlock"]);
+const extraKeys = new Set(["newelInnerBlock", "newelRearBlock", "frontSpindleBlock", "newel"]);
 const sourcePieces = module.pieces.filter(piece =>
   categories.has(partVisibilityCategory(piece)) && !/Caster$/.test(piece.key) || extraKeys.has(piece.key));
 const printed = new Map(manifest.pieces.map(piece => [piece.id, piece]));
@@ -77,12 +77,12 @@ test("module 1 includes its unbuilt foundation and structural supports without b
   }
   assert.match(html, /Build its wooden foundation as part of this document/);
   assert.match(html, /Step 1 has NO uprights or conventional four-board frame/);
-  assert.match(html, /newel itself is deferred/);
+  assert.match(html, /newel post, its mounting blocks/);
   const visible = html.replace(/<script[\s\S]*?<\/script>/g, "");
   const knownIds = new Set(sourcePieces.map(piece => piece.id));
   for (const [, id] of visible.matchAll(/data-(?:piece|plan-piece|hardware-piece|mounted-hardware)="([^"]+)"/g)) {
     assert.ok(knownIds.has(id), id);
-    assert.doesNotMatch(id, /Caster|frontSpindle$|rearSpindle$|newel$/);
+    assert.doesNotMatch(id, /Caster|frontSpindle$|rearSpindle$/);
   }
 });
 
@@ -191,6 +191,102 @@ test("locating blocks are fastened before permanent post installation and shared
   assert.equal(printed.get(source(3, "southCrossPiece").id).assemblyStep, "assembly-6");
   assert.match(operations.get("assembly-5"), /step-3 right-front post/);
   assert.match(operations.get("assembly-8"), /Casters, siding, railing and module joining remain deferred/);
+});
+
+test("the newel is installed and fastened from inside before risers or treads close access", () => {
+  const post = source(1, "newel"), record = printed.get(post.id);
+  assert.equal(record.assemblyStep, "assembly-7");
+  const beforeClosing = operations.get("assembly-7");
+  assert.ok(beforeClosing.includes(`data-callout-piece="${post.id}"`));
+  assert.match(beforeClosing, /INSIDE the open frame before fitting any riser or tread/);
+  for (let i = 1; i < 7; i++) {
+    assert.ok(!operations.get(`assembly-${i}`).includes(`data-piece="${post.id}"`));
+  }
+  const { svg, project } = projection(beforeClosing);
+  const actual = bounds([...svg.matchAll(new RegExp(
+    `<path data-piece="${post.id}" d="([^"]+)" class="new-triangle"`, "g",
+  ))].flatMap(([, path]) => svgPoints(path)));
+  bounds(points(post).map(project)).forEach((range, axis) => range.forEach((value, end) =>
+    assert.ok(Math.abs(value - actual[axis][end]) < 0.001)));
+  for (const piece of sourcePieces.filter(piece => ["riser", "tread"].includes(piece.key))) {
+    assert.ok(!svg.includes(`data-piece="${piece.id}"`), "Leave the frame open for screw access");
+    assert.equal(printed.get(piece.id).assemblyStep, "assembly-8");
+  }
+  const apron = model.steps[0].parts.topFrame.boards.southCrossPiece;
+  const { bottomHeight, topHeight } = model.steps[0].parts.newel.cornerBevel;
+  assert.equal(bottomHeight, model.steps[0].parts.newel.bottomHeight);
+  assert.equal(topHeight - bottomHeight, 7);
+  assert.ok(Math.abs(topHeight - apron.bottomHeight - apron.width) < 1e-8);
+  assert.match(beforeClosing, /no lower shoulder/);
+  assert.match(operations.get("assembly-8"), new RegExp(
+    `data-piece="${post.id}" d="[^"]+" class="old-triangle"`,
+  ));
+});
+
+test("the newel cutting sheet shows its bottom-up end and correctly oriented bottom-reaching bevel", () => {
+  const post = source(1, "newel"), record = printed.get(post.id), d = post.getDescription();
+  const body = cuts.match(new RegExp(
+    `<section class="page cut-sheet" id="${record.cutSheet}">([\\s\\S]*?)</section>`,
+  ))[1];
+  assert.match(body, /4x4 douglas fir/);
+  assert.match(body, /do not bevel the full length/);
+  assert.match(body, /module1.html#assembly-7/);
+  assert.match(body, /FACE A - INNER \/ STAIR-FACING SIDE/);
+  assert.match(body, /FRONT \/ DOWNHILL FACE \(NEAR EDGE\)/);
+  const bevel = d.edgeCuts.find(cut => cut.cornerBevel).cornerBevel;
+  assert.equal(bevel.start, 0);
+  assert.equal(bevel.end, 7);
+  const measurements = new Map([...body.matchAll(/data-cut-measure="([^"]+)" data-value="([^"]+)"/g)]
+    .map(([, key, value]) => [key, Number(value)]));
+  for (const [key, value] of [
+    ["bevel-extent", bevel.end - bevel.start],
+    ["bevel-front-width", bevel.frontWidth], ["bevel-side-depth", bevel.sideDepth],
+  ]) assert.equal(measurements.get(key), value);
+  const geometry = post.part.createStockGeometry();
+  const scale = 400 / d.blank.length;
+  const area = polygon => Math.abs(polygon.reduce((sum, p, i) => {
+    const q = polygon[(i + 1) % polygon.length];
+    return sum + p[0] * q[1] - q[0] * p[1];
+  }, 0)) / 2;
+  for (const [face, axis, y] of [["A", 1, 60], ["NEAR", 2, 210]]) {
+    const profile = svgPoints(body.match(new RegExp(
+      `<g data-newel-bevel-face="${face}"><path d="([^"]+)"`,
+    ))[1]).map(([a, b]) => [(a - 240) / scale,
+      face === "A" ? d.blank.width - (b - y) / scale : (b - y) / scale]);
+    let meshArea = 0;
+    for (let i = 0; i < geometry.indices.length; i += 3) {
+      const triangle = Array.from(geometry.indices.slice(i, i + 3), index =>
+        Array.from(geometry.positions.slice(index * 3, index * 3 + 3)));
+      if (triangle.every(point => Math.abs(point[axis]) < 1e-5)) {
+        meshArea += area(triangle.map(point => [point[0], point[axis === 1 ? 2 : 1]]));
+      }
+    }
+    assert.ok(Math.abs(area(profile) - meshArea) < 0.001, `${face}: actual retained face area`);
+    for (const length of [bevel.start, bevel.end]) {
+      assert.ok(profile.some(point => Math.abs(point[0] - length) < 1e-4 &&
+        Math.abs(point[1] - (face === "A" ? bevel.sideDepth : bevel.frontWidth)) < 1e-4));
+    }
+  }
+  const end = body.match(/<g data-newel-bevel-end="bottom">([\s\S]*?)<\/g>/)[1];
+  const section = svgPoints(end.match(/<path d="([^"]+)"/)[1]);
+  assert.ok(Math.max(...section.map(point => point[0])) < 240, "End view belongs to the left of both profiles");
+  const bottom = section.map(([a, b]) => [(a - 100) / scale, (b - 60) / scale]);
+  let actualEndArea = 0;
+  for (let i = 0; i < geometry.indices.length; i += 3) {
+    const triangle = Array.from(geometry.indices.slice(i, i + 3), index =>
+      Array.from(geometry.positions.slice(index * 3, index * 3 + 3)));
+    if (triangle.every(point => Math.abs(point[0]) < 1e-5)) {
+      actualEndArea += area(triangle.map(point => point.slice(1)));
+    }
+  }
+  assert.ok(Math.abs(area(bottom) - actualEndArea) < 0.001, "Show the actual bottom end, not the uncut top");
+  assert.ok(Math.abs(bottom[0][0]) < 1e-4 && Math.abs(bottom[0][1] - bevel.sideDepth) < 1e-4);
+  assert.ok(Math.abs(bottom[1][0] - bevel.frontWidth) < 1e-4 && Math.abs(bottom[1][1]) < 1e-4,
+    "Looking up: Face A is left and FRONT is above; the removed corner is upper-left");
+  assert.ok(post.transform[4] > 0.9 && post.transform[10] < -0.9,
+    "Face A's outward normal points inward; FRONT's outward normal points downhill");
+  const angle = Math.atan2(Math.abs(section[1][1] - section[0][1]), section[1][0] - section[0][0]) * 180 / Math.PI;
+  assert.ok(Math.abs(angle - Math.abs(d.edgeCuts.find(cut => cut.name === "Newel corner bevel").bevelDegrees)) < 0.001);
 });
 
 test("module-1 hardware uses source mounting positions and name-only contextual illustrations", () => {

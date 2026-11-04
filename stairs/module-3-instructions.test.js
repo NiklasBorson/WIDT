@@ -158,7 +158,7 @@ test("the shared cut list covers all assemblies without renumbering or adding un
   const expected = new Set(model.modules.flatMap((module, index) =>
     module.pieces.filter(piece => piece.kind !== "hardware" &&
       (included.has(partVisibilityCategory(piece)) || index === 0 &&
-        (partVisibilityCategory(piece) === "foundation" || ["newelInnerBlock", "newelRearBlock", "frontSpindleBlock"].includes(piece.key))))
+        (partVisibilityCategory(piece) === "foundation" || ["newelInnerBlock", "newelRearBlock", "frontSpindleBlock", "newel"].includes(piece.key))))
       .map(piece => catalog.byPiece.get(piece.id).number)));
   assert.deepEqual(manifest.parts.map(part => part.number).sort(), [...expected].sort());
   const module2 = readFileSync(new URL("./module2.html", import.meta.url), "utf8");

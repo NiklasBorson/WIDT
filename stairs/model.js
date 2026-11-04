@@ -2964,7 +2964,7 @@ export class Newel extends UprightBoard {
     this.material = DOUGLAS_FIR;
     const north = support.footprint[2][1];
     this.cornerBevel = {
-      bottomHeight: Math.max(this.bottomHeight, support.bottomHeight),
+      bottomHeight: this.bottomHeight,
       topHeight: Math.min(this.bottomHeight + this.length, support.bottomHeight + support.width),
       front: pointAtNorth(this.footprint[0], this.footprint[1], north),
       side: pointAtNorth(this.footprint[0], this.footprint[3], north),
