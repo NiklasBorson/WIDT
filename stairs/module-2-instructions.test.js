@@ -21,6 +21,10 @@ const byNumber = new Map(manifest.pieces.filter(part => part.kind !== "hardware"
 const byId = new Map(manifest.pieces.map(piece => [piece.id, piece]));
 const printedPiece = n => manifest.pieces[Number(n) - 1];
 const catalog = createCutPartCatalog(model);
+const bearingWedge = piece => piece.key === "frontSpindleBearingShim" &&
+  piece.getDescription().edgeCuts.some(cut => cut.surfaceCut && cut.angleFromSquare > 1e-6);
+const hasOrientedRailFaces = piece => piece.key === "southCrossPiece" && piece.stepNumber >= 2 ||
+  piece.key === "leftStepSupport" && piece.stepNumber % 3 === 0;
 const apply = (t, p) => [0, 1, 2].map(a =>
   t[12 + a] + p.reduce((sum, value, i) => sum + t[i * 4 + a] * value, 0));
 const area = points => Math.abs(points.reduce((sum, p, i) => {
@@ -83,13 +87,14 @@ test("wood part links lead to cut sheets and unnumbered hardware is identified b
   }
 });
 
-test("cut sheets retain all non-tread machining but deliberately omit tread spindle notches", () => {
+test("cut sheets retain source machining except deferred tread notches and normalized bearing wedges", () => {
   for (const printed of manifest.pieces.filter(part => part.kind !== "hardware")) {
     const piece = model.partTree.getNode(printed.id);
     const description = piece.key === "tread" ? new Tread({
       width: model.stairWidth, angle: model.steps[0].angle,
       height: model.steps[piece.stepNumber - 1].height,
-    }).getManufacturingDescription() : piece.getDescription();
+    }).getManufacturingDescription() : bearingWedge(piece)
+      ? catalog.byPiece.get(piece.id).description : piece.getDescription();
     assert.equal(printed.cuttingSpecification, hash(manufacturingSpecification(description)), printed.number);
     if (piece.key === "tread") {
       assert.notEqual(printed.cuttingSpecification, printed.sourceSpecification);
@@ -113,8 +118,9 @@ test("all notched-rail notes distinguish the actual end, shoulder and floor angl
   const label = angle => Math.abs(angle) < 1e-6 ? "square" : `${Number(Math.abs(angle).toFixed(2))} deg bevel`;
   for (const { sheet, d } of notchedSheets) {
     const body = cutPages.get(sheet);
-    assert.match(body, /Face A; dashed rectangle = original blank/);
-    assert.doesNotMatch(body, /<text[^>]+class="tiny"/, "omit vertex letters when there is no coordinate table");
+    assert.match(body, /Face A[^<]*original blank/);
+    assert.doesNotMatch(body, /<text[^>]+class="tiny"[^>]*>[A-Z]<\/text>/,
+      "omit vertex letters when there is no coordinate table");
     const cuts = d.edgeCuts.filter(cut => cut.axis === "length").sort((a, b) =>
       Math.min(...a.points.map(p => p[0])) - Math.min(...b.points.map(p => p[0])));
     if (Math.abs(Math.abs(cuts[0].bevelDegrees) - Math.abs(cuts[1].bevelDegrees)) < 1e-6) {
@@ -145,20 +151,22 @@ test("all rail drawings dimension each notch and project visible or hidden floor
     /<line x1="([^"]+)" y1="([^"]+)" x2="([^"]+)" y2="([^"]+)"/,
   ).slice(1).map(Number);
   assert.match(html, /svg \.hidden-notch-floor,[^{]*\{[^}]*stroke-dasharray:[^}]*stroke-linecap:round/);
-  for (const { sheet, d, A, B } of notchedSheets) {
+  for (const { sheet, d, A, B, numbers } of notchedSheets) {
     const body = cutPages.get(sheet);
     const blanks = [...body.matchAll(
       /<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" class="blank"\/>/g,
     )].map(match => match.slice(1).map(Number));
     const [x, y, width, height] = blanks.at(-1);
     const sx = width / d.blank.length, sy = height / d.blank.thickness;
+    const reverseB = hasOrientedRailFaces(model.partTree.getNode(byNumber.get(numbers[0]).id));
+    const projectX = (value, face) => x + (reverseB && face === 1 ? d.blank.length - value : value) * sx;
     assert.ok(Math.abs(sx - sy) < 1e-4, "edge-view thickness must use the same scale as its length");
     assert.equal(width, blanks[0][2], "edge and broad-face views must use the same scale");
     for (const [i, face] of ["A", "B"].entries()) {
       const points = svgPoints(body.match(new RegExp(`<g data-cut-face="${face}"><path d="([^"]+)"`))[1]);
       assert.equal(points.length, [A, B][i].length);
       points.forEach(([px, py], j) => {
-        assert.ok(Math.abs(px - x - [A, B][i][j][0] * sx) < 2e-4);
+        assert.ok(Math.abs(px - projectX([A, B][i][j][0], i)) < 2e-4);
         assert.ok(Math.abs(py - blanks[i][1] - [A, B][i][j][1] * sx) < 2e-4);
       });
     }
@@ -190,7 +198,7 @@ test("all rail drawings dimension each notch and project visible or hidden floor
       assert.ok(floor.drawing.includes(`class="${hidden ? "hidden" : "visible"}-notch-floor"`));
       const [x1, y1, x2, y2] = coordinates(floor.drawing);
       for (const [actual, expected] of [[x1, x + shoulders[0] * sx], [x2, x + shoulders[1] * sx],
-        [y1, fromFar ? y + height : y], [y2, fromFar ? y : y + height]]) {
+        [y1, fromFar ? y : y + height], [y2, fromFar ? y + height : y]]) {
         assert.ok(Math.abs(actual - expected) < 2e-4, "floor edge must meet the real shoulder on each face");
       }
       const bevel = Math.atan2(Math.abs(x2 - x1) / sx, Math.abs(y2 - y1) / sy) * 180 / Math.PI;
@@ -209,8 +217,9 @@ test("all rail drawings dimension each notch and project visible or hidden floor
         const [left, y1, right, y2] = coordinates(lengthDrawing);
         const xs = d.blank.profiles[i ? "positiveY" : "negativeY"].map(p => p[0]);
         const end = notch.corner.startsWith("start") ? Math.min(...xs) : Math.max(...xs);
-        assert.ok(Math.abs(left - (x + Math.min(end, shoulders[i]) * sx)) < 2e-4);
-        assert.ok(Math.abs(right - (x + Math.max(end, shoulders[i]) * sx)) < 2e-4,
+        const expected = [projectX(end, i), projectX(shoulders[i], i)].sort((a, b) => a - b);
+        assert.ok(Math.abs(left - expected[0]) < 2e-4);
+        assert.ok(Math.abs(right - expected[1]) < 2e-4,
           "notch length must measure from the actual beveled end to its shoulder");
         assert.equal(y1, y2);
         assert.ok(near ? y1 < blanks[i][1] : y1 > blanks[i][1] + d.blank.width * sx,
@@ -220,8 +229,46 @@ test("all rail drawings dimension each notch and project visible or hidden floor
   }
 });
 
+test("generic edge views are adjacent 90-degree rotations of Face A", () => {
+  const sides = new Set();
+  for (const part of catalog.parts) {
+    const body = cutPages.get(`cut-${Number(part.number.slice(2))}`);
+    const edge = body?.match(/<g data-frame-edge-view="(near|far)" data-adjacent-face="A">([\s\S]*?)<\/g>/);
+    if (!edge) continue;
+    const d = part.description;
+    const fromFar = edge[1] === "far";
+    sides.add(edge[1]);
+    const blanks = [...body.matchAll(
+      /<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" class="blank"\/>/g,
+    )].map(match => match.slice(1).map(Number));
+    const [faceX, faceY, faceWidth, faceHeight] = blanks[0];
+    const [x, y, width, height] = blanks.at(-1);
+    const scale = width / d.blank.length;
+    assert.equal(x, faceX, `${part.number}: preserve the face's length direction and registration`);
+    assert.equal(width, faceWidth);
+    assert.ok(fromFar ? y > faceY + faceHeight : y + height < faceY,
+      `${part.number}: the edge view belongs beside the corresponding face edge`);
+    if (fromFar && d.notches.length) assert.ok(y + height < blanks[1][1],
+      `${part.number}: the far-edge view must remain between Face A and Face B`);
+    const points = svgPoints(edge[2].match(/<path d="([^"]+)"/)[1]);
+    const vertices = d.blank.vertices.filter(p => Math.abs(p[2] - (fromFar ? d.blank.width : 0)) < 1e-6);
+    assert.equal(points.length, vertices.length);
+    for (const [stockX, stockY] of vertices) {
+      const expectedX = x + stockX * scale;
+      const expectedY = y + (fromFar ? stockY : d.blank.thickness - stockY) * scale;
+      assert.ok(points.some(([px, py]) => Math.abs(px - expectedX) < 2e-4 && Math.abs(py - expectedY) < 2e-4),
+        `${part.number}: the edge profile must rotate without reversing its length`);
+      if (Math.abs(stockY) < 1e-7) {
+        assert.ok(Math.abs(expectedY - (fromFar ? y : y + height)) < 2e-4,
+          `${part.number}: Face A must be the thickness boundary nearest its face view`);
+      }
+    }
+  }
+  assert.deepEqual([...sides].sort(), ["far", "near"], "exercise rotations from both long edges");
+});
+
 test("all rail end views show the correct retained half, handedness and true scale", () => {
-  for (const { sheet, d } of notchedSheets) {
+  for (const { sheet, d, numbers } of notchedSheets) {
     const body = cutPages.get(sheet);
     const faces = [...body.matchAll(
       /<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" class="blank"\/>/g,
@@ -230,6 +277,8 @@ test("all rail end views show the correct retained half, handedness and true sca
       /<g data-frame-notch-end="([^"]+)" data-face="([AB])">([\s\S]*?)<\/g>/g,
     )];
     const mixed = d.notches.some(n => n.corner.endsWith("Near")) && d.notches.some(n => n.corner.endsWith("Far"));
+    const piece = model.partTree.getNode(byNumber.get(numbers[0]).id);
+    const front = piece.key === "southCrossPiece";
     assert.deepEqual(views.map(([, , face]) => face), mixed ? ["A", "A", "B", "B"] : ["A", "B"]);
     for (const [, corner, face, view] of views) {
       const i = face === "A" ? 0 : 1;
@@ -239,12 +288,15 @@ test("all rail end views show the correct retained half, handedness and true sca
       const scale = faceWidth / d.blank.length;
       const points = svgPoints(view.match(/<path d="([^"]+)"/)[1]);
       assert.equal(points.length, 4);
-      const endOnRight = corner.startsWith("end");
-      if (!mixed) assert.equal(endOnRight, !d.notches.some(n => n.corner.startsWith("start")));
+      const atEnd = corner.startsWith("end");
+      const endOnRight = atEnd !== (hasOrientedRailFaces(piece) && face === "B");
+      if (!mixed) assert.equal(atEnd, front ? face === "B" : !d.notches.some(n => n.corner.startsWith("start")));
       assert.ok(endOnRight
         ? Math.min(...points.map(p => p[0])) > faceX + faceWidth
         : Math.max(...points.map(p => p[0])) < faceX,
       "end view must sit beside the notched end of its face");
+      if (endOnRight) assert.ok(Math.min(...points.map(p => p[0])) > faceX + faceWidth + 50,
+        "right-end views must clear the adjacent notch-depth dimensions");
       for (const p of near ? points.slice(2) : points.slice(0, 2)) {
         assert.ok(Math.abs(p[1] - (top + (near ? faceHeight : 0))) < 2e-4, "uncut edges must align");
       }
@@ -270,11 +322,12 @@ test("all rail end views show the correct retained half, handedness and true sca
   }
 });
 
-test("face tapers show retained end thicknesses at true scale, including thin and feather edges", () => {
+test("face tapers show the cutting profile and retained end thicknesses at true scale", () => {
   const sheets = new Map(manifest.pieces.filter(part => part.kind !== "hardware")
     .map(part => [part.cutSheet, model.partTree.getNode(part.id)]));
   for (const [sheet, piece] of sheets) {
-    const d = piece.getDescription();
+    const part = catalog.byPiece.get(piece.id);
+    const d = part.description;
     const surface = d.edgeCuts.find(c => c.surfaceCut);
     if (!surface) continue;
     const body = cutPages.get(sheet);
@@ -295,9 +348,15 @@ test("face tapers show retained end thicknesses at true scale, including thin an
     const points = svgPoints(section.match(/<path d="([^"]+)"/)[1]);
     points.forEach(([px, py], i) => {
       assert.ok(Math.abs(px - x - expected[i][0] * scale) < 2e-4);
-      assert.ok(Math.abs(py - y - expected[i][1] * scale) < 2e-4);
+      assert.ok(Math.abs(py - y - (keepB ? d.blank.thickness - expected[i][1] : expected[i][1]) * scale) < 2e-4,
+        "the retained uncut face must be the section boundary nearest its broad-face view");
     });
-    const geometry = piece.part.createStockGeometry();
+    const meshPiece = bearingWedge(piece)
+      ? part.locations.map(location => model.partTree.getNode(location.id)).find(candidate =>
+        hash(manufacturingSpecification(candidate.getDescription())) === hash(part.specification))
+      : piece;
+    assert.ok(meshPiece, `${sheet}: the canonical taper must match a source feather-edge wedge`);
+    const geometry = meshPiece.part.createStockGeometry();
     let machinedArea = 0;
     for (let i = 0; i < geometry.indices.length; i += 3) {
       const triangle = Array.from(geometry.indices.slice(i, i + 3), index =>
@@ -323,8 +382,15 @@ test("face tapers show retained end thicknesses at true scale, including thin an
       const label = retained < 1e-8 ? "Feather edge" : retained < 1 / 32 ? "&lt; 1/16" : formatLength(retained);
       assert.ok(drawing.includes(label), "tiny positive thicknesses must not be mislabeled as zero");
     });
-    assert.match(body, /full-width face taper, not an end bevel/);
-    assert.match(body, /taper long stock before final crosscuts/);
+    if (bearingWedge(piece)) {
+      assert.match(body, /5 deg is the controlling angle/);
+      assert.match(body, /thick-end thickness is reference only/);
+      assert.match(body, /slice the wedges directly off the end of a 2x4; grain direction is unimportant/);
+      assert.doesNotMatch(body, /taper long stock before final crosscuts/);
+    } else {
+      assert.match(body, /full-width face taper, not an end bevel/);
+      assert.match(body, /taper long stock before final crosscuts/);
+    }
   }
 });
 
@@ -361,6 +427,243 @@ test("ripped edge-bevel boards show both retained widths and correctly handed tr
   assert.ok(body.includes(`Rip stock from ${formatLength(d.widthTrim.from)} to ${formatLength(d.widthTrim.to)}`));
 });
 
+test("end bevels and miters dimension the shorter finished edges from their actual cut endpoints", () => {
+  for (const part of catalog.parts.filter(part => manifest.parts.some(printed => printed.number === part.number))) {
+    const d = part.description;
+    const body = cutPages.get(`cut-${Number(part.number.slice(2))}`);
+    const views = [];
+    if (d.edgeCuts.some(cut => Math.abs(cut.miterDegrees) > 1e-6)) {
+      views.push({ name: "face-A", coordinate: 2, limit: d.blank.width, fixed: 1 });
+    }
+    if (d.edgeCuts.some(cut => cut.axis === "length" && Math.abs(cut.bevelDegrees) > 1e-6)) {
+      const fromFar = d.notches.length > 0 && d.notches.every(notch => notch.corner.endsWith("Near"));
+      views.push({ name: fromFar ? "far-edge" : "near-edge", coordinate: 1, limit: d.blank.thickness, fixed: 2, fromFar });
+    }
+    for (const view of views) {
+      assert.ok(body, `${part.number}: illustrated cutting sheet`);
+      assert.match(body, /data-cut-measure="overall-length"/);
+      const blanks = [...body.matchAll(
+        /<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" class="blank"\/>/g,
+      )].map(match => match.slice(1).map(Number));
+      const [x, y, width, height] = view.name === "face-A" ? blanks[0] : blanks.at(-1);
+      const scale = width / d.blank.length;
+      const expected = [0, view.limit].map(coordinate => {
+        const xs = d.blank.vertices.filter(p =>
+          Math.abs(p[view.fixed]) < 1e-7 && Math.abs(p[view.coordinate] - coordinate) < 1e-7).map(p => p[0]);
+        const start = Math.min(...xs), end = Math.max(...xs);
+        return { coordinate, start, end, length: end - start };
+      }).filter(edge => edge.length < d.blank.length - 1e-7);
+      const unique = [...new Set(expected.map(edge => edge.length.toFixed(7)))].map(Number).sort((a, b) => a - b);
+      const measurements = [...body.matchAll(
+        /<g data-cut-measure="finished-edge-length" data-value="([^"]+)" data-view="([^"]+)" data-edge-coordinate="([^"]+)">([\s\S]*?)<\/g>/g,
+      )].filter(([, , name]) => name === view.name);
+      assert.deepEqual(measurements.map(([, value]) => Number(Number(value).toFixed(7))).sort((a, b) => a - b),
+        unique, `${part.number}: every distinct shorter edge, without duplicate dimensions`);
+      if (view.name === "face-A" && d.blank.profiles.negativeY.length === 4) {
+        const overall = body.match(/<g data-cut-measure="overall-length"[^>]*><line x1="[^"]+" y1="([^"]+)"/);
+        for (const [, , , , drawing] of measurements) {
+          const dimensionY = Number(drawing.match(/<line x1="[^"]+" y1="([^"]+)"/)[1]);
+          assert.ok(Number(overall[1]) > dimensionY, `${part.number}: overall length below both edge lengths`);
+        }
+      }
+      for (const [, value, , coordinate, drawing] of measurements) {
+        const edge = expected.find(edge => Math.abs(edge.coordinate - Number(coordinate)) < 1e-7);
+        assert.ok(edge, `${part.number}: dimension a real longitudinal edge`);
+        assert.ok(Math.abs(Number(value) - edge.length) < 1e-7);
+        assert.ok(drawing.includes(`${formatLength(edge.length)} edge`));
+        const [left, top, right, bottom] = drawing.match(
+          /<line x1="([^"]+)" y1="([^"]+)" x2="([^"]+)" y2="([^"]+)"/,
+        ).slice(1).map(Number);
+        assert.ok(Math.abs(left - x - edge.start * scale) < 2e-4);
+        assert.ok(Math.abs(right - x - edge.end * scale) < 2e-4,
+          `${part.number}: measure between the real end-cut tips, not the blank ends`);
+        assert.equal(top, bottom);
+        const edgeY = y + (view.name === "face-A" || view.fromFar ? edge.coordinate : view.limit - edge.coordinate) * scale;
+        assert.ok(edgeY < y + height / 2 ? top < y : top > y + height,
+          `${part.number}: dimension sits outside the measured edge`);
+      }
+    }
+  }
+});
+
+test("the first-step front beam identifies its floor-facing broad face", () => {
+  const part = catalog.parts.find(part => part.locations.some(location =>
+    model.partTree.getNode(location.id).key === "frontStepFrontBearing"));
+  const body = cutPages.get(`cut-${Number(part.number.slice(2))}`);
+  assert.match(body, /Face A is the UNDERSIDE, facing the FLOOR when installed\. Face B faces UP\./);
+  for (const location of part.locations) {
+    const transform = model.partTree.getNode(location.id).transform;
+    assert.ok(Math.abs(transform[4]) < 1e-7 && Math.abs(transform[5] - 1) < 1e-7 && Math.abs(transform[6]) < 1e-7,
+      "the source negative-thickness face must point downward when installed");
+  }
+});
+
+test("both front tread-support variants label installed faces and edges in their diagrams", () => {
+  const supports = catalog.parts.filter(part => part.locations.every(location =>
+    model.partTree.getNode(location.id).key === "southCrossPiece" && location.stepNumber >= 2));
+  assert.equal(supports.length, 2);
+  for (const part of supports) {
+    const body = cutPages.get(`cut-${Number(part.number.slice(2))}`);
+    const drawing = body.match(/<svg[\s\S]*?<\/svg>/)[0];
+    assert.match(drawing, /Face A - FRONT \/ DOWNHILL/);
+    assert.match(drawing, /Face B - BACK \/ UPHILL/);
+    assert.match(drawing, /BOTTOM EDGE VIEW \(from Face A\)/);
+    assert.equal([...drawing.matchAll(/>BOTTOM EDGE<\/text>/g)].length, 2);
+    assert.equal([...drawing.matchAll(/>TOP EDGE<\/text>/g)].length, 2);
+    assert.doesNotMatch(drawing, /NEAR \/ BOTTOM|FAR \/ TOP/);
+    const endViews = [...drawing.matchAll(
+      /<g data-frame-notch-end="([^"]+)" data-face="([AB])"><text[^>]*>([^<]+)<\/text>/g,
+    )];
+    assert.deepEqual(endViews.map(([, corner, face, label]) => [corner, face, label]), [
+      ["startFar", "A", "LEFT / INSIDE END"],
+      ["endFar", "B", "RIGHT / OUTSIDE END"],
+    ], `${part.number}: show the actual opposite ends, not the same end twice`);
+    const faces = [...drawing.matchAll(
+      /<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" class="blank"\/>/g,
+    )].slice(0, 2).map(match => match.slice(1).map(Number));
+    for (const [, , face] of endViews) {
+      const view = drawing.match(new RegExp(
+        `<g data-frame-notch-end="[^"]+" data-face="${face}">([\\s\\S]*?)<\\/g>`,
+      ))[1];
+      const points = svgPoints(view.match(/<path d="([^"]+)"/)[1]);
+      assert.ok(Math.max(...points.map(point => point[0])) < faces[face === "A" ? 0 : 1][0],
+        `${part.number}: the inside end at the front and outside end at the back both appear to the left of their face view`);
+    }
+    for (const location of part.locations) {
+      const { transform } = model.partTree.getNode(location.id);
+      assert.ok(Math.abs(transform[8]) < 1e-7 && Math.abs(transform[9] - 1) < 1e-7 &&
+        Math.abs(transform[10]) < 1e-7, "positive stock width points up; the near edge is the bottom");
+      assert.ok(Math.abs(transform[5]) < 1e-7 && transform[6] < -0.9,
+        "positive stock thickness faces back; Face A faces forward");
+      assert.ok(Math.abs(transform[4] - transform[2]) < 1e-7 &&
+        Math.abs(transform[6] + transform[0]) < 1e-7, "the broad faces follow the installed support's rotation");
+    }
+  }
+});
+
+for (const number of [26, 27]) test(`P-0${number} rotates every view together with installed bottom below top and readable annotations`, () => {
+  const body = cutPages.get(`cut-${number}`);
+  assert.ok(body.includes(`P-0${number}`));
+  const drawing = body.match(/<svg[\s\S]*?<\/svg>/)[0];
+  const [, height] = drawing.match(/viewBox="0 0 720 ([^"]+)"/);
+  const [, centerX, centerY] = drawing.match(/data-cut-rotation="180" transform="rotate\(180 ([^ ]+) ([^)]+)\)"/);
+  assert.equal(Number(centerX), 360);
+  assert.equal(Number(centerY) * 2, Number(height));
+  const screen = ([x, y]) => [2 * Number(centerX) - x, 2 * Number(centerY) - y];
+  const blanks = [...drawing.matchAll(
+    /<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" class="blank"\/>/g,
+  )].map(match => match.slice(1).map(Number));
+  const texts = [...drawing.matchAll(/<text ([^>]+)>([^<]*)<\/text>/g)];
+  for (const [, attributes] of texts) {
+    const [, x, y] = attributes.match(/x="([^"]+)" y="([^"]+)"/);
+    assert.ok(attributes.includes(`transform="rotate(180 ${x} ${y})"`),
+      "every annotation must counter-rotate, including end-view labels and dimensions");
+    assert.match(attributes, /dominant-baseline="text-before-edge"/);
+  }
+  const positions = label => texts.filter(([, , text]) => text === label)
+    .map(([, attributes]) => screen(attributes.match(/x="([^"]+)" y="([^"]+)"/).slice(1).map(Number)));
+  for (const [prefix, blank] of [
+    ["Face A -", blanks[0]], ["Face B -", blanks[1]], ["BOTTOM EDGE VIEW", blanks[2]],
+  ]) {
+    const [, attributes] = texts.find(([, , text]) => text.startsWith(prefix));
+    const point = screen(attributes.match(/x="([^"]+)" y="([^"]+)"/).slice(1).map(Number));
+    const [x, y, width, height] = blank;
+    const [left, top] = screen([x + width, y + height]);
+    assert.match(attributes, /text-anchor="start"/, "view headings stay left-aligned after rotation");
+    assert.ok(Math.abs(point[0] - left) < 2e-4);
+    assert.ok(point[1] < top - 12, "view headings belong above their view, not below it");
+    const measure = prefix === "BOTTOM EDGE VIEW"
+      ? drawing.match(/<g data-cut-measure="finished-edge-length"[^>]*data-view="near-edge"[^>]*><line x1="([^"]+)" y1="([^"]+)"/)
+      : drawing.match(new RegExp(`<g data-cut-measure="overall-length"[^>]*data-face="${prefix.startsWith("Face A") ? "A" : "B"}"><line x1="([^"]+)" y1="([^"]+)"`));
+    const dimensionY = screen(measure.slice(1).map(Number))[1];
+    assert.ok(point[1] + 16 < dimensionY, "headings must clear the upper dimension line as well as the profile");
+  }
+  const top = positions("TOP EDGE"), bottom = positions("BOTTOM EDGE");
+  assert.equal(top.length, 2);
+  assert.equal(bottom.length, 2);
+  for (let face = 0; face < 2; face++) {
+    assert.ok(top[face][1] < bottom[face][1], "the installed top is above the installed bottom");
+    const [, y, , height] = blanks[face];
+    assert.ok(top[face][1] > screen([0, y + height])[1] && bottom[face][1] < screen([0, y])[1]);
+  }
+  const [a, b, edge] = blanks.map(([x, y, width, height]) => screen([x + width / 2, y + height / 2]));
+  assert.ok(b[1] < a[1] && a[1] < edge[1], "rotate the entire set: Face B, Face A, then bottom-edge view");
+  const endViews = [...drawing.matchAll(
+    /<g data-frame-notch-end="[^"]+" data-face="([AB])">([\s\S]*?)<\/g>/g,
+  )];
+  for (const [, face, view] of endViews) {
+    const localPoints = svgPoints(view.match(/<path d="([^"]+)"/)[1]);
+    const points = localPoints.map(screen);
+    const [x, , width] = blanks[face === "A" ? 0 : 1];
+    const wasLeft = Math.max(...localPoints.map(point => point[0])) < x;
+    assert.ok(wasLeft
+      ? Math.min(...points.map(point => point[0])) > screen([x, 0])[0]
+      : Math.max(...points.map(point => point[0])) < screen([x + width, 0])[0],
+    "rotated end views must remain adjacent to their matching face ends");
+    const [, attributes] = view.match(/<text ([^>]+)>/);
+    const heading = screen(attributes.match(/x="([^"]+)" y="([^"]+)"/).slice(1).map(Number));
+    assert.match(attributes, /text-anchor="start"/, "end-view headings also stay left-aligned");
+    assert.ok(heading[0] <= Math.min(...points.map(point => point[0])) + 2e-4);
+    if (number === 27) assert.ok(Math.abs(heading[0] - Math.min(...points.map(point => point[0]))) < 2e-4,
+      "the short support's end headings align with their profiles, clear of the face headings");
+    assert.ok(heading[1] < Math.min(...points.map(point => point[1])) - 12,
+      "end-view headings sit above the full view, including its thickness dimension");
+  }
+  assert.doesNotMatch(cutPages.get("cut-25"), /data-cut-rotation/);
+});
+
+test("the last-step left support labels its front and back ends rather than diagram-relative left and right", () => {
+  const part = catalog.parts.find(part => part.locations.every(location =>
+    model.partTree.getNode(location.id).key === "leftStepSupport" && location.stepNumber % 3 === 0));
+  assert.ok(part);
+  const body = cutPages.get(`cut-${Number(part.number.slice(2))}`);
+  const drawing = body.match(/<svg[\s\S]*?<\/svg>/)[0];
+  assert.match(drawing, /Face A - RIGHT \/ INSIDE FRAME/);
+  assert.match(drawing, /Face B - LEFT \/ OUTSIDE FRAME/);
+  assert.equal([...drawing.matchAll(/>FRONT END<\/text>/g)].length, 2);
+  assert.equal([...drawing.matchAll(/>BACK END<\/text>/g)].length, 2);
+  assert.doesNotMatch(drawing, />LEFT END<\/text>|>RIGHT END<\/text>/);
+  assert.match(drawing, /BOTTOM EDGE VIEW \(from Face A\)/);
+  assert.equal([...drawing.matchAll(/>BOTTOM EDGE<\/text>/g)].length, 2);
+  assert.equal([...drawing.matchAll(/>TOP EDGE<\/text>/g)].length, 2);
+  assert.doesNotMatch(drawing, /NEAR \/ BOTTOM|FAR \/ TOP/);
+  for (const location of part.locations) {
+    const { transform } = model.partTree.getNode(location.id);
+    assert.ok(transform[2] < -0.9, "positive stock length points back; the start is the front end");
+    assert.ok(transform[4] < -0.9, "positive stock thickness points left; Face B is outside the left frame");
+    assert.ok(Math.abs(transform[9] - 1) < 1e-7, "positive stock width points up; the near edge is the bottom");
+  }
+});
+
+test("end views use neutral labels unless their faces establish installed staircase directions", () => {
+  let neutral = 0, oriented = 0;
+  for (const body of cutPages.values()) {
+    const views = [...body.matchAll(
+      /<g data-frame-notch-end="(start|end)[^"]*" data-face="[AB]">([\s\S]*?)<\/g>/g,
+    )];
+    if (!views.length) continue;
+    const part = catalog.parts.find(part => body.includes(`id="part-${part.number}"`));
+    const pieces = part.locations.map(location => model.partTree.getNode(location.id));
+    const front = pieces.every(piece => piece.key === "southCrossPiece" && piece.stepNumber >= 2);
+    const side = pieces.every(piece => piece.key === "leftStepSupport" && piece.stepNumber % 3 === 0);
+    for (const [, end, drawing] of views) {
+      const expected = front ? end === "start" ? "LEFT / INSIDE END" : "RIGHT / OUTSIDE END"
+        : side ? end === "start" ? "FRONT END" : "BACK END" : "END VIEW";
+      assert.equal(drawing.match(/<text[^>]*>([^<]+)<\/text>/)[1], expected, part.number);
+      if (front || side) oriented++;
+      else neutral++;
+    }
+    if (front) {
+      assert.match(body, /Face A - FRONT \/ DOWNHILL/);
+      assert.match(body, /Face B - BACK \/ UPHILL/);
+      assert.ok(pieces.every(piece => piece.transform[0] > 0.9), "positive stock length points right");
+    } else if (!side) {
+      assert.doesNotMatch(body, />LEFT END<\/text>|>RIGHT END<\/text>/);
+    }
+  }
+  assert.ok(neutral > 0 && oriented > 0, "cover both neutral and staircase-oriented end views");
+});
+
 test("thin plywood risers extend their actual end-cut lines without exaggerating the bevel", () => {
   for (const number of [18, 35, 52].map(n => printedPiece(n).number)) {
     const printed = byNumber.get(number), body = cutPages.get(printed.cutSheet);
@@ -378,7 +681,7 @@ test("thin plywood risers extend their actual end-cut lines without exaggerating
       const cut = d.edgeCuts.filter(c => c.axis === "length").find(c =>
         (c.points.reduce((sum, p) => sum + p[0] / c.points.length, 0) < d.blank.length / 2) === (end === "left"));
       assert.equal(Number(angle), cut.bevelDegrees);
-      const endpoints = cut.points.filter(p => Math.abs(p[2]) < 1e-6).sort((a, b) => a[1] - b[1]);
+      const endpoints = cut.points.filter(p => Math.abs(p[2]) < 1e-6).sort((a, b) => b[1] - a[1]);
       const segments = [...drawing.matchAll(
         /<line x1="([^"]+)" y1="([^"]+)" x2="([^"]+)" y2="([^"]+)" class="template"\/>/g,
       )].map(match => match.slice(1).map(Number));
@@ -387,7 +690,7 @@ test("thin plywood risers extend their actual end-cut lines without exaggerating
         const [x1, y1, x2, y2] = segment;
         const px = i ? x1 : x2, py = i ? y1 : y2;
         assert.ok(Math.abs(px - x - endpoints[i][0] * scale) < 2e-4);
-        assert.ok(Math.abs(py - y - endpoints[i][1] * scale) < 2e-4,
+        assert.ok(Math.abs(py - y - (d.blank.thickness - endpoints[i][1]) * scale) < 2e-4,
           "extension must meet the real cut at the stock face");
         const drawnAngle = Math.atan2(Math.abs(x2 - x1), Math.abs(y2 - y1)) * 180 / Math.PI;
         assert.ok(Math.abs(drawnAngle - Math.abs(cut.bevelDegrees)) < 0.001);
@@ -395,7 +698,7 @@ test("thin plywood risers extend their actual end-cut lines without exaggerating
       }
       assert.ok(segments[0][1] < y && segments[1][3] > y + height);
     }
-    assert.match(body, /Near-edge view; dashed cut extensions/);
+    assert.match(body, /Near-edge view \(from Face A\); dashed cut extensions/);
   }
 });
 
@@ -563,7 +866,8 @@ test("the tread drawing dimensions match the unnotched arcs and straight chords"
 test("one combined tread sheet retains the construction drawing, cutting details and all part links", () => {
   const body = cutPages.get("tread-layout");
   assert.equal((body.match(/<svg\b/g) ?? []).length, 1, "keep only the radius-and-chord drawing");
-  assert.match(body, /<strong>Make 8<\/strong> from 1\/2-inch plywood/);
+  assert.match(body, /<strong>Make 8:<\/strong>/);
+  assert.match(body, /<strong>Stock:<\/strong> 1\/2-inch plywood/);
   assert.match(body, /All cuts square through the thickness/);
   assert.match(body, /Spindle notches deferred/);
   for (const number of [19, 36, 53].map(n => printedPiece(n).number)) {
@@ -1178,7 +1482,7 @@ test("assembly and the shared cut list are separate printable documents with cor
   assert.match(assemblyHtml, /href="cuts\.html#part-P-\d+"/);
 });
 
-test("global cutting numbers group every wooden project piece once and merge only deferred tread variants", () => {
+test("global cutting numbers group every wooden piece once, normalizing only treads and bearing wedges", () => {
   const leaves = model.partTree.getLeaves().filter(piece => piece.kind !== "hardware");
   assert.deepEqual([...catalog.byPiece.keys()].sort(), leaves.map(piece => piece.id).sort());
   assert.equal(new Set(catalog.parts.map(part => part.number)).size, catalog.parts.length);
@@ -1186,7 +1490,7 @@ test("global cutting numbers group every wooden project piece once and merge onl
   assert.deepEqual(manifest.catalog, catalog.parts.map(part => ({
     number: part.number, specification: hash(part.specification), pieces: part.locations.map(location => location.id),
   })));
-  for (const piece of leaves.filter(piece => piece.key !== "tread")) {
+  for (const piece of leaves.filter(piece => piece.key !== "tread" && !bearingWedge(piece))) {
     assert.deepEqual(catalog.byPiece.get(piece.id).specification, manufacturingSpecification(piece.getDescription()));
   }
   const treads = leaves.filter(piece => piece.key === "tread");
@@ -1201,7 +1505,45 @@ test("global cutting numbers group every wooden project piece once and merge onl
   assert.equal(standard.description.holes?.length ?? 0, 0);
 });
 
-test("each cutting part has one complete entry, a whole-project quantity and a bulleted list of every piece", () => {
+test("seven upper-bearing wedges share one feather-edge cutting part without changing installed geometry", () => {
+  const source = buildStairway();
+  const pieces = source.partTree.getLeaves().filter(piece => piece.key === "frontSpindleBearingShim");
+  const before = pieces.map(piece => hash(piece.getDescription()));
+  const normalized = createCutPartCatalog(source);
+  const wedges = pieces.filter(bearingWedge);
+  assert.equal(wedges.length, 7);
+  const part = normalized.byPiece.get(wedges[0].id);
+  assert.ok(wedges.every(piece => normalized.byPiece.get(piece.id) === part));
+  assert.equal(part.quantity, 7);
+  assert.deepEqual(part.locations.map(location => location.stepNumber), [3, 4, 5, 6, 7, 8, 9]);
+  const surface = part.description.edgeCuts.find(cut => cut.surfaceCut);
+  const ends = surface.points.filter(point => Math.abs(point[2]) < 1e-7).sort((a, b) => a[0] - b[0]);
+  assert.ok(Math.abs(part.description.blank.thickness - ends[1][1]) < 1e-8, "thin end is a feather edge");
+  assert.ok(Math.abs(Math.atan2(ends[1][1] - ends[0][1], ends[1][0] - ends[0][0]) * 180 / Math.PI - 5) < 1e-7);
+  for (const point of surface.points) {
+    assert.ok(Math.abs(point.reduce((sum, value, axis) => sum + value * surface.plane.normal[axis], 0) -
+      surface.plane.offset) < 1e-8, "cutting plane and finished endpoints agree");
+  }
+  for (const piece of wedges) {
+    const original = piece.getDescription();
+    assert.deepEqual(part.description.blank, original.blank);
+    assert.deepEqual(part.description.stock, original.stock);
+    assert.deepEqual(surface.plane.normal, original.edgeCuts.find(cut => cut.surfaceCut).plane.normal);
+  }
+  assert.deepEqual(pieces.map(piece => hash(piece.getDescription())), before);
+  const square = pieces.find(piece => !bearingWedge(piece));
+  assert.ok(square, "retain the step-2 square shim");
+  assert.notEqual(normalized.byPiece.get(square.id), part);
+  const body = cutPages.get(`cut-${Number(part.number.slice(2))}`);
+  assert.match(body, /<strong>Make 7:<\/strong>/);
+  assert.match(body, /Feather edge/);
+  assert.match(body, /No separate blank is needed for this method/);
+  assert.doesNotMatch(body, /&lt; 1\/16/);
+  assert.deepEqual([...body.matchAll(/data-used-piece="([^"]+)"/g)].map(([, id]) => id),
+    part.locations.map(location => location.id));
+});
+
+test("each cutting part counts only pieces still to make and lists every use, marking assembled foundations", () => {
   const published = manifest.parts;
   assert.equal(new Set(published.map(part => part.number)).size, published.length);
   const assemblyDocuments = [...documents].filter(([filename]) => filename !== "cuts.html").map(([filename, body]) => ({
@@ -1212,7 +1554,20 @@ test("each cutting part has one complete entry, a whole-project quantity and a b
     const body = squareCutEntries.get(part.cutSheet) ??
       [...cutPages.values()].find(body => body.includes(`id="part-${part.number}"`));
     const expected = catalog.parts.find(entry => entry.number === part.number);
-    assert.ok(body.includes(`<strong>Make ${expected.quantity}`), part.number);
+    const assembled = expected.locations.filter(location => location.moduleNumber > 1 &&
+      partVisibilityCategory(model.partTree.getNode(location.id)) === "foundation");
+    const make = Number(body.match(/<strong>Make (\d+):<\/strong>/)[1]);
+    assert.equal(make, expected.quantity - assembled.length, part.number);
+    assert.match(body, /<div class="used-in"><p><strong>Make \d+:<\/strong><\/p><ul>/);
+    const titleEnd = body.search(/<\/h[12]>/);
+    const countStart = body.indexOf('<div class="used-in">');
+    const listEnd = body.indexOf("</ul></div>");
+    const stockStart = body.indexOf("<strong>Stock:</strong>");
+    assert.ok(titleEnd >= 0 && titleEnd < countStart && countStart < listEnd && listEnd < stockStart,
+      `${part.number}: title, Make count, instances, then stock`);
+    const drawingStart = body.indexOf("<svg ");
+    if (drawingStart >= 0) assert.ok(stockStart < drawingStart, `${part.number}: stock precedes drawing`);
+    assert.doesNotMatch(body, /<h[23]>Used in<\/h[23]>/);
     const uses = [...body.matchAll(/<li data-used-piece="([^"]+)">([\s\S]*?)<\/li>/g)];
     assert.deepEqual(uses.map(([, id]) => id), expected.locations.map(location => location.id), part.number);
     assert.equal(part.quantity, uses.length);
@@ -1220,6 +1575,7 @@ test("each cutting part has one complete entry, a whole-project quantity and a b
     for (const [, id, use] of uses) {
       const location = expected.locations.find(location => location.id === id);
       assert.ok(use.includes(`Module ${location.moduleNumber}`));
+      assert.equal(use.endsWith(" (already assembled)"), assembled.includes(location), id);
       const document = assemblyDocuments.find(document => document.pieces.some(piece => piece.id === id));
       if (document) {
         const printed = document.pieces.find(piece => piece.id === id);
@@ -1275,7 +1631,7 @@ test("cutting numbers follow printed order with consecutive square-cut parts imm
 test("both tread parts lead the cut list and the first-step drawing retains its newel cutout and right rear angle", () => {
   assert.deepEqual([...cutPages.keys()].slice(0, 2), ["tread-layout", "first-tread-layout"]);
   const body = cutPages.get("first-tread-layout");
-  assert.match(body, /<strong>Make 1<\/strong>/);
+  assert.match(body, /<strong>Make 1:<\/strong>/);
   const tread = new Tread({ width: model.stairWidth, angle: model.steps[0].angle, height: 0, extendRightEdge: true });
   const outer = tread.outline[0], rear = tread.outline.at(-1);
   const outerDirection = outer.to.map((value, i) => value - outer.from[i]);

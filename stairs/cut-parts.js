@@ -38,13 +38,29 @@ export function createCutPartCatalog(model) {
       });
       if (piece.stepNumber === 1) tread.notchForPost(model.steps[0].parts.newel);
       description = tread.getManufacturingDescription();
+    } else if (piece.key === "frontSpindleBearingShim") {
+      description = {
+        ...description,
+        edgeCuts: description.edgeCuts.map(cut => {
+          if (!cut.surfaceCut || cut.angleFromSquare < 1e-6) return cut;
+          const shift = description.blank.thickness - Math.max(...cut.points.map(point => point[1]));
+          return {
+            ...cut,
+            points: cut.points.map(([x, y, z]) => [x, y + shift, z]),
+            plane: { ...cut.plane, offset: cut.plane.offset + cut.plane.normal[1] * shift },
+          };
+        }),
+      };
     }
     const specification = manufacturingSpecification(description);
     const key = JSON.stringify(specification);
     let part = bySpecification.get(key);
     if (!part) {
       part = {
-        title: piece.key === "tread" ? piece.stepNumber === 1 ? "First-step tread" : "Standard tread" : entry.title,
+        title: piece.key === "tread" ? piece.stepNumber === 1 ? "First-step tread" : "Standard tread"
+          : piece.key === "frontSpindleBearingShim" &&
+            description.edgeCuts.some(cut => cut.surfaceCut && cut.angleFromSquare > 1e-6)
+          ? "Spindle shim - upper bearing" : entry.title,
         specification, description, locations: [],
       };
       parts.push(part);

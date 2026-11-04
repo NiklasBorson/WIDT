@@ -12,7 +12,44 @@ agnostic about the format. A printable web page with SVG diagrams would be one p
 assembly instructions in `module1.html`, `module2.html` and `module3.html`, and the shared cut list in `cuts.html`.
 Keep assembly instructions separate by module, but retain one global cutting document.
 It covers all treads and framing for all three modules, plus module 1's foundation, newel post and structural newel/spindle supports,
-with whole-project quantities and piece locations for every listed part.
+with quantities still to make and whole-project piece locations for every listed part.
+Exclude the already-built module-2 and module-3 foundation pieces from "Make"
+quantities, but retain their "Used in" entries with an "(already assembled)" suffix.
+Begin each cutting entry with its title, "Make N:", the complete instance list,
+then "Stock:" and blank dimensions before any drawing.
+For bevels and miters, dimension both the overall size and the shorter finished
+edge or edges in the relevant view; retain existing width and thickness dimensions.
+Combine the tapered upper-bearing spindle shims into one feather-edge cutting part.
+The 5-degree angle controls; thick-end thickness is a reference dimension only.
+Note that these wedges can be sliced directly off the end of a 2x4, without a
+separate blank; grain direction is unimportant. Keep the square shim distinct.
+Label both front tread-support cutting variants' Face A as front/downhill and
+Face B as back/uphill in their diagrams; the near edge is the bottom and the
+far edge is the top.
+For both front tread-support variants, show the left/inside end beside Face A
+and the right/outside end beside Face B, using the actual corresponding end
+profiles rather than repeating the left end.
+Mirror Face B's rear view horizontally, including its notch dimensions, so the
+right/outside end view sits to its left on the page. Installed left/right
+directions must not be confused with page positions.
+Always place each end view beside its corresponding edge in that face's
+projection. Apply the same mirrored rear-face convention to other oriented
+face views, including the step-3/6/9 left tread support.
+Treat adjacent end and edge views as 90-degree rotations of their face view:
+preserve the shared length/width direction and place the shared face boundary
+nearest that face. Place a near-edge view above generic Face A and a far-edge
+view below it, reversing the thickness projection as needed.
+In oriented drawings, use installed edge labels such as BOTTOM EDGE and TOP EDGE
+instead of combining them with the stock-model NEAR/FAR names.
+For P-026 and P-027, rotate the entire cutting-diagram layout 180 degrees so the installed
+bottom edges are below the top edges. Keep all labels and dimensions upright,
+with each view's heading above the view and left-aligned.
+Use END VIEW instead of diagram-relative LEFT END or RIGHT END throughout.
+When faces identify installed staircase directions, label end views with their
+corresponding installed directions too.
+For the step-3/6/9 left tread support, label the end views FRONT END and BACK END,
+not diagram-relative left/right. Face A faces right/inside the frame; Face B
+faces left/outside. Label its near edge as bottom and far edge as top.
 Global P-xxx numbers identify unique cutting parts, not installed pieces. Number
 the standard tread first and the first-step tread second.
 Number the diagram-free square-cut parts next, consecutively in their shared-page
