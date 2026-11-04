@@ -53,15 +53,13 @@ test("part links lead to cut sheets or identified hardware without a separate pa
     const destination = [...pages].find(([, body]) => body.includes(`id="part-${i + 1}"`));
     assert.ok(destination, `${printed.number}: missing link destination`);
     const [id, body] = destination;
-    assert.ok(body.includes(`<span id="part-${i + 1}">${printed.number}</span>`));
     if (printed.kind === "hardware") {
-      assert.equal(id, "assembly-2", printed.number);
-      const row = [...body.matchAll(/<tr>([\s\S]*?)<\/tr>/g)]
-        .find(([, cells]) => cells.includes(`id="part-${i + 1}"`))[1];
-      assert.ok(row.includes(model.partTree.getNode(printed.id).getDescription().productName), printed.number);
+      assert.equal(id, printed.assemblyStep, printed.number);
       const host = manifest.connectors.find(connector => connector.number === printed.number).host;
-      assert.ok(row.includes(`href="#part-${Number(host.slice(3))}"`), `${printed.number}: retain its host`);
+      assert.equal(id, byNumber.get(host).assemblyStep, `${printed.number}: identify hardware with its host`);
+      assert.ok(body.includes(`data-hardware-callout="${printed.number}" data-host="${host}"`));
     } else {
+      assert.ok(body.includes(`<span id="part-${i + 1}">${printed.number}</span>`));
       assert.ok(body.includes(`href="#${printed.assemblyStep}"`), `${printed.number}: retain assembly navigation`);
       assert.ok(id === printed.cutSheet ||
         (["square-cuts", "tread-layout"].includes(id) && body.includes(`id="${printed.cutSheet}"`)),
@@ -594,9 +592,6 @@ test("printed broad-face cut profiles match actual machined mesh face areas", ()
 });
 
 test("connector centers lie on the stated host faces at the printed measured positions", () => {
-  const body = html.match(/<section\b[^>]*id="assembly-2"[^>]*>([\s\S]*?)<\/section>/)[1];
-  const rows = [...body.matchAll(/<tr>([\s\S]*?)<\/tr>/g)].map(([, row]) => row);
-  assert.match(body, /<th>From start<\/th><th>From near edge<\/th>/);
   assert.equal(manifest.connectors.length, manifest.parts.filter(part => part.kind === "hardware").length);
   for (const connector of manifest.connectors) {
     const piece = model.partTree.getNode(byNumber.get(connector.number).id);
@@ -609,32 +604,65 @@ test("connector centers lie on the stated host faces at the printed measured pos
     assert.ok(center[2] >= 0 && center[2] <= d.blank.width);
     assert.ok(Math.abs(connector.heightAboveP -
       (piece.transform[13] - manifest.heightDatum.modelHeight)) < 1e-8);
-    const row = rows.find(row => row.includes(`>${connector.number}</span>`));
-    const cells = [...row.matchAll(/<td>([\s\S]*?)<\/td>/g)].map(([, cell]) => cell);
-    assert.deepEqual(cells.slice(-3),
-      [center[0], center[2], connector.heightAboveP].map(value => `${formatLength(value)}&Prime;`),
-      `${connector.number}: display fractional measurements from physical edges`);
+    const body = html.match(new RegExp(
+      `<g data-hardware-callout="${connector.number}" data-host="${connector.host}">([\\s\\S]*?)</g>`,
+    ))?.[1];
+    assert.ok(body, `${connector.number}: missing local mounting callout`);
+    assert.ok(body.includes(`On ${connector.host} / face ${connector.face}`));
+    assert.ok(body.includes(`${formatLength(center[0])}&quot; from START`));
+    assert.ok(body.includes(`${formatLength(center[2])}&quot; from NEAR EDGE`));
   }
 });
 
-test("hardware is identified and fitted within Step 2 without a separate hardware section", () => {
-  const body = html.match(/<section\b[^>]*id="assembly-2"[^>]*>([\s\S]*?)<\/section>/)[1];
-  assert.doesNotMatch(html, /id="connectors"|href="#connectors"|HARDWARE \/ PREPARATION|connector sheet/);
-  for (const type of ["Threaded flange", "Mending plate"]) {
-    const illustration = body.match(new RegExp(`<g data-hardware-type="${type}">([\\s\\S]*?)</g>`))?.[1];
-    assert.ok(illustration, `${type}: recognizable illustration in the assembly step`);
+test("hardware image callouts point to source mounting centers in their hosts' assembly views", () => {
+  assert.doesNotMatch(html, /Fit hardware while its faces are accessible|<th>Connector<\/th>|<th>Center above P<\/th>/);
+  for (const connector of manifest.connectors) {
+    const part = byNumber.get(connector.number), host = byNumber.get(connector.host);
+    const body = html.match(new RegExp(
+      `<section\\b[^>]*id="${host.assemblyStep}"[^>]*>([\\s\\S]*?)</section>`,
+    ))[1];
+    assert.equal(part.assemblyStep, host.assemblyStep, `${part.number}: fit before its host's joints close access`);
+    assert.ok(body.includes(`data-piece="${host.id}"`), `${part.number}: show the assembled host`);
+    assert.ok(body.includes(`data-mounted-hardware="${part.id}"`),
+      `${part.number}: draw the actual connector on its host as well as the enlarged image`);
+    const callout = body.match(new RegExp(
+      `<g data-hardware-callout="${part.number}" data-host="${connector.host}">([\\s\\S]*?)</g>`,
+    ))?.[1];
+    assert.ok(callout, `${part.number}: image belongs inside the host assembly SVG`);
+    const type = model.partTree.getNode(part.id).getDescription().productName;
+    const illustration = callout.match(new RegExp(`<g data-hardware-type="${type}">([\\s\\S]*)`))?.[1];
+    assert.ok(illustration, `${part.number}: recognizable ${type} illustration`);
     const faces = [...illustration.matchAll(/<path d="([^"]+)"[^>]+fill-rule="evenodd"/g)];
     assert.ok(faces.length > 3, `${type}: show thickness and shaped surfaces`);
     assert.ok(faces.some(([, path]) => (path.match(/M/g) ?? []).length >= 4),
       `${type}: show the bore and two mounting holes/slots, not a solid silhouette`);
+    assert.ok(callout.includes(`id="part-${Number(part.number.slice(3))}">${part.number}</tspan>`));
+    const circle = callout.match(/<circle cx="([^"]+)" cy="([^"]+)"/);
+    const leader = callout.match(/<line x1="([^"]+)" y1="([^"]+)"/);
+    assert.deepEqual(circle.slice(1, 3), leader.slice(1, 3), `${part.number}: leader meets the mounting marker`);
+    const diagram = body.match(/<svg\b[\s\S]*?<\/svg>/)[0];
+    const sceneIds = [...new Set([...diagram.matchAll(/data-piece="([^"]+)"/g)].map(([, id]) => id))];
+    const dot = (a, b) => a.reduce((sum, value, i) => sum + value * b[i], 0);
+    const camera = p => [dot(manifest.assemblyView.right, p), -dot(manifest.assemblyView.up, p)];
+    const points = sceneIds.flatMap(id => {
+      const piece = model.partTree.getNode(id), positions = piece.part.createGeometry().positions;
+      return Array.from({ length: positions.length / 3 }, (_, i) =>
+        camera(apply(piece.transform, Array.from(positions.slice(i * 3, i * 3 + 3)))));
+    });
+    const min = [0, 1].map(a => Math.min(...points.map(p => p[a])));
+    const max = [0, 1].map(a => Math.max(...points.map(p => p[a])));
+    const height = Number(diagram.match(/viewBox="0 0 720 (\d+)"/)[1]);
+    const scale = Math.min(600 / (max[0] - min[0]), (height - 45) / (max[1] - min[1]));
+    const center = camera(model.partTree.getNode(part.id).transform.slice(12, 15));
+    const projected = [(720 - (max[0] - min[0]) * scale) / 2 + (center[0] - min[0]) * scale,
+      18 + (center[1] - min[1]) * scale];
+    assert.ok(projected.every((value, i) => Math.abs(value - Number(circle[i + 1])) < 0.0001),
+      `${part.number}: marker must use the actual hardware transform, not the board center`);
+    assert.match(body, /actual purchased hardware to transfer mounting holes/);
+    assert.match(body, /Confirm flange thread pitch/);
   }
-  for (const part of manifest.parts.filter(part => part.kind === "hardware")) {
-    assert.ok(body.includes(`<span id="part-${Number(part.number.slice(3))}">${part.number}</span>`));
-    assert.ok(!body.includes(`href="#part-${Number(part.number.slice(3))}"`),
-      `${part.number}: no separate hardware-detail link`);
-  }
-  assert.match(body, /actual purchased hardware to transfer mounting holes/);
-  assert.match(body, /Confirm flange thread pitch/);
+  assert.equal((html.match(/data-hardware-callout=/g) ?? []).length, manifest.connectors.length,
+    "show each connector once, alongside its host's first installation");
 });
 
 test("the caster-free foundation carries every printed lower block on a cross-piece above the long beams", () => {
@@ -704,11 +732,11 @@ test("all frames and uprights assemble off-base before lower blocks are fitted t
     const part = byNumber.get(`M2-${String(n).padStart(2, "0")}`);
     assert.ok(order(part.assemblyStep) >= 0);
     assert.ok(order(part.assemblyStep) < firstLowerAttachment, part.number);
-    assert.ok(operations.get("assembly-7").includes(`data-piece="${part.id}"`),
+    assert.ok(operations.get("assembly-6").includes(`data-piece="${part.id}"`),
       `${part.number}: missing from the dry-seated complete carcass`);
   }
   for (const [id, body] of operations) {
-    if (order(id) < order("assembly-7")) {
+    if (order(id) < order("assembly-6")) {
       for (const part of manifest.foundation) {
         assert.ok(!body.includes(`data-piece="${part.id}"`), `${id}: foundation shown before transfer`);
       }
@@ -717,13 +745,13 @@ test("all frames and uprights assemble off-base before lower blocks are fitted t
       }
     }
   }
-  assert.match(operations.get("assembly-6"), /brace.*extends 1 1\/2 BELOW/);
+  assert.match(operations.get("assembly-5"), /brace.*extends 1 1\/2 BELOW/);
   const finalAttachment = operations.get(lowerParts[0].assemblyStep);
   assert.match(finalAttachment, /Dry-seat to trace the blocks, then lift clear/);
   assert.match(finalAttachment, /underneath the BARE foundation/);
   assert.match(finalAttachment, /BEFORE fastening any upright bottom/);
   for (const part of lowerParts) {
-    assert.equal(part.assemblyStep, "assembly-7");
+    assert.equal(part.assemblyStep, "assembly-6");
     assert.match(finalAttachment, new RegExp(`<path data-piece="${part.id}"[^>]+class="new-triangle"`));
   }
   for (const n of [18, 19, 24, 35, 36, 52, 53]) {
@@ -736,7 +764,7 @@ test("shared right-front posts are installed with the preceding frame's rear sup
     /<section\b[^>]*\bid="(assembly-\d+)"[^>]*>([\s\S]*?)<\/section>/g,
   )].map(([, id, body]) => [id, body]));
   for (const [stepIndex, supportNumber, postNumber, operation] of [
-    [3, 12, 6, 4], [4, 29, 7, 5],
+    [3, 12, 6, 3], [4, 29, 7, 4],
   ]) {
     const printed = byNumber.get(`M2-${String(postNumber).padStart(2, "0")}`);
     const support = byNumber.get(`M2-${String(supportNumber).padStart(2, "0")}`);
@@ -774,12 +802,12 @@ test("shared right-front posts are installed with the preceding frame's rear sup
     assert.ok(rear.bottomHeight >= post.bottomHeight);
     assert.ok(rear.bottomHeight + rear.width <= post.bottomHeight + post.length);
   }
+  assert.doesNotMatch(operations.get("assembly-4"), /Stand right post/);
   assert.doesNotMatch(operations.get("assembly-5"), /Stand right post/);
-  assert.doesNotMatch(operations.get("assembly-6"), /Stand right post/);
 });
 
 test("the step-4 rear support correctly hides the posts behind it, including M2-07", () => {
-  const body = html.match(/<section\b[^>]*id="assembly-5"[^>]*>([\s\S]*?)<\/section>/)[1];
+  const body = html.match(/<section\b[^>]*id="assembly-4"[^>]*>([\s\S]*?)<\/section>/)[1];
   const diagram = body.match(/<svg\b[\s\S]*?<\/svg>/)[0];
   const paths = [...diagram.matchAll(
     /<path data-piece="([^"]+)" d="([^"]+)"[^>]*\/><path d="([^"]+)" class="([^"]+)"/g,
@@ -897,7 +925,7 @@ test("the long left rail is drawn above its rear bearing, which is fitted only a
   const railBounds = bounds(rail), memberBounds = bounds(member);
   assert.ok(Math.abs(railBounds.bottom - memberBounds.top) < 1e-5,
     "rail bottom must bear at the rear cross-member top");
-  const assembly4 = html.match(/<section\b[^>]*id="assembly-4"[^>]*>([\s\S]*?)<\/section>/)[1];
+  const assembly4 = html.match(/<section\b[^>]*id="assembly-3"[^>]*>([\s\S]*?)<\/section>/)[1];
   const diagrams = [...assembly4.matchAll(/<svg\b[\s\S]*?<\/svg>/g)].map(([svg]) => svg);
   const plan = diagrams.find(svg => svg.includes("data-plan-piece"));
   assert.equal(diagrams.length, 2, "keep only the assembly and placement diagrams");
@@ -907,13 +935,13 @@ test("the long left rail is drawn above its rear bearing, which is fitted only a
   const railIndex = plan.indexOf(`data-plan-piece="${rail.id}"`);
   assert.ok(memberIndex >= 0 && railIndex > memberIndex,
     "top-view rail must be painted over the lower cross-member");
-  const assembly3 = html.match(/<section\b[^>]*id="assembly-3"[^>]*>([\s\S]*?)<\/section>/)[1];
+  const assembly3 = html.match(/<section\b[^>]*id="assembly-2"[^>]*>([\s\S]*?)<\/section>/)[1];
   assert.ok(!assembly3.includes(`data-piece="${member.id}"`),
     "cross-member must not be shown attached during floor-level frame assembly");
   assert.doesNotMatch(assembly4, /<ol\b|<li\b/, "the assembly and layout diagrams replace Step 4's numbered instructions");
   assert.match(assembly4, /Fit M2-48 AFTER raising the frame/);
   assert.match(assembly4, /retain supports and diagonal bracing/);
-  assert.doesNotMatch(html, /assembly-4-continued|Fit the rear bearing; brace the bottom frame/);
+  assert.doesNotMatch(html, /assembly-3-continued|Fit the rear bearing; brace the bottom frame/);
 });
 
 test("the assembly view is unmirrored, upright and shows the downhill face of the bottom frame", () => {
@@ -925,7 +953,7 @@ test("the assembly view is unmirrored, upright and shows the downhill face of th
   assert.ok(towardViewer[0] < 0 && towardViewer[1] > 0 && towardViewer[2] > 0,
     "view must be above the front/inner side, not below or behind");
   assert.ok(up[1] > 0, "uprights must point up");
-  const body = html.match(/<section\b[^>]*id="assembly-4"[^>]*>([\s\S]*?)<\/section>/)[1];
+  const body = html.match(/<section\b[^>]*id="assembly-3"[^>]*>([\s\S]*?)<\/section>/)[1];
   const diagram = body.match(/<svg\b[\s\S]*?<\/svg>/)[0];
   const height = Number(diagram.match(/viewBox="0 0 720 (\d+)"/)[1]);
   const camera = point => [dot(right, point), -dot(up, point)];
@@ -965,7 +993,7 @@ test("the assembly view is unmirrored, upright and shows the downhill face of th
 });
 
 test("the bottom-frame exploded view separates all four boards and guides three laps plus the butt joint", () => {
-  const body = html.match(/<section\b[^>]*id="assembly-3"[^>]*>([\s\S]*?)<\/section>/)[1];
+  const body = html.match(/<section\b[^>]*id="assembly-2"[^>]*>([\s\S]*?)<\/section>/)[1];
   const diagram = body.match(/<svg\b[\s\S]*?<\/svg>/)[0];
   const bounds = [11, 12, 13, 14].map(n => {
     const id = byNumber.get(`M2-${String(n).padStart(2, "0")}`).id;
@@ -979,7 +1007,7 @@ test("the bottom-frame exploded view separates all four boards and guides three 
     return { n, points, min: [0, 1].map(a => Math.min(...points.map(p => p[a]))),
       max: [0, 1].map(a => Math.max(...points.map(p => p[a]))) };
   });
-  const offsets = manifest.assemblyExplosions["assembly-3"];
+  const offsets = manifest.assemblyExplosions["assembly-2"];
   const { right, up } = manifest.assemblyView;
   const camera = point => [0, 1].map(a =>
     point.reduce((sum, v, i) => sum + v * (a ? -up[i] : right[i]), 0));
@@ -1042,12 +1070,12 @@ test("placement diagrams occur in assembly order without a standalone Layouts se
     assert.ok(!html.includes(`href="#${id}"`), `${id}: remove cross-document layout navigation`);
   }
   const plans = [
-    ["assembly-3", [11, 12, 13, 14]],
-    ["assembly-4", [1, 2, 3, 4, 5, 6, 7, 8, 14, 48]],
-    ["assembly-5", [2, 6, 28, 29, 30, 31]],
-    ["assembly-6", [3, 4, 7, 8, 42, 43, 44, 45, 46, 47]],
-    ["assembly-7", manifest.lowerJoints.flatMap(j => [j.post, j.block]).map(n => Number(n.slice(3)))],
-    ["assembly-8", [15, 16, 17, 32, 33, 34, 49, 50, 51]],
+    ["assembly-2", [11, 12, 13, 14]],
+    ["assembly-3", [1, 2, 3, 4, 5, 6, 7, 8, 14, 48]],
+    ["assembly-4", [2, 6, 28, 29, 30, 31]],
+    ["assembly-5", [3, 4, 7, 8, 42, 43, 44, 45, 46, 47]],
+    ["assembly-6", manifest.lowerJoints.flatMap(j => [j.post, j.block]).map(n => Number(n.slice(3)))],
+    ["assembly-7", [15, 16, 17, 32, 33, 34, 49, 50, 51]],
   ];
   for (const [id, numbers] of plans) {
     for (const n of numbers) {
@@ -1056,27 +1084,27 @@ test("placement diagrams occur in assembly order without a standalone Layouts se
     }
   }
   const order = [...pages.keys()];
-  assert.equal(order[order.indexOf("assembly-4") + 1], "assembly-5");
+  assert.equal(order[order.indexOf("assembly-3") + 1], "assembly-4");
   assert.match(pages.get("assembly-1"), /actual treads as temporary placement patterns/);
-  assert.match(pages.get("assembly-7"), /REMOVE ALL THREE TREADS/);
+  assert.match(pages.get("assembly-6"), /REMOVE ALL THREE TREADS/);
 });
 
-test("assembly is a visual nine-section sequence with foundation attachment consolidated", () => {
+test("assembly is a visual eight-section sequence with contextual hardware and foundation attachment consolidated", () => {
   const operations = [...html.matchAll(
     /<section\b[^>]*\bid="(assembly-\d+)"[^>]*>([\s\S]*?)<\/section>/g,
   )].map(([, id, body]) => ({ id, body }));
-  assert.deepEqual(operations.map(op => op.id), Array.from({ length: 9 }, (_, i) => `assembly-${i + 1}`));
+  assert.deepEqual(operations.map(op => op.id), Array.from({ length: 8 }, (_, i) => `assembly-${i + 1}`));
   for (const { id, body } of operations) {
     assert.doesNotMatch(body, /<ol\b|<li\b/, `${id}: diagrams replace numbered procedures`);
     assert.match(body, /<svg\b/, `${id}: retain a visual assembly reference`);
   }
-  assert.match(operations[5].body, /<h1>6\. Complete the step-6 frame<\/h1>/);
-  assert.match(operations[6].body, /<h1>7\. Attach steps to foundation<\/h1>/);
-  assert.match(operations[6].body, /Upright and lower block seated on the cross-piece/);
-  assert.match(operations[7].body, /<h1>8\. Add spindle backing/);
-  assert.match(operations[8].body, /<h1>9\. Close the risers/);
+  assert.match(operations[4].body, /<h1>5\. Complete the step-6 frame<\/h1>/);
+  assert.match(operations[5].body, /<h1>6\. Attach steps to foundation<\/h1>/);
+  assert.match(operations[5].body, /Upright and lower block seated on the cross-piece/);
+  assert.match(operations[6].body, /<h1>7\. Add spindle backing/);
+  assert.match(operations[7].body, /<h1>8\. Close the risers/);
   for (const n of [15, 16, 17, 32, 33, 34, 49, 50, 51]) {
-    assert.equal(byNumber.get(`M2-${String(n).padStart(2, "0")}`).assemblyStep, "assembly-8");
+    assert.equal(byNumber.get(`M2-${String(n).padStart(2, "0")}`).assemblyStep, "assembly-7");
   }
 });
 
@@ -1088,7 +1116,7 @@ test("visible instructions omit coordinate tables, axis notation and paper-patte
 });
 
 test("rear-post placement uses measured setbacks along the actual tread edge", () => {
-  const body = html.match(/<section\b[^>]*id="assembly-4"[^>]*>([\s\S]*?)<\/section>/)[1];
+  const body = html.match(/<section\b[^>]*id="assembly-3"[^>]*>([\s\S]*?)<\/section>/)[1];
   const tread = new Tread({ width: model.stairWidth, angle: model.steps[0].angle, height: 0 });
   const edge = tread.outline.filter(e => e.type === "line")[1];
   const ends = [edge.from, edge.to].map(([x, z]) => {

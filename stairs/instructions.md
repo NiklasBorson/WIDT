@@ -82,8 +82,10 @@ furniture, such as from IKEA.
 
 Each part in the assembly instructions should be numbered, so the same part numbers can be
 referenced from the assembly instructions and cut lists without a separate parts register.
-Show recognizable hardware illustrations and connector placement measurements directly in
-assembly step 2; omit separate hardware sections.
+Show recognizable hardware images as callouts in the assembly views where their host
+boards are introduced. Point leaders to the actual connector mounting centers and
+include the host, face and measurements from stock edges beside each image.
+Omit the standalone hardware section and connector table.
 
 ## Cut lists
 
