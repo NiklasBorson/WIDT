@@ -9,7 +9,7 @@ import { formatLength } from "./part-description.js";
 import { createCutPartCatalog } from "./cut-parts.js";
 import { tessellateOutline } from "./plywood-outline.js";
 
-const documents = new Map(["module2.html", "module3.html", "cuts.html"].map(filename =>
+const documents = new Map(["module1.html", "module2.html", "module3.html", "cuts.html"].map(filename =>
   [filename, readFileSync(new URL(`./${filename}`, import.meta.url), "utf8")]));
 const assemblyHtml = documents.get("module2.html");
 const cutsHtml = documents.get("cuts.html");

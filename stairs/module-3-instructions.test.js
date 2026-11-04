@@ -154,10 +154,12 @@ test("module 3 hardware is unnumbered and mounted at actual source positions bes
   assert.equal([...html.matchAll(/data-hardware-callout=/g)].length, hardware.length);
 });
 
-test("the shared cut list covers both assemblies without renumbering or adding unrelated parts", () => {
-  const expected = new Set([catalog.parts[1].number, ...model.modules.slice(1).flatMap(module =>
-    module.pieces.filter(piece => included.has(partVisibilityCategory(piece)) && piece.kind !== "hardware")
-      .map(piece => catalog.byPiece.get(piece.id).number))]);
+test("the shared cut list covers all assemblies without renumbering or adding unrelated parts", () => {
+  const expected = new Set(model.modules.flatMap((module, index) =>
+    module.pieces.filter(piece => piece.kind !== "hardware" &&
+      (included.has(partVisibilityCategory(piece)) || index === 0 &&
+        (partVisibilityCategory(piece) === "foundation" || ["newelInnerBlock", "newelRearBlock", "frontSpindleBlock"].includes(piece.key))))
+      .map(piece => catalog.byPiece.get(piece.id).number)));
   assert.deepEqual(manifest.parts.map(part => part.number).sort(), [...expected].sort());
   const module2 = readFileSync(new URL("./module2.html", import.meta.url), "utf8");
   const otherManifest = JSON.parse(module2.match(/id="instruction-manifest">([^<]+)<\/script>/)[1]);

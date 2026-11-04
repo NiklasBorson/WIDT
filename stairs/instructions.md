@@ -9,9 +9,9 @@ The instructions should be black-and-white or grayscale and suitable for printin
 agnostic about the format. A printable web page with SVG diagrams would be one possibility.
 
 `index.html` is the project landing page, linking to the 3D viewer in `model.html`,
-assembly instructions in `module2.html` and `module3.html`, and the shared cut list in `cuts.html`.
-Keep assembly instructions separate by module when module 1 is added, but retain
-one global cutting document. It currently covers all treads and framing for modules 2 and 3,
+assembly instructions in `module1.html`, `module2.html` and `module3.html`, and the shared cut list in `cuts.html`.
+Keep assembly instructions separate by module, but retain one global cutting document.
+It covers all treads and framing for all three modules, plus module 1's foundation and structural newel/spindle supports,
 with whole-project quantities and piece locations for every listed part.
 Global P-xxx numbers identify unique cutting parts, not installed pieces. Number
 the standard tread first and the first-step tread second. Defer spindle notches:
@@ -19,15 +19,19 @@ steps 2-9 share one cutting part even though their finished model parts differ.
 Purchased hardware is shown by name and illustration, without cutting-part numbers.
 Modules 2 and 3 start with completed wooden foundations; their assembly documents
 cover the framing above those foundations, without casters or intermodule joining.
+Module 1 starts from an unbuilt foundation. Include its beams, cross-pieces, low first-step
+supports, apron and newel mounting blocks. Defer the newel itself with the other railing parts.
 
 ## Current status and next steps
 
 Let's take an iterative approach to building instructions, so I can review each iteration
 before continuing. The wooden foundations for modules 2 and 3 are already built, but their
-casters will not be installed until the very end. We don't need foundation-building instructions.
+casters will not be installed until the very end. Module 1's foundation still needs to be built,
+so its document includes foundation construction.
 Use the tops of the foundation cross-pieces as the assembly height datum, not the floor.
-The current documents finish the framing for modules 2 and 3, including parts
-classified in the model as treads, uprights, step framing, and risers.
+The current documents finish the framing for all three modules, including parts
+classified in the model as treads, uprights, step framing, and risers. Module 1 also
+includes its wooden foundation, newel mounting blocks and both front-spindle supports.
 
 ## Assembly instructions
 
@@ -43,7 +47,12 @@ following:
 
 The current assembly approach is:
 
-The revised approach is to assemble all three step frames and their uprights off the
+For module 1, build the foundation first. Dry-fit all six upright bottoms on the cross-piece
+tops to locate their attachment blocks, remove the posts for underside fastening, then add
+the low first-step supports before the step-2 and step-3 frames. There are no step-1 uprights.
+Fit the step-3 right-front post with the step-2 frame to receive its rear support.
+
+For modules 2 and 3, the revised approach is to assemble all three step frames and their uprights off the
 foundation first. Rest the six full-length upright bottoms in a common level plane,
 using the actual cut treads laid temporarily on the floor as placement patterns. The completed frames locate
 the upright tops; temporary diagonal braces preserve alignment during transfer.

@@ -198,7 +198,7 @@ test("shopping navigation links both pages and provides the requested wood refer
 test("the landing page links to the model, module assembly and shared cut list without loading the viewer", () => {
   const home = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   assert.doesNotMatch(home, /<script\b|<canvas\b/);
-  for (const filename of ["model.html", "module2.html", "module3.html", "cuts.html"]) {
+  for (const filename of ["model.html", "module1.html", "module2.html", "module3.html", "cuts.html"]) {
     assert.ok(home.includes(`href="./${filename}"`), `${filename}: reachable from the landing page`);
     const page = readFileSync(new URL(`./${filename}`, import.meta.url), "utf8");
     assert.match(page, /href="\.\/index\.html"/, `${filename}: return to the landing page`);
