@@ -10,6 +10,7 @@ export const INNER_RADIUS = INNER_ARC_LENGTH * 2 / Math.PI;
 export const FRAME_THICKNESS = 0.75;
 export const FRAME_WIDTH = 3.5;
 export const RISER_THICKNESS = 1 / 4;
+export const TREAD_WIDTH = 20;
 export const TREAD_THICKNESS = 1 / 2;
 export const SIDING_THICKNESS = 1 / 8;
 export const SIDING_CLEARANCE = 0;
@@ -3230,7 +3231,7 @@ export class Step {
   }
 }
 
-export function buildStairway(stairWidth = 20) {
+export function buildStairway(stairWidth = TREAD_WIDTH) {
   validateDimensions("Stairway", { stairWidth });
   const moduleCount = MODULE_COUNT, spindleShoulderAscent = RAILING_BOTTOM_ASCENT;
   const stepCount = STEP_COUNT;

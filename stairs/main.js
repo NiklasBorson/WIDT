@@ -243,7 +243,8 @@ try {
       `Step rise: ${formatLength(model.stepRise)} in / Step run at middle: ${formatLength(run)} in / ` +
       `Rise to castle top: ${formatLength(model.landingRise)} in / ` +
       `Castle top: ${formatLength(model.totalHeight)} in / ` +
-      `Inside arc: ${formatLength(model.innerArcLength)} in`);
+      `Inside arc: ${formatLength(model.innerArcLength)} in / ` +
+      `Inner radius: ${formatLength(model.innerRadius)} in`);
   }
   const model = buildStairway();
   const inventory = new PartInventory(model.partTree);

@@ -3004,6 +3004,16 @@ test("two-pointer twist wraps angles and resets its baseline after coincident to
   assert.deepEqual(calls.splice(0), [["orbit", 5, 5]]);
 });
 
+test("model information displays the computed inner radius with formatted measurements", () => {
+  const model = buildStairway();
+  const controls = createControls({ buildModel: () => model });
+  const dimensions = controls.node("#dimensions");
+  assert.ok(dimensions.textContent.endsWith(
+    `Inside arc: ${formatLength(model.innerArcLength)} in / Inner radius: ${formatLength(model.innerRadius)} in`));
+  const measurements = dimensions.children.filter(child => child.className === "measurement");
+  assert.equal(measurements.at(-1).textContent, "38 1/2");
+});
+
 test("view buttons float inside the 3D stage while model information occupies the bottom panel", () => {
   const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   const start = html.indexOf('<section class="stage"');

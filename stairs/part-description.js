@@ -2,11 +2,11 @@ import { constructionTrapezoid } from "./plywood-outline.js";
 
 export function formatLength(value) {
   if (!Number.isFinite(value)) throw new RangeError("A displayed length must be finite.");
-  const thirtySeconds = Math.round(Math.abs(value) * 32);
-  const roundingError = Math.abs(thirtySeconds / 32 - Math.abs(value));
+  const sixteenths = Math.round(Math.abs(value) * 16);
+  const roundingError = Math.abs(sixteenths / 16 - Math.abs(value));
   const prefix = roundingError > 0.01 + Number.EPSILON * Math.max(1, Math.abs(value)) ? "~" : "";
-  const whole = Math.floor(thirtySeconds / 32);
-  let numerator = thirtySeconds % 32, denominator = 32;
+  const whole = Math.floor(sixteenths / 16);
+  let numerator = sixteenths % 16, denominator = 16;
   if (numerator === 0) return prefix + String(value < 0 ? -whole : whole);
   while (numerator % 2 === 0) {
     numerator /= 2;
@@ -188,6 +188,6 @@ export function formatPartDescription(description) {
       "Stock coordinates: X along length" + (description.bend ? ", grain along Z" : "/grain") +
       ", Y through thickness, Z across width. " +
       "Start/end are minimum/maximum X; near/far are minimum/maximum Z. " +
-      "Outline coordinates are in inches. Dimensions rounded to the nearest 1/32 in; signed angles to 0.01 deg.",
+      "Outline coordinates are in inches. Dimensions rounded to the nearest 1/16 in; signed angles to 0.01 deg.",
   };
 }

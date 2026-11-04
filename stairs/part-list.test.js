@@ -557,7 +557,7 @@ test("the inventory lists existing catalog Parts and counts every Piece exactly 
   assert.throws(() => inventory.getEntry("missing"), /Unknown inventory/);
 });
 
-test("rounded lengths mark errors greater than one hundredth inch as approximate", () => {
+test("lengths round to sixteenths and mark errors greater than one hundredth inch as approximate", () => {
   for (const [value, expected] of [
     [4.625, "4 5/8"],
     [4.62, "4 5/8"],
@@ -574,6 +574,11 @@ test("rounded lengths mark errors greater than one hundredth inch as approximate
     [0.0101, "~0"],
     [0.125, "1/8"],
     [0.111, "~1/8"],
+    [1.0625, "1 1/16"],
+    [1.03124, "~1"],
+    [1.03125, "~1 1/16"],
+    [1.09375, "~1 1/8"],
+    [1.96875, "~2"],
   ]) {
     assert.equal(formatLength(value), expected, String(value));
     const negative = expected.replace(/^(~?)/, "$1-").replace(/-0$/, "0");
