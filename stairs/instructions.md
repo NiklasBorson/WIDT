@@ -34,15 +34,28 @@ The current assembly approach is:
 
 The revised approach is to assemble all three step frames and their uprights off the
 foundation first. Rest the six full-length upright bottoms in a common level plane,
-using the tread-derived paper pattern for their layout. The completed frames locate
+using the actual cut treads laid temporarily on the floor as placement patterns. The completed frames locate
 the upright tops; temporary diagonal braces preserve alignment during transfer.
 Build the bottom frame (M2-11 through M2-14) alone at floor level. Raise and support
 it before fitting rear cross-member M2-48 between the rear uprights: the bottom of
 long left rail M2-14 rests on TOP of M2-48, not underneath or against its end.
+Fit step-5 right-front post M2-06 with the step-4 frame, whose rear support M2-12
+fastens to it. Likewise, fit step-6 right-front post M2-07 with the step-5 frame
+to receive rear support M2-29; these posts are already in place for their own frames.
 Do not fasten uprights or lower attachment blocks to the foundation until all three
 frames are assembled. Dry-seat the braced carcass to locate the blocks, lift it clear
 for underside block fastening, then reseat and attach the upright bottoms. Leave the
 lower front brace off until after transfer because it extends below the upright bottoms.
+
+Put placement diagrams in the relevant assembly steps, not in a separate Layouts section.
+In assembly views and placement plans, follow each callout's part number with its
+part name in smaller print.
+Connect leaders to the label's inner edge. Give assembly views more space than
+the placement plans. Omit numbered procedures throughout the assembly sections;
+keep only diagrams, measurements and brief essential captions.
+Combine foundation transfer and lower-block attachment under "Attach steps to foundation".
+Express placement visually and with measurements from tread edges or adjoining parts.
+Omit coordinate tables and X/Y/Z axis notation throughout the document.
 
 The earlier example below illustrates access considerations rather than the current sequence:
 
@@ -68,7 +81,9 @@ A possible inspiration for assembly instructions would be instructions that come
 furniture, such as from IKEA.
 
 Each part in the assembly instructions should be numbered, so the same part numbers can be
-referened from both the assembly instructions and part list.
+referenced from the assembly instructions and cut lists without a separate parts register.
+Show recognizable hardware illustrations and connector placement measurements directly in
+assembly step 2; omit separate hardware sections.
 
 ## Cut lists
 
