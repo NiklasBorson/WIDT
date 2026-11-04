@@ -26,7 +26,22 @@ header {
 }
 
 .page-header { grid-row: 1; flex-wrap: wrap; padding: 0.75rem 1rem; }
-body.shopping-page { display: block; height: auto; min-height: 100dvh; }
+body.shopping-page, body.home-page { display: block; height: auto; min-height: 100dvh; }
+.project-home { max-width: 55rem; margin: 0 auto; padding: 1.5rem 1rem; }
+.project-home h2 { margin: 0 0 1.5rem; font-size: 1.3rem; }
+.project-links { display: grid; gap: 1rem; }
+.project-links a {
+  display: grid;
+  gap: 0.4rem;
+  padding: 1.25rem;
+  border: 1px solid #2a3645;
+  border-radius: 0.4rem;
+  background: #161f2a;
+  text-decoration: none;
+}
+.project-links strong { font-size: 1.15rem; }
+.project-links span { color: #b6c3d1; line-height: 1.5; }
+.page-header nav { display: flex; gap: 1rem; }
 .shopping-list { max-width: 70rem; margin: 0 auto; padding: 1.5rem 1rem; }
 .shopping-list, .shopping-list section, #shopping-results { display: grid; gap: 1.5rem; }
 .shopping-list section { gap: 0.75rem; }

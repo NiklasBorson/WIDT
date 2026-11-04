@@ -258,12 +258,14 @@ test("actual shim has square ends and preserves its end-view side bevels", () =>
   }
 });
 
-test("actual stopped newel bevel retains its finite outline and broad-face end-notch depth retains its reference", () => {
+test("the bottom-reaching newel bevel retains its top shoulder and broad-face end-notch depth retains its reference", () => {
   const newel = report.parts.find(part => part.title === "Newel post");
   const stopped = newel.features.find(feature => feature.metadata?.cornerBevel);
   assert.ok(stopped.geometry.points.length >= 3);
   assert.ok(stopped.metadata.cornerBevel.end > stopped.metadata.cornerBevel.start);
-  assert.equal(stopped.name, "Bevel bottom shoulder");
+  assert.equal(stopped.metadata.cornerBevel.start, 0);
+  assert.equal(stopped.name, "Bevel top shoulder");
+  assert.ok(!newel.features.some(feature => feature.name === "Bevel bottom shoulder"));
   const bevelPatch = newel.features.find(feature => feature.name === "Newel corner bevel");
   assert.ok(bevelPatch.geometry.points.length >= 3);
   const bevel = bevelPatch.measurements.find(measurement => measurement.property === "bevel");
