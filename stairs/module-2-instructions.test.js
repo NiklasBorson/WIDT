@@ -7,7 +7,11 @@ import { manufacturingSpecification, inverseTransform } from "./part-design.js";
 import { partVisibilityCategory } from "./part-list.js";
 import { formatLength } from "./part-description.js";
 
-const html = readFileSync(new URL("./module-2-instructions.html", import.meta.url), "utf8");
+const documents = new Map(["module2.html", "cuts.html"].map(filename =>
+  [filename, readFileSync(new URL(`./${filename}`, import.meta.url), "utf8")]));
+const assemblyHtml = documents.get("module2.html");
+const cutsHtml = documents.get("cuts.html");
+const html = [...documents.values()].join("\n");
 const manifest = JSON.parse(html.match(/<script type="application\/json" id="instruction-manifest">([^<]+)<\/script>/)[1]);
 const model = buildStairway();
 const hash = value => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -60,7 +64,7 @@ test("part links lead to cut sheets or identified hardware without a separate pa
       assert.ok(body.includes(`data-hardware-callout="${printed.number}" data-host="${host}"`));
     } else {
       assert.ok(body.includes(`<span id="part-${i + 1}">${printed.number}</span>`));
-      assert.ok(body.includes(`href="#${printed.assemblyStep}"`), `${printed.number}: retain assembly navigation`);
+      assert.ok(body.includes(`href="module2.html#${printed.assemblyStep}"`), `${printed.number}: retain assembly navigation`);
       assert.ok(id === printed.cutSheet ||
         (["square-cuts", "tread-layout"].includes(id) && body.includes(`id="${printed.cutSheet}"`)),
       `${printed.number}: anchor must be on its own cutting sheet`);
@@ -541,9 +545,9 @@ test("the tread drawing dimensions match the unnotched arcs and straight chords"
     }
   }
   assert.match(body, /NOT cutting lines or arc lengths/);
-  const pages = [...html.matchAll(/<section class="page [^"]*" id="([^"]+)"/g)].map(([, id]) => id);
+  const pages = [...cutsHtml.matchAll(/<section class="page [^"]*" id="([^"]+)"/g)].map(([, id]) => id);
   const assembly = html.match(/<section\b[^>]*id="assembly-1"[^>]*>([\s\S]*?)<\/section>/)[1];
-  assert.ok(assembly.includes(`<a href="#tread-layout">dimensioned tread layout</a> (page ${pages.indexOf("tread-layout") + 1})`));
+  assert.ok(assembly.includes(`<a href="cuts.html#tread-layout">dimensioned tread layout</a> (cut list, page ${pages.indexOf("tread-layout") + 1})`));
 });
 
 test("one combined tread sheet retains the construction drawing, cutting details and all part links", () => {
@@ -1140,10 +1144,35 @@ test("rear-post placement uses measured setbacks along the actual tread edge", (
   }
 });
 
-test("printable artifact is self-contained with valid unique anchors", () => {
-  const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]);
-  assert.equal(new Set(ids).size, ids.length);
-  for (const [, target] of html.matchAll(/href="#([^"]+)"/g)) assert.ok(ids.includes(target), target);
-  assert.doesNotMatch(html, /<(?:script|img|link)\b[^>]*(?:src|href)=/i);
-  assert.doesNotMatch(html, /(?:NaN|undefined|Infinity)/);
+test("assembly and the shared cut list are separate printable documents with correct page numbers", () => {
+  assert.doesNotMatch(assemblyHtml, /id="square-cuts"|class="page cut-sheet"/);
+  assert.doesNotMatch(assemblyHtml, /id="review"|href="#review"|Review checklist|fastening worksheet/i);
+  assert.doesNotMatch(cutsHtml, /id="assembly-\d+"|id="review"/);
+  assert.match(cutsHtml, /Shared staircase cut list/);
+  for (const [filename, body] of documents) {
+    const footers = [...body.matchAll(/<footer>[\s\S]*?<span>(\d+)<\/span><\/footer>/g)];
+    assert.deepEqual(footers.map(([, number]) => Number(number)),
+      Array.from({ length: footers.length }, (_, i) => i + 1), filename);
+    assert.ok(footers.length > 0, `${filename}: preserve printable pages`);
+  }
+  for (const part of manifest.parts.filter(part => part.kind !== "hardware")) {
+    const anchor = `id="part-${Number(part.number.slice(3))}"`;
+    assert.ok(cutsHtml.includes(anchor), `${part.number}: belongs in the shared cut list`);
+    assert.ok(!assemblyHtml.includes(anchor), `${part.number}: do not duplicate cutting entries in assembly`);
+  }
+  assert.match(assemblyHtml, /href="cuts\.html#part-\d+"/);
+});
+
+test("printable documents are self-contained with valid local and cross-document anchors", () => {
+  const ids = new Map([...documents].map(([filename, body]) =>
+    [filename, [...body.matchAll(/\bid="([^"]+)"/g)].map(match => match[1])]));
+  for (const [filename, body] of documents) {
+    assert.equal(new Set(ids.get(filename)).size, ids.get(filename).length, filename);
+    for (const [, destination, target] of body.matchAll(/href="([^"#]*)#([^"]+)"/g)) {
+      const targetFile = destination.replace(/^\.\//, "") || filename;
+      assert.ok(ids.get(targetFile)?.includes(target), `${filename}: ${destination}#${target}`);
+    }
+    assert.doesNotMatch(body, /<(?:script|img|link)\b[^>]*(?:src|href)=/i);
+    assert.doesNotMatch(body, /(?:NaN|undefined|Infinity)/);
+  }
 });

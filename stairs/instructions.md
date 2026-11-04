@@ -8,6 +8,11 @@ work product now is the instructions themselves.
 The instructions should be black-and-white or grayscale and suitable for printing. I am
 agnostic about the format. A printable web page with SVG diagrams would be one possibility.
 
+`index.html` is the project landing page, linking to the 3D viewer in `model.html`,
+module-2 assembly instructions in `module2.html`, and the shared cut list in `cuts.html`.
+Keep assembly instructions separate by module as modules 3 and 1 are added, but retain
+one global cutting document. Its current scope is module-2 framing.
+
 ## Current status and next steps
 
 Let's take an iterative approach to building instructions, so I can review each iteration

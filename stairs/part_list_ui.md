@@ -114,7 +114,7 @@ new capabilities:
 | `PartBrowser` | Owns an assembly location and permits selecting its immediate leaf children. It is not a global inventory selection model. |
 | `model.createNodeGeometry(id, ...)` | Supplies installed geometry for a real occurrence and respects the current explosion transforms. |
 | `main.js` | Currently couples details, their description, and focus restoration to `browser.selectedNode` and the Assemblies tab. This needs a small explicit separation. |
-| `index.html` / `style.css` | Provide two sidebar tabs, list-box-like part buttons, and one shared details dialog. The sidebar is only about 10-16 rem wide. |
+| `model.html` / `style.css` | Provide two sidebar tabs, list-box-like part buttons, and one shared details dialog. The sidebar is only about 10-16 rem wide. |
 
 ### 3.1 Verified examples in the default model
 
@@ -814,7 +814,7 @@ an unreliable grouping algorithm.
 
 ### Stage 2: Decouple and reuse the details controller
 
-**Files:** `main.js`, minimal `index.html` adjustments if required,
+**Files:** `main.js`, minimal `model.html` adjustments if required,
 `viewer.test.js`.
 
 1. Introduce the explicit details context and one resolver for the current
@@ -831,7 +831,7 @@ correct source focus.
 
 ### Stage 3: Ship the Parts tab
 
-**Files:** `index.html`, `style.css`, `main.js`, `part-description.js`,
+**Files:** `model.html`, `style.css`, `main.js`, `part-description.js`,
 `viewer.test.js`.
 
 1. Add the tab/panel and extend existing keyboard tab navigation.

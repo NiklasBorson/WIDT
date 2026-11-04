@@ -564,7 +564,7 @@ test("the fixed compass labels all six assembly views and the selected part's st
     view.direction.every((value, axis) => value === left.direction[axis])).name);
   renderPartCompass(compass, viewer, views);
   assert.deepEqual(labels(), { above: "Back", below: "Front", left: "Bottom", right: "Top" });
-  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const html = readFileSync(new URL("./model.html", import.meta.url), "utf8");
   assert.match(html, /id="part-view-annotations"[\s\S]*?<\/div>\s*<svg id="part-view-compass"/,
     "The compass is outside the transformed drawing, not another co-transformed annotation");
 });
@@ -1434,7 +1434,7 @@ function createControls({
   };
   const source = readFileSync(new URL("./main.js", import.meta.url), "utf8")
     .replace(/^import .*;\r?$/gm, "");
-  let url = new URL(`http://localhost/index.html${search}`);
+  let url = new URL(`http://localhost/model.html${search}`);
   const windowEvents = new Map();
   const window = {
     innerWidth: 800, innerHeight: 600,
@@ -2398,12 +2398,12 @@ test("legacy model query settings are ignored and removed while preserving viewe
   assert.deepEqual(controls.url.searchParams.getAll("other"), ["keep", "also"]);
   assert.equal(controls.url.hash, "#view");
   assert.equal(controls.node("#view-notice").hidden, true);
-  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const html = readFileSync(new URL("./model.html", import.meta.url), "utf8");
   assert.doesNotMatch(html, /parameters\.html|page-link|stair-width|module-count|spindle-shoulder-ascent/);
 });
 
 test("Details omits duplicate locations and preserves Parts selection and filters across tab switches", () => {
-  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const html = readFileSync(new URL("./model.html", import.meta.url), "utf8");
   assert.doesNotMatch(html, /part-details-locations|part-details-location-list|part-details-path/);
   assert.doesNotMatch(html, /<dialog|show-part-details|close-part-details/);
   assert.match(html, /Select a part from the Parts list\./);
@@ -3015,7 +3015,7 @@ test("model information displays the computed inner radius with formatted measur
 });
 
 test("view buttons float inside the 3D stage while model information occupies the bottom panel", () => {
-  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const html = readFileSync(new URL("./model.html", import.meta.url), "utf8");
   const start = html.indexOf('<section class="stage"');
   const stage = html.slice(start, html.indexOf("</section>", start));
   assert.match(stage, /class="view-controls" role="group" aria-label="3D view controls"/);

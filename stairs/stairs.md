@@ -55,7 +55,9 @@ relative to the camera; there are no manual lighting controls.
 This second draft uses a single, constant stair width. Every tread starts with
 the same radial outline; the first has an additional newel cutout.
 The inner and outer reference curves are concentric circular arcs.
-Home (`index.html`) has a full-width **WIDT Stairs Project** header.
+Home (`index.html`) links to the 3D model (`model.html`), module-2 assembly
+instructions (`module2.html`), and the shared cut list (`cuts.html`).
+The model page has a full-width **WIDT Stairs Project** header.
 The content pane has **Stairway**, **Part details**, and **Placement**
 tabs, with a collapsible, Parts-only right sidebar. **Hide parts / Show parts**
 changes the available content space without clearing selection or filters.

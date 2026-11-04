@@ -184,10 +184,26 @@ test("shopping page reports generation failures visibly instead of displaying pa
 
 test("shopping navigation links both pages and provides the requested wood references", () => {
   const home = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const model = readFileSync(new URL("./model.html", import.meta.url), "utf8");
   const page = readFileSync(new URL("./shopping-list.html", import.meta.url), "utf8");
   assert.match(home, /href="\.\/shopping-list\.html"/);
+  assert.match(model, /href="\.\/shopping-list\.html"/);
+  assert.match(model, /href="\.\/index\.html"/);
   assert.match(page, /href="\.\/index\.html"/);
   for (const slug of ["eastern-white-pine", "douglas-fir"]) {
     assert.ok(page.includes(`href="https://www.wood-database.com/${slug}/"`));
   }
+});
+
+test("the landing page links to the model, module assembly and shared cut list without loading the viewer", () => {
+  const home = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  assert.doesNotMatch(home, /<script\b|<canvas\b/);
+  for (const filename of ["model.html", "module2.html", "cuts.html"]) {
+    assert.ok(home.includes(`href="./${filename}"`), `${filename}: reachable from the landing page`);
+    const page = readFileSync(new URL(`./${filename}`, import.meta.url), "utf8");
+    assert.match(page, /href="\.\/index\.html"/, `${filename}: return to the landing page`);
+  }
+  const model = readFileSync(new URL("./model.html", import.meta.url), "utf8");
+  assert.match(model, /<script type="module" src="\.\/main\.js"/);
+  assert.match(model, /<canvas id="viewer"/);
 });
