@@ -54,6 +54,7 @@ try {
   let meshCache = null;
   let findMatches = [];
   let locatedOccurrenceId = null;
+  let highlightedIds = new Set();
   let renderedDetailsId = null;
   let renderedViewMode = null, placementPlanner = null, placementPlan = null;
   let selectedPlacementView = "Up", activeDrawingName = "Up", detailsGeometry = null, detailsBoundsGeometry = null,
@@ -108,6 +109,7 @@ try {
       module: moduleFilter.value,
       type: typeFilter.value,
       part: locatedOccurrenceId ?? "",
+      highlight: [...highlightedIds].join(" "),
     };
     for (const [key, value] of Object.entries(state)) {
       if (value) url.searchParams.set(key, value);
@@ -154,9 +156,16 @@ try {
     typeFilter.value = read("type", "", value => value === "" ||
       inventory.sections.some(section => section.key === value), "Material filter");
     locatedOccurrenceId = null;
+    highlightedIds.clear();
     renderInventory();
     locatedOccurrenceId = read("part", "", value => value === "" ||
       filteredParts.some(group => group.locations.some(location => location.id === value)), "Selected part") || null;
+    const parseHighlights = value => value.trim() ? value.trim().split(/[ +]+/) : [];
+    const selectionHighlights = inventory.findOccurrence(locatedOccurrenceId)?.occurrenceIds ?? [];
+    highlightedIds = new Set(parseHighlights(read("highlight", selectionHighlights.join(" "), value => {
+      const ids = parseHighlights(value);
+      return new Set(ids).size === ids.length && ids.every(id => inventory.findOccurrence(id));
+    }, "Piece highlights")));
     renderSelection();
     renderTabs();
     return warnings;
@@ -165,7 +174,7 @@ try {
     const transforms = model.getModuleTransforms(moduleExplosion);
     return castleShown ? [...transforms, identityTransform] : transforms;
   }
-  function modelGeometry(model, locatedId = locatedOccurrenceId) {
+  function modelGeometry(model) {
     if (meshCache?.model !== model) {
       const modules = model.partTree.root.children.map((node, index) => ({
         bounds: model.createNodeGeometry(node.id),
@@ -183,9 +192,6 @@ try {
     const orbitKey = moduleNumber === null ? model.partTree.root.id : model.partTree.root.children[moduleNumber - 1].id;
     const visibleIds = new Set(filteredParts.flatMap(({ locations }) => locations.map(location => location.id)));
     const shown = new Set(visibilityControls.filter(({ input }) => input.checked).map(({ key }) => key));
-    const selectedKey = inventory?.findOccurrence(locatedId)?.key;
-    const selectedIds = new Set(filteredParts.find(({ entry }) => entry.key === selectedKey)
-      ?.locations.map(location => location.id));
     const transforms = model.getModuleTransforms(moduleExplosion);
     let triangleCount = 0;
     const batches = meshCache.modules.map((module, index) => {
@@ -194,8 +200,8 @@ try {
           const start = triangleCount;
           triangleCount += geometry.indices.length / 3;
           pickRanges.push({ id: node.id, start, end: triangleCount });
-          if (!selectedIds.size) return geometry;
-          const colors = geometry.colors.map((value, index) => selectedIds.has(node.id)
+          if (!highlightedIds.size) return geometry;
+          const colors = geometry.colors.map((value, index) => highlightedIds.has(node.id)
             ? value * 0.25 + [0.18, 0.8, 1][index % 3] * 0.75 : value * 0.6);
           return { ...geometry, colors };
         }));
@@ -299,7 +305,7 @@ try {
     const selectedKey = inventory.findOccurrence(locatedOccurrenceId)?.key;
     for (const [key, option] of partOptions) option.setAttribute("aria-selected", String(key === selectedKey));
     inventoryGroups.setAttribute("aria-activedescendant", partOptions.get(selectedKey)?.id ?? "");
-    clearSelectionButton.disabled = locatedOccurrenceId === null;
+    clearSelectionButton.disabled = locatedOccurrenceId === null && highlightedIds.size === 0;
     renderFind();
   }
   function renderFind() {
@@ -324,12 +330,14 @@ try {
       (current + direction + findMatches.length) % findMatches.length;
     selectPart(findMatches[index].locations[0].id, true);
   }
-  function selectPart(id, reveal = false) {
-    const key = inventory.findOccurrence(id)?.key;
+  function selectPart(id, reveal = false, pieceOnly = false) {
+    const entry = inventory.findOccurrence(id);
+    const key = entry?.key;
     if (id !== null && !filteredParts.some(({ locations }) => locations.some(location => location.id === id))) {
       throw new RangeError(`Part is not in the current results: ${id}`);
     }
     locatedOccurrenceId = id;
+    highlightedIds = new Set(pieceOnly && id !== null ? [id] : entry?.occurrenceIds ?? []);
     updateGeometry();
     renderSelection();
     if (detailsActive()) showInformation();
@@ -337,7 +345,7 @@ try {
     syncURL();
   }
   function clearSelection() {
-    if (locatedOccurrenceId === null) return;
+    if (locatedOccurrenceId === null && highlightedIds.size === 0) return;
     try { selectPart(null); }
     catch (cause) { reportUpdateError(cause); }
   }
@@ -350,7 +358,14 @@ try {
     const selectedKey = inventory.findOccurrence(locatedOccurrenceId)?.key;
     const selected = filteredParts.find(({ entry }) => entry.key === selectedKey);
     if (!selected?.locations.some(location => location.id === locatedOccurrenceId)) {
+      const previousId = locatedOccurrenceId;
       locatedOccurrenceId = selected?.locations[0].id ?? null;
+      if (previousId !== null) {
+        if (locatedOccurrenceId === null) highlightedIds.clear();
+        else if (highlightedIds.size === 1 && highlightedIds.has(previousId)) {
+          highlightedIds = new Set([locatedOccurrenceId]);
+        }
+      }
     }
     document.querySelector("#parts-count").textContent =
       `${results.uniqueCount} unique parts (${results.occurrences.length} total)`;
@@ -1094,7 +1109,7 @@ try {
       const hit = pickRanges.find(range => triangle >= range.start && triangle < range.end);
       if (!hit) throw new Error("The selected triangle has no matching part.");
       if (hit.id === null) clearSelection();
-      else selectPart(hit.id, true);
+      else selectPart(hit.id, true, true);
     } catch (cause) { reportUpdateError(cause); }
   });
   neighborLink.addEventListener("click", event => {
@@ -1108,7 +1123,7 @@ try {
         typeFilter.value = "";
         renderInventory();
       }
-      selectPart(id, true);
+      selectPart(id, true, true);
     } catch (cause) { reportUpdateError(cause); }
   });
   window.addEventListener("scroll", closeNeighborPopup, true);

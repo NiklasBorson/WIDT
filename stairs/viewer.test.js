@@ -1516,9 +1516,10 @@ function setShownCategories(controls, keys) {
   controls.node("#view-foundation").dispatch("change");
 }
 
-function expectedPartsGeometry(model, groups, selectedKey = null, shown = stairwayCategories) {
+function expectedPartsGeometry(model, groups, selectedKey = null, shown = stairwayCategories, highlighted = null) {
   const visible = new Set(groups.flatMap(({ locations }) => locations.map(location => location.id)));
-  const selected = new Set(groups.find(({ entry }) => entry.key === selectedKey)?.locations.map(location => location.id));
+  const selected = new Set(highlighted ??
+    groups.find(({ entry }) => entry.key === selectedKey)?.locations.map(location => location.id));
   return combineGeometries(model.partTree.getLeaves()
     .filter(node => visible.has(node.id) && shown.includes(partVisibilityCategory(node))).map(node => {
     const geometry = model.createNodeGeometry(node.id);
@@ -1556,7 +1557,7 @@ function tapPart(controls, point, pointerType = "mouse") {
   controls.canvas.dispatch("pointerup", { ...event });
 }
 
-test("3D clicks select and reveal the unique Parts row, highlight its group, and preserve Find and canvas focus", () => {
+test("3D clicks select and reveal the Parts row, highlight only the clicked piece, and preserve Find and focus", () => {
   const model = buildStairway(), inventory = new PartInventory(model.partTree);
   const controls = createControls({ buildModel: () => model });
   const groups = inventory.filter().groups;
@@ -1567,7 +1568,7 @@ test("3D clicks select and reveal the unique Parts row, highlight its group, and
   search.value = "no such part";
   search.dispatch("input");
   const list = controls.node("#parts-groups");
-  const row = list.children[groups.indexOf(selected)];
+  let row = list.children[groups.indexOf(selected)];
   const camera = controls.mainViewer.getCameraMatrices();
   controls.canvas.getBoundingClientRect = () => ({ left: 41, top: 73, width: 400, height: 300 });
   tapPart(controls, { x: 41 + point.x / 2, y: 73 + point.y / 2 });
@@ -1578,8 +1579,18 @@ test("3D clicks select and reveal the unique Parts row, highlight its group, and
   assert.equal(controls.node("#stairway-tab").getAttribute("aria-selected"), "true");
   assert.equal(search.value, "no such part");
   assert.equal(controls.node("#parts-find-status").textContent, "No matches");
-  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups, selected.entry.key));
+  const id = controls.url.searchParams.get("part");
+  assert.ok(selected.locations.some(location => location.id === id));
+  assert.equal(controls.url.searchParams.get("highlight"), id);
+  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups, null, stairwayCategories, [id]));
   assert.deepEqual(controls.mainViewer.getCameraMatrices(), camera);
+  controls.restoreURL(controls.url.search);
+  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups, null, stairwayCategories, [id]));
+  row = list.children[groups.indexOf(selected)];
+  row.dispatch("click");
+  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups, selected.entry.key));
+  tapPart(controls, { x: 41 + point.x / 2, y: 73 + point.y / 2 });
+  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups, null, stairwayCategories, [id]));
   tapPart(controls, { x: 41, y: 73 }, "touch");
   assert.equal(row.getAttribute("aria-selected"), "false");
   assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups));
@@ -1700,10 +1711,13 @@ test("3D taps respect Filters, separated modules, URL parameters, and the active
   assert.equal(row.getAttribute("aria-selected"), "true");
   assert.equal(row.scrollOptions.block, "nearest");
   assert.ok(controls.geometry.positions.length < controls.bounds.positions.length);
-  const selectedColors = new Map(groups.flatMap(({ entry, locations }) => locations.map(location => [location.id, entry.key])));
-  const expected = combineGeometries(model.partTree.getLeaves().filter(node => selectedColors.has(node.id)).map(node => {
+  const selectedId = controls.url.searchParams.get("part");
+  assert.equal(controls.url.searchParams.get("highlight"), selectedId);
+  assert.ok(selected.locations.some(location => location.id === selectedId));
+  const visibleIds = new Set(groups.flatMap(({ locations }) => locations.map(location => location.id)));
+  const expected = combineGeometries(model.partTree.getLeaves().filter(node => visibleIds.has(node.id)).map(node => {
     const geometry = model.createNodeGeometry(node.id, 0, 1);
-    return { ...geometry, colors: geometry.colors.map((value, i) => selectedColors.get(node.id) === selected.entry.key
+    return { ...geometry, colors: geometry.colors.map((value, i) => node.id === selectedId
       ? value * 0.25 + [0.18, 0.8, 1][i % 3] * 0.75 : value * 0.6) };
   }));
   closeGeometry(controls.geometry, expected);
@@ -2333,6 +2347,95 @@ test("cut-list model links restore every selected part without hiding it", () =>
     assert.equal(controls.node("#stairway-tab").getAttribute("aria-selected"), "true");
     assert.ok(controls.node("#parts-groups").getAttribute("aria-activedescendant"), `${part}: selected row`);
     assert.ok(controls.geometry.positions.length, `${part}: visible model geometry`);
+  }
+});
+
+test("assembly highlights are exact occurrences, replaced by list selection, and cleared with selection", () => {
+  const model = buildStairway(), inventory = new PartInventory(model.partTree);
+  const groups = inventory.filter({ moduleNumber: 2 }).groups;
+  const repeated = groups.find(group => group.locations.length > 1);
+  const other = groups.find(group => group.entry.key !== repeated.entry.key);
+  const ids = [repeated.locations[0].id, other.locations[0].id];
+  const query = new URLSearchParams({ module: "2", show: stairwayCategories.join(" "), highlight: ids.join(" ") });
+  const controls = createControls({ buildModel: () => model, search: `?${query}` });
+  const expected = expectedPartsGeometry(model, groups, null, stairwayCategories, ids);
+  assert.deepEqual(controls.geometry, expected);
+  assert.equal(controls.url.searchParams.has("part"), false);
+  assert.equal(controls.node("#parts-groups").getAttribute("aria-activedescendant"), "");
+  assert.equal(controls.node("#parts-clear-selection").disabled, false);
+  controls.restoreURL(controls.url.search);
+  assert.deepEqual(controls.geometry, expected);
+  controls.node("#parts-clear-selection").dispatch("click");
+  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups));
+  assert.equal(controls.url.searchParams.has("highlight"), false);
+  assert.equal(controls.url.searchParams.has("part"), false);
+  assert.equal(controls.node("#parts-clear-selection").disabled, true);
+  controls.restoreURL(`?${query}`);
+  const select = () => controls.node("#parts-groups").children[groups.indexOf(repeated)].dispatch("click");
+  select();
+  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups, repeated.entry.key));
+  assert.deepEqual(controls.url.searchParams.get("highlight").split(" "), repeated.entry.occurrenceIds);
+  controls.restoreURL(controls.url.search);
+  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups, repeated.entry.key));
+  controls.node("#parts-clear-selection").dispatch("click");
+  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups));
+  assert.equal(controls.url.searchParams.has("highlight"), false);
+  assert.equal(controls.url.searchParams.has("part"), false);
+});
+
+test("piece highlights survive filters, visibility changes, tabs, and URL restoration", () => {
+  const model = buildStairway(), inventory = new PartInventory(model.partTree);
+  const ids = ["stairway/module-2/step-5-leftUpright", "stairway/module-2/step-5-tread"];
+  const controls = createControls({ buildModel: () => model,
+    search: `?module=2&highlight=${encodeURIComponent(ids.join(" "))}` });
+  const module = controls.node("#parts-module");
+  module.value = "1";
+  module.dispatch("change");
+  controls.node("#details-tab").dispatch("click");
+  assert.equal(controls.url.searchParams.get("highlight"), ids.join(" "));
+  assert.equal(controls.url.searchParams.has("part"), false);
+  const saved = controls.url.search;
+  controls.restoreURL(saved);
+  assert.equal(controls.node("#parts-clear-selection").disabled, false);
+  controls.node("#stairway-tab").dispatch("click");
+  module.value = "2";
+  module.dispatch("change");
+  setShownCategories(controls, stairwayCategories);
+  assert.deepEqual(controls.geometry,
+    expectedPartsGeometry(model, inventory.filter({ moduleNumber: 2 }).groups, null, stairwayCategories, ids));
+});
+
+test("invalid piece highlight URLs show notices and normalize without selecting anything", () => {
+  const id = "stairway/module-2/step-5-leftUpright";
+  for (const query of ["highlight=missing", `highlight=${id}+${id}`, `highlight=${id}&highlight=${id}`,
+    "highlight=stairway/module-2"]) {
+    const controls = createControls({ search: `?${query}` });
+    assert.match(controls.node("#view-notice").textContent, /Piece highlights was invalid/);
+    assert.equal(controls.url.searchParams.has("highlight"), false);
+    assert.equal(controls.url.searchParams.has("part"), false);
+    assert.equal(controls.node("#parts-clear-selection").disabled, true);
+  }
+});
+
+test("assembly links restore exact piece highlights with visible module framing and no selected part", () => {
+  const model = buildStairway(), inventory = new PartInventory(model.partTree);
+  const controls = createControls({ buildModel: () => model, search: "" });
+  for (const module of [1, 2, 3]) {
+    const html = readFileSync(new URL(`./module${module}.html`, import.meta.url), "utf8");
+    const links = [...html.matchAll(/<a class="model-link" href="([^"]+)"/g)];
+    assert.equal(links.length, 9);
+    for (const [, href] of links) {
+      const url = new URL(href.replaceAll("&amp;", "&"), "https://example.test/stairs/");
+      controls.restoreURL(url.search);
+      const ids = (url.searchParams.get("highlight") ?? "").split(" ").filter(Boolean);
+      assert.equal(controls.url.searchParams.get("highlight"), ids.length ? ids.join(" ") : null);
+      assert.equal(controls.url.searchParams.has("part"), false);
+      assert.equal(controls.node("#view-notice").hidden, true);
+      assert.equal(controls.node("#parts-clear-selection").disabled, ids.length === 0);
+      assert.equal(controls.node("#parts-module").value, String(module));
+      assert.deepEqual(controls.geometry, expectedPartsGeometry(model,
+        inventory.filter({ moduleNumber: module }).groups, null, url.searchParams.get("show").split(" "), ids));
+    }
   }
 });
 
