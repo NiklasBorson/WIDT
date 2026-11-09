@@ -1328,9 +1328,10 @@ test("transformed batch picking matches world geometry, excluding footprints and
 });
 
 const stairwayCategories = PART_VISIBILITY_CATEGORIES.map(({ key }) => key);
+const initialCategories = ["foundation", "uprights", "step-framing"];
 
 function createControls({
-  reducedMotion = false, buildModel = buildStairway, failOnError = true,
+  reducedMotion = false, phoneLayout = false, buildModel = buildStairway, failOnError = true,
   search = `?show=${stairwayCategories.join("+")}`,
 } = {}) {
   const nodes = new Map();
@@ -1438,7 +1439,9 @@ function createControls({
   const windowEvents = new Map();
   const window = {
     innerWidth: 800, innerHeight: 600,
-    matchMedia: () => ({ matches: reducedMotion, addEventListener() {} }),
+    matchMedia: query => ({
+      matches: query === "(prefers-reduced-motion: reduce)" ? reducedMotion : phoneLayout, addEventListener() {},
+    }),
     addEventListener(name, handler) { windowEvents.set(name, handler); },
     get location() { return url; },
     history: { replaceState(state, title, href) { url = new URL(href, url); historyReplacements.push(url.href); } },
@@ -1494,6 +1497,7 @@ function createControls({
     get activeElement() { return activeElement; },
     resize() { resizeCallbacks.forEach(callback => callback()); },
     resizeWindow() { windowEvents.get("resize")?.(); },
+    pressEscape() { windowEvents.get("keydown")?.({ key: "Escape" }); },
     advance(milliseconds) {
       time += milliseconds;
       const callbacks = [...frames.values()];
@@ -1512,9 +1516,10 @@ function setShownCategories(controls, keys) {
   controls.node("#view-foundation").dispatch("change");
 }
 
-function expectedPartsGeometry(model, groups, selectedKey = null, shown = stairwayCategories) {
+function expectedPartsGeometry(model, groups, selectedKey = null, shown = stairwayCategories, highlighted = null) {
   const visible = new Set(groups.flatMap(({ locations }) => locations.map(location => location.id)));
-  const selected = new Set(groups.find(({ entry }) => entry.key === selectedKey)?.locations.map(location => location.id));
+  const selected = new Set(highlighted ??
+    groups.find(({ entry }) => entry.key === selectedKey)?.locations.map(location => location.id));
   return combineGeometries(model.partTree.getLeaves()
     .filter(node => visible.has(node.id) && shown.includes(partVisibilityCategory(node))).map(node => {
     const geometry = model.createNodeGeometry(node.id);
@@ -1552,7 +1557,7 @@ function tapPart(controls, point, pointerType = "mouse") {
   controls.canvas.dispatch("pointerup", { ...event });
 }
 
-test("3D clicks select and reveal the unique Parts row, highlight its group, and preserve Find and canvas focus", () => {
+test("3D clicks select and reveal the Parts row, highlight only the clicked piece, and preserve Find and focus", () => {
   const model = buildStairway(), inventory = new PartInventory(model.partTree);
   const controls = createControls({ buildModel: () => model });
   const groups = inventory.filter().groups;
@@ -1563,7 +1568,7 @@ test("3D clicks select and reveal the unique Parts row, highlight its group, and
   search.value = "no such part";
   search.dispatch("input");
   const list = controls.node("#parts-groups");
-  const row = list.children[groups.indexOf(selected)];
+  let row = list.children[groups.indexOf(selected)];
   const camera = controls.mainViewer.getCameraMatrices();
   controls.canvas.getBoundingClientRect = () => ({ left: 41, top: 73, width: 400, height: 300 });
   tapPart(controls, { x: 41 + point.x / 2, y: 73 + point.y / 2 });
@@ -1574,8 +1579,18 @@ test("3D clicks select and reveal the unique Parts row, highlight its group, and
   assert.equal(controls.node("#stairway-tab").getAttribute("aria-selected"), "true");
   assert.equal(search.value, "no such part");
   assert.equal(controls.node("#parts-find-status").textContent, "No matches");
-  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups, selected.entry.key));
+  const id = controls.url.searchParams.get("part");
+  assert.ok(selected.locations.some(location => location.id === id));
+  assert.equal(controls.url.searchParams.get("highlight"), id);
+  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups, null, stairwayCategories, [id]));
   assert.deepEqual(controls.mainViewer.getCameraMatrices(), camera);
+  controls.restoreURL(controls.url.search);
+  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups, null, stairwayCategories, [id]));
+  row = list.children[groups.indexOf(selected)];
+  row.dispatch("click");
+  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups, selected.entry.key));
+  tapPart(controls, { x: 41 + point.x / 2, y: 73 + point.y / 2 });
+  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups, null, stairwayCategories, [id]));
   tapPart(controls, { x: 41, y: 73 }, "touch");
   assert.equal(row.getAttribute("aria-selected"), "false");
   assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups));
@@ -1696,10 +1711,13 @@ test("3D taps respect Filters, separated modules, URL parameters, and the active
   assert.equal(row.getAttribute("aria-selected"), "true");
   assert.equal(row.scrollOptions.block, "nearest");
   assert.ok(controls.geometry.positions.length < controls.bounds.positions.length);
-  const selectedColors = new Map(groups.flatMap(({ entry, locations }) => locations.map(location => [location.id, entry.key])));
-  const expected = combineGeometries(model.partTree.getLeaves().filter(node => selectedColors.has(node.id)).map(node => {
+  const selectedId = controls.url.searchParams.get("part");
+  assert.equal(controls.url.searchParams.get("highlight"), selectedId);
+  assert.ok(selected.locations.some(location => location.id === selectedId));
+  const visibleIds = new Set(groups.flatMap(({ locations }) => locations.map(location => location.id)));
+  const expected = combineGeometries(model.partTree.getLeaves().filter(node => visibleIds.has(node.id)).map(node => {
     const geometry = model.createNodeGeometry(node.id, 0, 1);
-    return { ...geometry, colors: geometry.colors.map((value, i) => selectedColors.get(node.id) === selected.entry.key
+    return { ...geometry, colors: geometry.colors.map((value, i) => node.id === selectedId
       ? value * 0.25 + [0.18, 0.8, 1][i % 3] * 0.75 : value * 0.6) };
   }));
   closeGeometry(controls.geometry, expected);
@@ -2274,7 +2292,8 @@ test("popstate restores viewer state without rebuilding the fixed model", () => 
   assert.equal(controls.url.searchParams.has("part"), false);
   assert.match(controls.node("#view-notice").textContent, /Module filter.*Selected part/);
   controls.restoreURL("?width=28&tab=placement&parts=hidden");
-  assert.ok(["castle", ...stairwayCategories].every(key => controls.node(`#view-${key}`).checked));
+  assert.deepEqual(["castle", ...stairwayCategories].filter(key => controls.node(`#view-${key}`).checked),
+    initialCategories);
   assert.equal(controls.node("#parts-sidebar").hidden, true);
   assert.equal(controls.node("#placement-tab").getAttribute("aria-selected"), "true");
   assert.equal(controls.node("#part-details-empty").hidden, false);
@@ -2295,7 +2314,7 @@ test("viewer URLs hydrate all tabs, Parts visibility, filters, and an exact inst
     assert.equal(controls.node(`#${tab}-tab`).getAttribute("aria-selected"), "true");
     assert.equal(controls.node("#parts-sidebar").hidden, true);
     assert.equal(controls.node(".workspace").getAttribute("data-parts-collapsed"), "true");
-    assert.equal(controls.node("#toggle-parts").textContent, "Show parts");
+    assert.equal(controls.node("#toggle-parts").getAttribute("aria-label"), "Show parts");
     assert.equal(controls.node("#parts-module").value, "2");
     assert.equal(controls.node("#view-step-framing").checked, true);
     assert.equal(controls.node("#parts-type").value, entry.stockKey);
@@ -2310,6 +2329,113 @@ test("viewer URLs hydrate all tabs, Parts visibility, filters, and an exact inst
     const ids = new Set(visible.occurrences.map(({ location }) => location.id));
     assert.deepEqual(controls.geometry.positions, combineGeometries(model.partTree.getLeaves()
       .filter(node => ids.has(node.id)).map(node => model.createNodeGeometry(node.id))).positions);
+  }
+});
+
+test("cut-list model links restore every selected part without hiding it", () => {
+  const html = readFileSync(new URL("./cuts.html", import.meta.url), "utf8");
+  const links = [...html.matchAll(/<a class="model-link" href="([^"]+)"/g)];
+  assert.ok(links.length);
+  const controls = createControls({ search: "" });
+  for (const [, href] of links) {
+    const url = new URL(href.replaceAll("&amp;", "&"), "https://example.test/stairs/cuts.html");
+    controls.restoreURL(url.search);
+    const part = url.searchParams.get("part");
+    assert.equal(controls.url.searchParams.get("part"), part);
+    assert.equal(controls.node("#view-notice").hidden, true);
+    assert.equal(controls.node("#parts-module").value, url.searchParams.get("module") ?? "");
+    assert.equal(controls.node("#stairway-tab").getAttribute("aria-selected"), "true");
+    assert.ok(controls.node("#parts-groups").getAttribute("aria-activedescendant"), `${part}: selected row`);
+    assert.ok(controls.geometry.positions.length, `${part}: visible model geometry`);
+  }
+});
+
+test("assembly highlights are exact occurrences, replaced by list selection, and cleared with selection", () => {
+  const model = buildStairway(), inventory = new PartInventory(model.partTree);
+  const groups = inventory.filter({ moduleNumber: 2 }).groups;
+  const repeated = groups.find(group => group.locations.length > 1);
+  const other = groups.find(group => group.entry.key !== repeated.entry.key);
+  const ids = [repeated.locations[0].id, other.locations[0].id];
+  const query = new URLSearchParams({ module: "2", show: stairwayCategories.join(" "), highlight: ids.join(" ") });
+  const controls = createControls({ buildModel: () => model, search: `?${query}` });
+  const expected = expectedPartsGeometry(model, groups, null, stairwayCategories, ids);
+  assert.deepEqual(controls.geometry, expected);
+  assert.equal(controls.url.searchParams.has("part"), false);
+  assert.equal(controls.node("#parts-groups").getAttribute("aria-activedescendant"), "");
+  assert.equal(controls.node("#parts-clear-selection").disabled, false);
+  controls.restoreURL(controls.url.search);
+  assert.deepEqual(controls.geometry, expected);
+  controls.node("#parts-clear-selection").dispatch("click");
+  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups));
+  assert.equal(controls.url.searchParams.has("highlight"), false);
+  assert.equal(controls.url.searchParams.has("part"), false);
+  assert.equal(controls.node("#parts-clear-selection").disabled, true);
+  controls.restoreURL(`?${query}`);
+  const select = () => controls.node("#parts-groups").children[groups.indexOf(repeated)].dispatch("click");
+  select();
+  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups, repeated.entry.key));
+  assert.deepEqual(controls.url.searchParams.get("highlight").split(" "), repeated.entry.occurrenceIds);
+  controls.restoreURL(controls.url.search);
+  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups, repeated.entry.key));
+  controls.node("#parts-clear-selection").dispatch("click");
+  assert.deepEqual(controls.geometry, expectedPartsGeometry(model, groups));
+  assert.equal(controls.url.searchParams.has("highlight"), false);
+  assert.equal(controls.url.searchParams.has("part"), false);
+});
+
+test("piece highlights survive filters, visibility changes, tabs, and URL restoration", () => {
+  const model = buildStairway(), inventory = new PartInventory(model.partTree);
+  const ids = ["stairway/module-2/step-5-leftUpright", "stairway/module-2/step-5-tread"];
+  const controls = createControls({ buildModel: () => model,
+    search: `?module=2&highlight=${encodeURIComponent(ids.join(" "))}` });
+  const module = controls.node("#parts-module");
+  module.value = "1";
+  module.dispatch("change");
+  controls.node("#details-tab").dispatch("click");
+  assert.equal(controls.url.searchParams.get("highlight"), ids.join(" "));
+  assert.equal(controls.url.searchParams.has("part"), false);
+  const saved = controls.url.search;
+  controls.restoreURL(saved);
+  assert.equal(controls.node("#parts-clear-selection").disabled, false);
+  controls.node("#stairway-tab").dispatch("click");
+  module.value = "2";
+  module.dispatch("change");
+  setShownCategories(controls, stairwayCategories);
+  assert.deepEqual(controls.geometry,
+    expectedPartsGeometry(model, inventory.filter({ moduleNumber: 2 }).groups, null, stairwayCategories, ids));
+});
+
+test("invalid piece highlight URLs show notices and normalize without selecting anything", () => {
+  const id = "stairway/module-2/step-5-leftUpright";
+  for (const query of ["highlight=missing", `highlight=${id}+${id}`, `highlight=${id}&highlight=${id}`,
+    "highlight=stairway/module-2"]) {
+    const controls = createControls({ search: `?${query}` });
+    assert.match(controls.node("#view-notice").textContent, /Piece highlights was invalid/);
+    assert.equal(controls.url.searchParams.has("highlight"), false);
+    assert.equal(controls.url.searchParams.has("part"), false);
+    assert.equal(controls.node("#parts-clear-selection").disabled, true);
+  }
+});
+
+test("assembly links restore exact piece highlights with visible module framing and no selected part", () => {
+  const model = buildStairway(), inventory = new PartInventory(model.partTree);
+  const controls = createControls({ buildModel: () => model, search: "" });
+  for (const module of [1, 2, 3]) {
+    const html = readFileSync(new URL(`./module${module}.html`, import.meta.url), "utf8");
+    const links = [...html.matchAll(/<a class="model-link" href="([^"]+)"/g)];
+    assert.equal(links.length, 9);
+    for (const [, href] of links) {
+      const url = new URL(href.replaceAll("&amp;", "&"), "https://example.test/stairs/");
+      controls.restoreURL(url.search);
+      const ids = (url.searchParams.get("highlight") ?? "").split(" ").filter(Boolean);
+      assert.equal(controls.url.searchParams.get("highlight"), ids.length ? ids.join(" ") : null);
+      assert.equal(controls.url.searchParams.has("part"), false);
+      assert.equal(controls.node("#view-notice").hidden, true);
+      assert.equal(controls.node("#parts-clear-selection").disabled, ids.length === 0);
+      assert.equal(controls.node("#parts-module").value, String(module));
+      assert.deepEqual(controls.geometry, expectedPartsGeometry(model,
+        inventory.filter({ moduleNumber: module }).groups, null, url.searchParams.get("show").split(" "), ids));
+    }
   }
 });
 
@@ -2341,9 +2467,9 @@ test("viewer controls replace the current URL for tabs, Parts visibility, filter
   change("#details-tab", "click");
   assert.equal(controls.url.searchParams.get("tab"), "details");
   change("#toggle-parts", "click");
-  assert.equal(controls.url.searchParams.get("parts"), "hidden");
+  assert.equal(controls.url.searchParams.get("parts"), "shown");
   change("#toggle-parts", "click");
-  assert.equal(controls.url.searchParams.has("parts"), false);
+  assert.equal(controls.url.searchParams.get("parts"), "hidden");
   change("#parts-clear-filters", "click");
   for (const key of ["module", "subset", "type"]) assert.equal(controls.url.searchParams.has(key), false);
   change("#placement-tab", "click");
@@ -2359,12 +2485,13 @@ test("invalid, duplicate, and filtered-out viewer URL settings show notices and 
   const invalid = createControls({ search: "?width=invalid&tab=details&tab=placement&parts=maybe&module=9" +
     "&subset=unknown&show=unknown&type=unknown&part=missing&other=keep#view" });
   assert.equal(invalid.node("#stairway-tab").getAttribute("aria-selected"), "true");
-  assert.equal(invalid.node("#parts-sidebar").hidden, false);
+  assert.equal(invalid.node("#parts-sidebar").hidden, true);
   for (const selector of ["#parts-module", "#parts-type"]) assert.equal(invalid.node(selector).value, "");
   for (const label of ["Selected tab", "Parts visibility", "Module filter", "Stairway visibility", "Material filter", "Selected part"]) {
     assert.ok(invalid.node("#view-notice").textContent.includes(label));
   }
-  for (const key of ["width", "tab", "parts", "module", "subset", "type", "part"]) assert.equal(invalid.url.searchParams.has(key), false);
+  assert.equal(invalid.url.searchParams.get("parts"), "hidden");
+  for (const key of ["width", "tab", "module", "subset", "type", "part"]) assert.equal(invalid.url.searchParams.has(key), false);
   assert.equal(invalid.url.searchParams.get("other"), "keep");
   assert.equal(invalid.url.hash, "#view");
   const filtered = createControls({ search: "?tab=details&module=1&part=stairway%2Fmodule-2%2Fstep-5-rightUpright" });
@@ -2373,7 +2500,8 @@ test("invalid, duplicate, and filtered-out viewer URL settings show notices and 
   assert.equal(filtered.url.searchParams.has("part"), false);
   assert.match(filtered.node("#view-notice").textContent, /Selected part/);
   const duplicate = createControls({ search: "?module=1&module=2&show=foundation&show=banister&parts=hidden&parts=shown&part=a&part=b" });
-  for (const key of ["module", "subset", "parts", "part"]) assert.equal(duplicate.url.searchParams.has(key), false);
+  assert.equal(duplicate.url.searchParams.get("parts"), "hidden");
+  for (const key of ["module", "subset", "part"]) assert.equal(duplicate.url.searchParams.has(key), false);
   assert.equal(duplicate.node("#view-notice").hidden, false);
 });
 
@@ -2393,7 +2521,8 @@ test("legacy model query settings are ignored and removed while preserving viewe
   for (const [key, value] of Object.entries({
     module: "2", part, parts: "hidden",
   })) assert.equal(controls.url.searchParams.get(key), value);
-  for (const key of ["subset", "castle", "show"]) assert.equal(controls.url.searchParams.has(key), false);
+  for (const key of ["subset", "castle"]) assert.equal(controls.url.searchParams.has(key), false);
+  assert.equal(controls.url.searchParams.get("show"), ["castle", ...initialCategories].join(" "));
   assert.equal(controls.node("#view-castle").checked, true);
   assert.deepEqual(controls.url.searchParams.getAll("other"), ["keep", "also"]);
   assert.equal(controls.url.hash, "#view");
@@ -2921,14 +3050,66 @@ test("Parts collapse preserves Details and selection while requesting updated re
   controls.node("#details-tab").dispatch("click");
   const selected = list.getAttribute("aria-activedescendant");
   const toggle = controls.node("#toggle-parts");
-  for (const collapsed of [true, false]) {
+  assert.equal(controls.node("#parts-sidebar").hidden, true);
+  for (const collapsed of [false, true]) {
     toggle.dispatch("click");
     assert.equal(controls.node("#parts-sidebar").hidden, collapsed);
-    assert.equal(toggle.textContent, collapsed ? "Show parts" : "Hide parts");
+    assert.equal(toggle.getAttribute("aria-label"), collapsed ? "Show parts" : "Hide parts");
+    assert.equal(toggle.getAttribute("title"), collapsed ? "Show parts" : "Hide parts");
     assert.equal(toggle.getAttribute("aria-expanded"), String(!collapsed));
     assert.equal(controls.node(".workspace").getAttribute("data-parts-collapsed"), String(collapsed));
     assert.equal(controls.node("#part-details").hidden, false);
     assert.equal(list.getAttribute("aria-activedescendant"), selected);
+  }
+});
+
+test("phone panels start collapsed and close without losing visibility or part selection", () => {
+  const controls = createControls({ phoneLayout: true });
+  const partsToggle = controls.node("#toggle-parts");
+  const visibilityToggle = controls.node("#toggle-visibility");
+  assert.equal(controls.node("#parts-sidebar").hidden, true);
+  assert.equal(partsToggle.getAttribute("aria-expanded"), "false");
+  visibilityToggle.dispatch("click");
+  assert.equal(visibilityToggle.getAttribute("aria-expanded"), "true");
+  assert.equal(controls.node("#stairway-visibility").getAttribute("data-expanded"), "true");
+  assert.equal(controls.activeElement, controls.node("#close-visibility"));
+  controls.node("#view-treads").checked = false;
+  controls.node("#view-treads").dispatch("change");
+  controls.node("#close-visibility").dispatch("click");
+  assert.equal(visibilityToggle.getAttribute("aria-expanded"), "false");
+  assert.equal(controls.activeElement, visibilityToggle);
+  visibilityToggle.dispatch("click");
+  controls.pressEscape();
+  assert.equal(visibilityToggle.getAttribute("aria-expanded"), "false");
+  assert.equal(controls.node("#view-treads").checked, false);
+  visibilityToggle.dispatch("click");
+  partsToggle.dispatch("click");
+  assert.equal(visibilityToggle.getAttribute("aria-expanded"), "false", "panels must not cover each other");
+  assert.equal(controls.node("#parts-sidebar").hidden, false);
+  assert.equal(controls.activeElement, partsToggle);
+  assert.equal(controls.url.searchParams.get("parts"), "shown", "explicitly open phone panels must round-trip in URLs");
+  const list = controls.node("#parts-groups");
+  list.children[0].dispatch("click");
+  const selected = list.getAttribute("aria-activedescendant");
+  partsToggle.dispatch("click");
+  assert.equal(controls.node("#parts-sidebar").hidden, true);
+  assert.equal(controls.activeElement, partsToggle);
+  partsToggle.dispatch("click");
+  assert.equal(list.getAttribute("aria-activedescendant"), selected);
+  controls.pressEscape();
+  assert.equal(controls.node("#parts-sidebar").hidden, true);
+  assert.equal(controls.activeElement, partsToggle);
+  assert.equal(list.getAttribute("aria-activedescendant"), selected);
+});
+
+test("parts visibility respects explicit shared URL state on desktop and phones", () => {
+  for (const phoneLayout of [false, true]) for (const state of ["shown", "hidden"]) {
+    const controls = createControls({ phoneLayout, search: `?parts=${state}` });
+    assert.equal(controls.node("#parts-sidebar").hidden, state === "hidden");
+    controls.node("#toggle-parts").dispatch("click");
+    const saved = controls.url.search;
+    controls.restoreURL(saved);
+    assert.equal(controls.node("#parts-sidebar").hidden, state !== "hidden");
   }
 });
 
@@ -3019,7 +3200,8 @@ test("view buttons float inside the 3D stage while model information occupies th
   const start = html.indexOf('<section class="stage"');
   const stage = html.slice(start, html.indexOf("</section>", start));
   assert.match(stage, /class="view-controls" role="group" aria-label="3D view controls"/);
-  assert.match(stage, /id="reset"[^>]*>Reset view<\/button>\s*<button id="view-modules"[^>]*>Split modules<\/button>/);
+  assert.match(stage, /id="parts-clear-selection"[^>]*>Clear selection<\/button>\s*<button id="reset"[^>]*>Reset view<\/button>\s*<button id="view-modules"[^>]*>Split modules<\/button>/);
+  assert.equal(html.match(/id="parts-clear-selection"/g).length, 1);
   assert.match(stage, /id="stairway-visibility"[\s\S]*<legend>Show<\/legend>/);
   for (const key of ["castle", ...stairwayCategories]) {
     assert.match(stage, new RegExp(`id="view-${key}" type="checkbox"`));
@@ -3042,7 +3224,7 @@ test("castle visibility persists in the URL, stays fixed during splitting, and n
   const stairGeometry = controls.geometry;
   button.checked = true;
   button.dispatch("change");
-  assert.equal(controls.url.searchParams.has("show"), false);
+  assert.equal(controls.url.searchParams.get("show"), ["castle", ...stairwayCategories].join(" "));
   const castle = controls.mainViewer.batches.at(-1);
   closeGeometry(castle.geometry, model.createCastleGeometry());
   controls.node("#view-modules").dispatch("click");
@@ -3083,7 +3265,7 @@ test("castle URL restoration validates visibility without changing Details or Pl
   }
   for (const search of ["?castle=hidden", "?", "?castle=yes", "?castle=shown&castle=shown"]) {
     controls.restoreURL(search);
-    assert.equal(controls.node("#view-castle").checked, search !== "?castle=hidden");
+    assert.equal(controls.node("#view-castle").checked, false);
     assert.equal(controls.url.searchParams.has("castle"), false);
     if (search.includes("yes") || search.includes("&")) {
       assert.match(controls.node("#view-notice").textContent, /Castle visibility was invalid/);
@@ -3094,15 +3276,37 @@ test("castle URL restoration validates visibility without changing Details or Pl
   assert.deepEqual(controls.errors, []);
 });
 
+test("initial visibility shows only the structural frame and round-trips on desktop and phones", () => {
+  for (const phoneLayout of [false, true]) {
+    const controls = createControls({ phoneLayout, search: "" });
+    const checked = () => ["castle", ...stairwayCategories]
+      .filter(key => controls.node(`#view-${key}`).checked);
+    assert.deepEqual(checked(), initialCategories);
+    controls.node("#view-treads").checked = true;
+    controls.node("#view-treads").dispatch("change");
+    const saved = controls.url.search;
+    controls.restoreURL(saved);
+    assert.deepEqual(checked(), [...initialCategories, "treads"]);
+    controls.node("#view-treads").checked = false;
+    controls.node("#view-treads").dispatch("change");
+    assert.equal(controls.url.searchParams.has("show"), false);
+    controls.restoreURL(controls.url.search);
+    assert.deepEqual(checked(), initialCategories);
+  }
+});
+
 test("Show all checks every category including Castle without changing the Parts filters or selection", () => {
   const model = buildStairway(), controls = createControls({ buildModel: () => model, search: "" });
   const keys = ["castle", ...stairwayCategories];
-  assert.ok(keys.every(key => controls.node(`#view-${key}`).checked));
+  assert.deepEqual(keys.filter(key => controls.node(`#view-${key}`).checked), initialCategories);
   assert.equal(controls.url.searchParams.has("show"), false);
+  const inventory = new PartInventory(model.partTree);
+  closeGeometry(controls.geometry, expectedPartsGeometry(model, inventory.filter().groups, null, initialCategories));
+  controls.node("#view-show-all").dispatch("click");
+  assert.ok(keys.every(key => controls.node(`#view-${key}`).checked));
   closeGeometry(controls.geometry, combineGeometries([model.createGeometry(), model.createCastleGeometry()]));
   controls.node("#parts-module").value = "2";
   controls.node("#parts-module").dispatch("change");
-  const inventory = new PartInventory(model.partTree);
   const stockKey = inventory.findOccurrence("stairway/module-2/step-5-frontSpindle").stockKey;
   controls.node("#parts-type").value = stockKey;
   controls.node("#parts-type").dispatch("change");
@@ -3118,7 +3322,7 @@ test("Show all checks every category including Castle without changing the Parts
   assert.ok(keys.every(key => !controls.node(`#view-${key}`).checked));
   controls.node("#view-show-all").dispatch("click");
   assert.ok(keys.every(key => controls.node(`#view-${key}`).checked));
-  assert.equal(controls.url.searchParams.has("show"), false);
+  assert.equal(controls.url.searchParams.get("show"), keys.join(" "));
   assert.equal(controls.node("#parts-module").value, "2");
   assert.equal(controls.node("#parts-type").value, stockKey);
   assert.equal(controls.node("#parts-search").value, "spindle");
@@ -3167,7 +3371,8 @@ test("show URLs restore independent categories, preserve hidden selections, and 
     expectedPartsGeometry(model, inventory.filter().groups, null, ["risers"]));
   for (const show of ["show=missing", "show=treads+treads", "show=ribs&show=foundation"]) {
     controls.restoreURL(`?${show}`);
-    assert.ok(["castle", ...stairwayCategories].every(key => controls.node(`#view-${key}`).checked));
+    assert.deepEqual(["castle", ...stairwayCategories].filter(key => controls.node(`#view-${key}`).checked),
+      initialCategories);
     assert.match(controls.node("#view-notice").textContent, /Stairway visibility was invalid/);
     assert.equal(controls.url.searchParams.has("show"), false);
   }

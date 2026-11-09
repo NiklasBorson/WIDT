@@ -1421,8 +1421,8 @@ test("assembly is a visual eight-section sequence with contextual hardware and f
     assert.doesNotMatch(body, /<ol\b|<li\b/, `${id}: diagrams replace numbered procedures`);
     assert.match(body, /<svg\b/, `${id}: retain a visual assembly reference`);
   }
-  assert.match(operations[4].body, /<h1>5\. Complete the step-6 frame<\/h1>/);
-  assert.match(operations[5].body, /<h1>6\. Attach steps to foundation<\/h1>/);
+  assert.match(operations[4].body, /<h1>5\. Complete the step-6 frame <a class="model-link"/);
+  assert.match(operations[5].body, /<h1>6\. Attach steps to foundation <a class="model-link"/);
   assert.match(operations[5].body, /Upright and lower block seated on the cross-piece/);
   assert.match(operations[6].body, /<h1>7\. Add spindle backing/);
   assert.match(operations[7].body, /<h1>8\. Close the risers/);
@@ -1480,6 +1480,90 @@ test("assembly and the shared cut list are separate printable documents with cor
     assert.ok(!assemblyHtml.includes(anchor), `${part.number}: do not duplicate cutting entries in assembly`);
   }
   assert.match(assemblyHtml, /href="cuts\.html#part-P-\d+"/);
+});
+
+test("every module section highlights only the emphasized assembly pieces, not pale context or placement guides", () => {
+  const base = ["foundation", "uprights", "step-framing"];
+  for (const moduleNumber of [1, 2, 3]) {
+    const body = documents.get(`module${moduleNumber}.html`);
+    const sections = [...body.matchAll(/<section class="page [^"]*" id="([^"]+)">([\s\S]*?)<\/section>/g)];
+    assert.equal(sections.length, 9);
+    for (const [, sectionId, section] of sections) {
+      const label = `module ${moduleNumber}, ${sectionId}`;
+      const link = section.match(/<h1>[\s\S]*?<a class="model-link" href="([^"]+)"[^>]*>\(3D\)<\/a><\/h1>/);
+      assert.ok(link, `${label}: section heading has a 3D link`);
+      const url = new URL(link[1].replaceAll("&amp;", "&"), "https://example.test/stairs/");
+      assert.equal(url.pathname, "/stairs/model.html");
+      assert.equal(url.searchParams.get("module"), String(moduleNumber));
+      assert.equal(url.searchParams.has("part"), false);
+      const ids = (url.searchParams.get("highlight") ?? "").split(" ").filter(Boolean);
+      assert.equal(new Set(ids).size, ids.length);
+      const diagrams = [...section.matchAll(/data-illustrated-pieces="([^"]*)"/g)];
+      assert.ok(diagrams.length, `${label}: illustrated piece identities are recorded`);
+      const illustrated = new Set(diagrams.flatMap(([, ids]) => ids.split(" ").filter(Boolean)));
+      const faces = [...section.matchAll(/<path\b([^>]*)>/g)];
+      const emphasized = new Set(faces.filter(([, attributes]) => /\bclass="new-triangle"/.test(attributes))
+        .map(([, attributes]) => attributes.match(/\bdata-piece="([^"]+)"/)[1]));
+      assert.deepEqual(new Set(ids), emphasized, `${label}: match only the dark assembly pieces`);
+      for (const id of ids) {
+        assert.ok(illustrated.has(id), `${label}: highlighted piece appears in the illustration`);
+      }
+      for (const [, attributes] of faces.filter(([, attributes]) => /\bclass="old-triangle"/.test(attributes))) {
+        const id = attributes.match(/\bdata-piece="([^"]+)"/)[1];
+        assert.ok(!emphasized.has(id), `${label}: pale supporting piece ${id} is not highlighted`);
+      }
+      const solidTreads = new Set([...section.matchAll(/data-piece="([^"]+)"/g)]
+        .map(([, id]) => id).filter(id => model.partTree.getNode(id).key === "tread"));
+      assert.deepEqual(new Set(ids.filter(id => model.partTree.getNode(id).key === "tread")), solidTreads,
+        `${label}: highlight treads only when shown as actual pieces`);
+      if (sectionId === "assembly-1") {
+        assert.deepEqual(ids, [], `${label}: placement-only diagrams have no highlighted pieces`);
+        assert.equal(url.searchParams.has("highlight"), false);
+      }
+      if (sectionId === "assembly-8") assert.equal(solidTreads.size, 3, `${label}: installed treads remain highlighted`);
+      const categories = new Set(base);
+      for (const id of ids) {
+        const piece = model.partTree.getNode(id);
+        assert.ok(piece && piece.id.startsWith(`stairway/module-${moduleNumber}/`), `${label}: ${id}`);
+        categories.add(partVisibilityCategory(piece));
+      }
+      assert.deepEqual(new Set(url.searchParams.get("show").split(" ")), categories,
+        `${label}: surrounding frame plus only categories required by illustrated pieces`);
+      for (const [, attributes] of section.matchAll(/<svg([^>]*)>([\s\S]*?)<\/svg>/g)) {
+        if (!attributes.includes("Top view;")) continue;
+        const treadIds = attributes.match(/data-illustrated-pieces="([^"]*)"/)[1].split(" ")
+          .filter(id => id && model.partTree.getNode(id).key === "tread");
+        assert.equal(treadIds.length, 0, `${label}: dotted tread placement guides are excluded`);
+      }
+    }
+  }
+});
+
+test("each cutting-part heading links to its visible model occurrence with minimal filters", () => {
+  const headings = [...cutsHtml.matchAll(/<h([12])><span id="part-(P-\d+)">([\s\S]*?)<\/h\1>/g)];
+  assert.deepEqual(headings.map(([, , number]) => number), manifest.parts.map(part => part.number));
+  assert.equal((cutsHtml.match(/class="model-link"/g) ?? []).length, headings.length);
+  const base = ["foundation", "uprights", "step-framing"];
+  for (const [, , number, heading] of headings) {
+    const link = heading.match(/<a class="model-link" href="([^"]+)"[^>]*>\(3D\)<\/a>/);
+    assert.ok(link, `${number}: missing 3D link after heading`);
+    const url = new URL(link[1].replaceAll("&amp;", "&"), "https://example.test/stairs/cuts.html");
+    assert.equal(url.pathname, "/stairs/model.html");
+    const part = catalog.parts.find(part => part.number === number);
+    const selected = part.locations.find(location => location.id === url.searchParams.get("part"));
+    assert.ok(selected, `${number}: selection must be an occurrence of this cutting part`);
+    const category = partVisibilityCategory(model.partTree.getNode(selected.id));
+    assert.deepEqual(url.searchParams.get("show").split(" "), [...new Set([...base, category])],
+      `${number}: enable only the base frame and the selected part's category`);
+    if (part.locations.some(location => base.includes(partVisibilityCategory(model.partTree.getNode(location.id))))) {
+      assert.ok(base.includes(category), `${number}: prefer an occurrence already visible in the base frame`);
+    }
+    const modules = new Set(part.locations.map(location => location.moduleNumber));
+    assert.equal(url.searchParams.get("module"), modules.size === 1 ? String(selected.moduleNumber) : null,
+      `${number}: restrict modules only for parts exclusive to one module`);
+    assert.deepEqual([...url.searchParams.keys()].sort(),
+      modules.size === 1 ? ["module", "part", "show"] : ["part", "show"]);
+  }
 });
 
 test("global cutting numbers group every wooden piece once, normalizing only treads and bearing wedges", () => {
