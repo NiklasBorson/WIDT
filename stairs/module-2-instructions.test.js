@@ -1482,6 +1482,33 @@ test("assembly and the shared cut list are separate printable documents with cor
   assert.match(assemblyHtml, /href="cuts\.html#part-P-\d+"/);
 });
 
+test("each cutting-part heading links to its visible model occurrence with minimal filters", () => {
+  const headings = [...cutsHtml.matchAll(/<h([12])><span id="part-(P-\d+)">([\s\S]*?)<\/h\1>/g)];
+  assert.deepEqual(headings.map(([, , number]) => number), manifest.parts.map(part => part.number));
+  assert.equal((cutsHtml.match(/class="model-link"/g) ?? []).length, headings.length);
+  const base = ["foundation", "uprights", "step-framing"];
+  for (const [, , number, heading] of headings) {
+    const link = heading.match(/<a class="model-link" href="([^"]+)"[^>]*>\(3D\)<\/a>/);
+    assert.ok(link, `${number}: missing 3D link after heading`);
+    const url = new URL(link[1].replaceAll("&amp;", "&"), "https://example.test/stairs/cuts.html");
+    assert.equal(url.pathname, "/stairs/model.html");
+    const part = catalog.parts.find(part => part.number === number);
+    const selected = part.locations.find(location => location.id === url.searchParams.get("part"));
+    assert.ok(selected, `${number}: selection must be an occurrence of this cutting part`);
+    const category = partVisibilityCategory(model.partTree.getNode(selected.id));
+    assert.deepEqual(url.searchParams.get("show").split(" "), [...new Set([...base, category])],
+      `${number}: enable only the base frame and the selected part's category`);
+    if (part.locations.some(location => base.includes(partVisibilityCategory(model.partTree.getNode(location.id))))) {
+      assert.ok(base.includes(category), `${number}: prefer an occurrence already visible in the base frame`);
+    }
+    const modules = new Set(part.locations.map(location => location.moduleNumber));
+    assert.equal(url.searchParams.get("module"), modules.size === 1 ? String(selected.moduleNumber) : null,
+      `${number}: restrict modules only for parts exclusive to one module`);
+    assert.deepEqual([...url.searchParams.keys()].sort(),
+      modules.size === 1 ? ["module", "part", "show"] : ["part", "show"]);
+  }
+});
+
 test("global cutting numbers group every wooden piece once, normalizing only treads and bearing wedges", () => {
   const leaves = model.partTree.getLeaves().filter(piece => piece.kind !== "hardware");
   assert.deepEqual([...catalog.byPiece.keys()].sort(), leaves.map(piece => piece.id).sort());

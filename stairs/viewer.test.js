@@ -2318,6 +2318,24 @@ test("viewer URLs hydrate all tabs, Parts visibility, filters, and an exact inst
   }
 });
 
+test("cut-list model links restore every selected part without hiding it", () => {
+  const html = readFileSync(new URL("./cuts.html", import.meta.url), "utf8");
+  const links = [...html.matchAll(/<a class="model-link" href="([^"]+)"/g)];
+  assert.ok(links.length);
+  const controls = createControls({ search: "" });
+  for (const [, href] of links) {
+    const url = new URL(href.replaceAll("&amp;", "&"), "https://example.test/stairs/cuts.html");
+    controls.restoreURL(url.search);
+    const part = url.searchParams.get("part");
+    assert.equal(controls.url.searchParams.get("part"), part);
+    assert.equal(controls.node("#view-notice").hidden, true);
+    assert.equal(controls.node("#parts-module").value, url.searchParams.get("module") ?? "");
+    assert.equal(controls.node("#stairway-tab").getAttribute("aria-selected"), "true");
+    assert.ok(controls.node("#parts-groups").getAttribute("aria-activedescendant"), `${part}: selected row`);
+    assert.ok(controls.geometry.positions.length, `${part}: visible model geometry`);
+  }
+});
+
 test("viewer controls replace the current URL for tabs, Parts visibility, filters, and selection", () => {
   const model = buildStairway(), inventory = new PartInventory(model.partTree);
   const controls = createControls({ buildModel: () => model });
