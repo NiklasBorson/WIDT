@@ -123,7 +123,7 @@ button:focus-visible, canvas:focus-visible, input:focus-visible, select:focus-vi
 }
 .parts-toggle[aria-expanded="true"]::before { transform: rotate(225deg); }
 .main-content { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
-.content-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; background: #161f2a; border-bottom: 1px solid #2a3645; }
+.content-toolbar { display: flex; padding: 0.5rem 0.75rem 0; background: #161f2a; border-bottom: 1px solid #62758c; }
 .stairway-panel { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
 
 .stage { position: relative; min-width: 0; min-height: 0; }
@@ -156,6 +156,8 @@ button:focus-visible, canvas:focus-visible, input:focus-visible, select:focus-vi
 }
 
 .view-controls button { pointer-events: auto; }
+.view-controls > button { padding: 0.25rem 0.9rem; min-height: 32px; }
+.view-controls > button:disabled { opacity: 0.5; cursor: default; }
 .mobile-panel-control { display: none; }
 
 .view-visibility {
@@ -187,9 +189,28 @@ button:focus-visible, canvas:focus-visible, input:focus-visible, select:focus-vi
 }
 
 .sidebar h2 { margin: 0; font-size: 1rem; }
-.tabs { display: flex; flex-shrink: 0; flex-wrap: wrap; gap: 0.4rem; }
-.tabs button { padding: 0.5rem 0.6rem; font-size: 0.85rem; white-space: nowrap; }
-.tabs [aria-selected="true"] { border-color: #91caff; background: #354d68; }
+.tabs { display: flex; min-width: 0; gap: 0.15rem; }
+.tabs button {
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  margin-bottom: -1px;
+  padding: 0.6rem;
+  border: 1px solid transparent;
+  border-top-width: 2px;
+  border-radius: 0.4rem 0.4rem 0 0;
+  background: transparent;
+  color: #b6c3d1;
+  font-size: 0.85rem;
+}
+.tabs button:hover { background: #27384c; color: #edf1f5; }
+.tabs button[aria-selected="true"] {
+  border-color: #62758c;
+  border-top-color: #91caff;
+  border-bottom-color: #0e141c;
+  background: #0e141c;
+  color: #edf1f5;
+}
 .tab-panel {
   display: grid;
   align-content: start;
@@ -461,7 +482,7 @@ canvas {
   .sidebar #parts-panel { grid-template-rows: auto auto minmax(8rem, 1fr); overflow-y: auto; }
   .stage-header { inset: 0.5rem; }
   .view-controls { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 0.4rem; overflow: visible; }
-  .view-controls > button { padding: 0.5rem; min-height: 44px; font-size: 0.85rem; }
+  .view-controls > button { padding: 0.25rem 0.5rem; font-size: 0.85rem; }
   .view-visibility { display: none; }
   .view-visibility[data-expanded="true"] {
     display: grid;

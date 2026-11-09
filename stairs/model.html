@@ -129,6 +129,7 @@
       </canvas>
       <div class="stage-header">
         <div class="view-controls" role="group" aria-label="3D view controls">
+          <button id="parts-clear-selection" type="button" disabled>Clear selection</button>
           <button id="reset" type="button">Reset view</button>
           <button id="view-modules" type="button" aria-pressed="false">Split modules</button>
           <button id="toggle-visibility" class="mobile-panel-control" type="button"
@@ -136,15 +137,15 @@
           <fieldset id="stairway-visibility" class="view-visibility">
             <legend>Show</legend>
             <button id="close-visibility" class="mobile-panel-control" type="button">Close show/hide</button>
-            <label><input id="view-castle" type="checkbox" checked>Castle</label>
+            <label><input id="view-castle" type="checkbox">Castle</label>
             <label><input id="view-foundation" type="checkbox" checked>Foundation</label>
             <label><input id="view-uprights" type="checkbox" checked>Uprights</label>
             <label><input id="view-step-framing" type="checkbox" checked>Step framing</label>
-            <label><input id="view-ribs" type="checkbox" checked>Ribs</label>
-            <label><input id="view-risers" type="checkbox" checked>Risers</label>
-            <label><input id="view-treads" type="checkbox" checked>Treads</label>
-            <label><input id="view-banister" type="checkbox" checked>Banister</label>
-            <label><input id="view-siding" type="checkbox" checked>Siding</label>
+            <label><input id="view-ribs" type="checkbox">Ribs</label>
+            <label><input id="view-risers" type="checkbox">Risers</label>
+            <label><input id="view-treads" type="checkbox">Treads</label>
+            <label><input id="view-banister" type="checkbox">Banister</label>
+            <label><input id="view-siding" type="checkbox">Siding</label>
             <button id="view-show-all" type="button">Show all</button>
           </fieldset>
         </div>
@@ -227,7 +228,6 @@
           </div>
           <div class="parts-filter-actions">
             <button id="parts-clear-filters" type="button">Clear filters</button>
-            <button id="parts-clear-selection" type="button" disabled>Clear selection</button>
           </div>
           <div class="parts-summary" role="status" aria-live="polite" aria-atomic="true">
             <p id="parts-count"></p>

@@ -1328,6 +1328,7 @@ test("transformed batch picking matches world geometry, excluding footprints and
 });
 
 const stairwayCategories = PART_VISIBILITY_CATEGORIES.map(({ key }) => key);
+const initialCategories = ["foundation", "uprights", "step-framing"];
 
 function createControls({
   reducedMotion = false, phoneLayout = false, buildModel = buildStairway, failOnError = true,
@@ -2277,7 +2278,8 @@ test("popstate restores viewer state without rebuilding the fixed model", () => 
   assert.equal(controls.url.searchParams.has("part"), false);
   assert.match(controls.node("#view-notice").textContent, /Module filter.*Selected part/);
   controls.restoreURL("?width=28&tab=placement&parts=hidden");
-  assert.ok(["castle", ...stairwayCategories].every(key => controls.node(`#view-${key}`).checked));
+  assert.deepEqual(["castle", ...stairwayCategories].filter(key => controls.node(`#view-${key}`).checked),
+    initialCategories);
   assert.equal(controls.node("#parts-sidebar").hidden, true);
   assert.equal(controls.node("#placement-tab").getAttribute("aria-selected"), "true");
   assert.equal(controls.node("#part-details-empty").hidden, false);
@@ -2398,7 +2400,8 @@ test("legacy model query settings are ignored and removed while preserving viewe
   for (const [key, value] of Object.entries({
     module: "2", part, parts: "hidden",
   })) assert.equal(controls.url.searchParams.get(key), value);
-  for (const key of ["subset", "castle", "show"]) assert.equal(controls.url.searchParams.has(key), false);
+  for (const key of ["subset", "castle"]) assert.equal(controls.url.searchParams.has(key), false);
+  assert.equal(controls.url.searchParams.get("show"), ["castle", ...initialCategories].join(" "));
   assert.equal(controls.node("#view-castle").checked, true);
   assert.deepEqual(controls.url.searchParams.getAll("other"), ["keep", "also"]);
   assert.equal(controls.url.hash, "#view");
@@ -3076,7 +3079,8 @@ test("view buttons float inside the 3D stage while model information occupies th
   const start = html.indexOf('<section class="stage"');
   const stage = html.slice(start, html.indexOf("</section>", start));
   assert.match(stage, /class="view-controls" role="group" aria-label="3D view controls"/);
-  assert.match(stage, /id="reset"[^>]*>Reset view<\/button>\s*<button id="view-modules"[^>]*>Split modules<\/button>/);
+  assert.match(stage, /id="parts-clear-selection"[^>]*>Clear selection<\/button>\s*<button id="reset"[^>]*>Reset view<\/button>\s*<button id="view-modules"[^>]*>Split modules<\/button>/);
+  assert.equal(html.match(/id="parts-clear-selection"/g).length, 1);
   assert.match(stage, /id="stairway-visibility"[\s\S]*<legend>Show<\/legend>/);
   for (const key of ["castle", ...stairwayCategories]) {
     assert.match(stage, new RegExp(`id="view-${key}" type="checkbox"`));
@@ -3099,7 +3103,7 @@ test("castle visibility persists in the URL, stays fixed during splitting, and n
   const stairGeometry = controls.geometry;
   button.checked = true;
   button.dispatch("change");
-  assert.equal(controls.url.searchParams.has("show"), false);
+  assert.equal(controls.url.searchParams.get("show"), ["castle", ...stairwayCategories].join(" "));
   const castle = controls.mainViewer.batches.at(-1);
   closeGeometry(castle.geometry, model.createCastleGeometry());
   controls.node("#view-modules").dispatch("click");
@@ -3140,7 +3144,7 @@ test("castle URL restoration validates visibility without changing Details or Pl
   }
   for (const search of ["?castle=hidden", "?", "?castle=yes", "?castle=shown&castle=shown"]) {
     controls.restoreURL(search);
-    assert.equal(controls.node("#view-castle").checked, search !== "?castle=hidden");
+    assert.equal(controls.node("#view-castle").checked, false);
     assert.equal(controls.url.searchParams.has("castle"), false);
     if (search.includes("yes") || search.includes("&")) {
       assert.match(controls.node("#view-notice").textContent, /Castle visibility was invalid/);
@@ -3151,15 +3155,37 @@ test("castle URL restoration validates visibility without changing Details or Pl
   assert.deepEqual(controls.errors, []);
 });
 
+test("initial visibility shows only the structural frame and round-trips on desktop and phones", () => {
+  for (const phoneLayout of [false, true]) {
+    const controls = createControls({ phoneLayout, search: "" });
+    const checked = () => ["castle", ...stairwayCategories]
+      .filter(key => controls.node(`#view-${key}`).checked);
+    assert.deepEqual(checked(), initialCategories);
+    controls.node("#view-treads").checked = true;
+    controls.node("#view-treads").dispatch("change");
+    const saved = controls.url.search;
+    controls.restoreURL(saved);
+    assert.deepEqual(checked(), [...initialCategories, "treads"]);
+    controls.node("#view-treads").checked = false;
+    controls.node("#view-treads").dispatch("change");
+    assert.equal(controls.url.searchParams.has("show"), false);
+    controls.restoreURL(controls.url.search);
+    assert.deepEqual(checked(), initialCategories);
+  }
+});
+
 test("Show all checks every category including Castle without changing the Parts filters or selection", () => {
   const model = buildStairway(), controls = createControls({ buildModel: () => model, search: "" });
   const keys = ["castle", ...stairwayCategories];
-  assert.ok(keys.every(key => controls.node(`#view-${key}`).checked));
+  assert.deepEqual(keys.filter(key => controls.node(`#view-${key}`).checked), initialCategories);
   assert.equal(controls.url.searchParams.has("show"), false);
+  const inventory = new PartInventory(model.partTree);
+  closeGeometry(controls.geometry, expectedPartsGeometry(model, inventory.filter().groups, null, initialCategories));
+  controls.node("#view-show-all").dispatch("click");
+  assert.ok(keys.every(key => controls.node(`#view-${key}`).checked));
   closeGeometry(controls.geometry, combineGeometries([model.createGeometry(), model.createCastleGeometry()]));
   controls.node("#parts-module").value = "2";
   controls.node("#parts-module").dispatch("change");
-  const inventory = new PartInventory(model.partTree);
   const stockKey = inventory.findOccurrence("stairway/module-2/step-5-frontSpindle").stockKey;
   controls.node("#parts-type").value = stockKey;
   controls.node("#parts-type").dispatch("change");
@@ -3175,7 +3201,7 @@ test("Show all checks every category including Castle without changing the Parts
   assert.ok(keys.every(key => !controls.node(`#view-${key}`).checked));
   controls.node("#view-show-all").dispatch("click");
   assert.ok(keys.every(key => controls.node(`#view-${key}`).checked));
-  assert.equal(controls.url.searchParams.has("show"), false);
+  assert.equal(controls.url.searchParams.get("show"), keys.join(" "));
   assert.equal(controls.node("#parts-module").value, "2");
   assert.equal(controls.node("#parts-type").value, stockKey);
   assert.equal(controls.node("#parts-search").value, "spindle");
@@ -3224,7 +3250,8 @@ test("show URLs restore independent categories, preserve hidden selections, and 
     expectedPartsGeometry(model, inventory.filter().groups, null, ["risers"]));
   for (const show of ["show=missing", "show=treads+treads", "show=ribs&show=foundation"]) {
     controls.restoreURL(`?${show}`);
-    assert.ok(["castle", ...stairwayCategories].every(key => controls.node(`#view-${key}`).checked));
+    assert.deepEqual(["castle", ...stairwayCategories].filter(key => controls.node(`#view-${key}`).checked),
+      initialCategories);
     assert.match(controls.node("#view-notice").textContent, /Stairway visibility was invalid/);
     assert.equal(controls.url.searchParams.has("show"), false);
   }

@@ -25,7 +25,7 @@ try {
   const castleView = document.querySelector("#view-castle");
   const visibilityControls = [{ key: "castle", input: castleView },
     ...PART_VISIBILITY_CATEGORIES.map(({ key }) => ({ key, input: document.querySelector(`#view-${key}`) }))];
-  const defaultVisibility = visibilityControls.map(({ key }) => key);
+  const defaultVisibility = ["foundation", "uprights", "step-framing"];
   const identityTransform = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
   let castleShown = false;
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -143,7 +143,7 @@ try {
         return new Set(keys).size === keys.length &&
           keys.every(key => visibilityControls.some(control => control.key === key));
       }, "Stairway visibility"))
-      : [...defaultVisibility.filter(key => key !== "castle"), ...(read("castle", "shown",
+      : [...defaultVisibility, ...(read("castle", "hidden",
         value => ["shown", "hidden"].includes(value), "Castle visibility") === "shown" ? ["castle"] : [])];
     for (const { key, input } of visibilityControls) input.checked = shown.includes(key);
     castleShown = castleView.checked;
