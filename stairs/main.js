@@ -29,6 +29,13 @@ try {
   const identityTransform = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
   let castleShown = false;
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const phoneLayout = window.matchMedia("(max-width: 700px), (max-width: 1000px) and (max-height: 500px)");
+  const visibilityToggle = document.querySelector("#toggle-visibility");
+  const visibilityPanel = document.querySelector("#stairway-visibility");
+  function setVisibilityExpanded(expanded) {
+    visibilityPanel.setAttribute("data-expanded", String(expanded));
+    visibilityToggle.setAttribute("aria-expanded", String(expanded));
+  }
   let modulesSeparated = false;
   let moduleExplosion = 0;
   let animationFrame = 0;
@@ -97,7 +104,7 @@ try {
     for (const key of ["width", "steps", "modules", "shoulderAscent", "subset", "castle"]) url.searchParams.delete(key);
     const state = {
       tab: activeTab === "stairway" ? "" : activeTab,
-      parts: document.querySelector("#parts-sidebar").hidden ? "hidden" : "",
+      parts: document.querySelector("#parts-sidebar").hidden ? "hidden" : "shown",
       module: moduleFilter.value,
       type: typeFilter.value,
       part: locatedOccurrenceId ?? "",
@@ -116,7 +123,8 @@ try {
     document.querySelector("#parts-sidebar").hidden = hidden;
     document.querySelector(".workspace").setAttribute("data-parts-collapsed", String(hidden));
     toggle.setAttribute("aria-expanded", String(!hidden));
-    toggle.textContent = hidden ? "Show parts" : "Hide parts";
+    toggle.setAttribute("aria-label", hidden ? "Show parts" : "Hide parts");
+    toggle.setAttribute("title", hidden ? "Show parts" : "Hide parts");
   }
   function restoreViewState(search) {
     const query = new URLSearchParams(search), warnings = [];
@@ -139,7 +147,8 @@ try {
         value => ["shown", "hidden"].includes(value), "Castle visibility") === "shown" ? ["castle"] : [])];
     for (const { key, input } of visibilityControls) input.checked = shown.includes(key);
     castleShown = castleView.checked;
-    setPartsHidden(read("parts", "shown", value => ["shown", "hidden"].includes(value), "Parts visibility") === "hidden");
+    setPartsHidden(read("parts", "hidden",
+      value => ["shown", "hidden"].includes(value), "Parts visibility") === "hidden");
     moduleFilter.value = read("module", "", value => value === "" ||
       model.partTree.root.children.some((_, index) => value === String(index + 1)), "Module filter");
     typeFilter.value = read("type", "", value => value === "" ||
@@ -832,9 +841,32 @@ try {
   }
   clearSelectionButton.addEventListener("click", clearSelection);
   document.querySelector("#toggle-parts").addEventListener("click", () => {
+    setVisibilityExpanded(false);
     setPartsHidden(!document.querySelector("#parts-sidebar").hidden);
+    document.querySelector("#toggle-parts").focus();
     requestRenders();
     syncURL();
+  });
+  visibilityToggle.addEventListener("click", () => {
+    const expanded = visibilityToggle.getAttribute("aria-expanded") !== "true";
+    setVisibilityExpanded(expanded);
+    if (expanded) document.querySelector("#close-visibility").focus();
+  });
+  document.querySelector("#close-visibility").addEventListener("click", () => {
+    setVisibilityExpanded(false);
+    visibilityToggle.focus();
+  });
+  window.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || !phoneLayout.matches) return;
+    if (visibilityToggle.getAttribute("aria-expanded") === "true") {
+      setVisibilityExpanded(false);
+      visibilityToggle.focus();
+    } else if (!document.querySelector("#parts-sidebar").hidden) {
+      setPartsHidden(true);
+      document.querySelector("#toggle-parts").focus();
+      requestRenders();
+      syncURL();
+    }
   });
   for (const filter of [moduleFilter, typeFilter]) {
     filter.addEventListener("change", () => {

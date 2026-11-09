@@ -1330,7 +1330,7 @@ test("transformed batch picking matches world geometry, excluding footprints and
 const stairwayCategories = PART_VISIBILITY_CATEGORIES.map(({ key }) => key);
 
 function createControls({
-  reducedMotion = false, buildModel = buildStairway, failOnError = true,
+  reducedMotion = false, phoneLayout = false, buildModel = buildStairway, failOnError = true,
   search = `?show=${stairwayCategories.join("+")}`,
 } = {}) {
   const nodes = new Map();
@@ -1438,7 +1438,9 @@ function createControls({
   const windowEvents = new Map();
   const window = {
     innerWidth: 800, innerHeight: 600,
-    matchMedia: () => ({ matches: reducedMotion, addEventListener() {} }),
+    matchMedia: query => ({
+      matches: query === "(prefers-reduced-motion: reduce)" ? reducedMotion : phoneLayout, addEventListener() {},
+    }),
     addEventListener(name, handler) { windowEvents.set(name, handler); },
     get location() { return url; },
     history: { replaceState(state, title, href) { url = new URL(href, url); historyReplacements.push(url.href); } },
@@ -1494,6 +1496,7 @@ function createControls({
     get activeElement() { return activeElement; },
     resize() { resizeCallbacks.forEach(callback => callback()); },
     resizeWindow() { windowEvents.get("resize")?.(); },
+    pressEscape() { windowEvents.get("keydown")?.({ key: "Escape" }); },
     advance(milliseconds) {
       time += milliseconds;
       const callbacks = [...frames.values()];
@@ -2295,7 +2298,7 @@ test("viewer URLs hydrate all tabs, Parts visibility, filters, and an exact inst
     assert.equal(controls.node(`#${tab}-tab`).getAttribute("aria-selected"), "true");
     assert.equal(controls.node("#parts-sidebar").hidden, true);
     assert.equal(controls.node(".workspace").getAttribute("data-parts-collapsed"), "true");
-    assert.equal(controls.node("#toggle-parts").textContent, "Show parts");
+    assert.equal(controls.node("#toggle-parts").getAttribute("aria-label"), "Show parts");
     assert.equal(controls.node("#parts-module").value, "2");
     assert.equal(controls.node("#view-step-framing").checked, true);
     assert.equal(controls.node("#parts-type").value, entry.stockKey);
@@ -2341,9 +2344,9 @@ test("viewer controls replace the current URL for tabs, Parts visibility, filter
   change("#details-tab", "click");
   assert.equal(controls.url.searchParams.get("tab"), "details");
   change("#toggle-parts", "click");
-  assert.equal(controls.url.searchParams.get("parts"), "hidden");
+  assert.equal(controls.url.searchParams.get("parts"), "shown");
   change("#toggle-parts", "click");
-  assert.equal(controls.url.searchParams.has("parts"), false);
+  assert.equal(controls.url.searchParams.get("parts"), "hidden");
   change("#parts-clear-filters", "click");
   for (const key of ["module", "subset", "type"]) assert.equal(controls.url.searchParams.has(key), false);
   change("#placement-tab", "click");
@@ -2359,12 +2362,13 @@ test("invalid, duplicate, and filtered-out viewer URL settings show notices and 
   const invalid = createControls({ search: "?width=invalid&tab=details&tab=placement&parts=maybe&module=9" +
     "&subset=unknown&show=unknown&type=unknown&part=missing&other=keep#view" });
   assert.equal(invalid.node("#stairway-tab").getAttribute("aria-selected"), "true");
-  assert.equal(invalid.node("#parts-sidebar").hidden, false);
+  assert.equal(invalid.node("#parts-sidebar").hidden, true);
   for (const selector of ["#parts-module", "#parts-type"]) assert.equal(invalid.node(selector).value, "");
   for (const label of ["Selected tab", "Parts visibility", "Module filter", "Stairway visibility", "Material filter", "Selected part"]) {
     assert.ok(invalid.node("#view-notice").textContent.includes(label));
   }
-  for (const key of ["width", "tab", "parts", "module", "subset", "type", "part"]) assert.equal(invalid.url.searchParams.has(key), false);
+  assert.equal(invalid.url.searchParams.get("parts"), "hidden");
+  for (const key of ["width", "tab", "module", "subset", "type", "part"]) assert.equal(invalid.url.searchParams.has(key), false);
   assert.equal(invalid.url.searchParams.get("other"), "keep");
   assert.equal(invalid.url.hash, "#view");
   const filtered = createControls({ search: "?tab=details&module=1&part=stairway%2Fmodule-2%2Fstep-5-rightUpright" });
@@ -2373,7 +2377,8 @@ test("invalid, duplicate, and filtered-out viewer URL settings show notices and 
   assert.equal(filtered.url.searchParams.has("part"), false);
   assert.match(filtered.node("#view-notice").textContent, /Selected part/);
   const duplicate = createControls({ search: "?module=1&module=2&show=foundation&show=banister&parts=hidden&parts=shown&part=a&part=b" });
-  for (const key of ["module", "subset", "parts", "part"]) assert.equal(duplicate.url.searchParams.has(key), false);
+  assert.equal(duplicate.url.searchParams.get("parts"), "hidden");
+  for (const key of ["module", "subset", "part"]) assert.equal(duplicate.url.searchParams.has(key), false);
   assert.equal(duplicate.node("#view-notice").hidden, false);
 });
 
@@ -2921,14 +2926,66 @@ test("Parts collapse preserves Details and selection while requesting updated re
   controls.node("#details-tab").dispatch("click");
   const selected = list.getAttribute("aria-activedescendant");
   const toggle = controls.node("#toggle-parts");
-  for (const collapsed of [true, false]) {
+  assert.equal(controls.node("#parts-sidebar").hidden, true);
+  for (const collapsed of [false, true]) {
     toggle.dispatch("click");
     assert.equal(controls.node("#parts-sidebar").hidden, collapsed);
-    assert.equal(toggle.textContent, collapsed ? "Show parts" : "Hide parts");
+    assert.equal(toggle.getAttribute("aria-label"), collapsed ? "Show parts" : "Hide parts");
+    assert.equal(toggle.getAttribute("title"), collapsed ? "Show parts" : "Hide parts");
     assert.equal(toggle.getAttribute("aria-expanded"), String(!collapsed));
     assert.equal(controls.node(".workspace").getAttribute("data-parts-collapsed"), String(collapsed));
     assert.equal(controls.node("#part-details").hidden, false);
     assert.equal(list.getAttribute("aria-activedescendant"), selected);
+  }
+});
+
+test("phone panels start collapsed and close without losing visibility or part selection", () => {
+  const controls = createControls({ phoneLayout: true });
+  const partsToggle = controls.node("#toggle-parts");
+  const visibilityToggle = controls.node("#toggle-visibility");
+  assert.equal(controls.node("#parts-sidebar").hidden, true);
+  assert.equal(partsToggle.getAttribute("aria-expanded"), "false");
+  visibilityToggle.dispatch("click");
+  assert.equal(visibilityToggle.getAttribute("aria-expanded"), "true");
+  assert.equal(controls.node("#stairway-visibility").getAttribute("data-expanded"), "true");
+  assert.equal(controls.activeElement, controls.node("#close-visibility"));
+  controls.node("#view-treads").checked = false;
+  controls.node("#view-treads").dispatch("change");
+  controls.node("#close-visibility").dispatch("click");
+  assert.equal(visibilityToggle.getAttribute("aria-expanded"), "false");
+  assert.equal(controls.activeElement, visibilityToggle);
+  visibilityToggle.dispatch("click");
+  controls.pressEscape();
+  assert.equal(visibilityToggle.getAttribute("aria-expanded"), "false");
+  assert.equal(controls.node("#view-treads").checked, false);
+  visibilityToggle.dispatch("click");
+  partsToggle.dispatch("click");
+  assert.equal(visibilityToggle.getAttribute("aria-expanded"), "false", "panels must not cover each other");
+  assert.equal(controls.node("#parts-sidebar").hidden, false);
+  assert.equal(controls.activeElement, partsToggle);
+  assert.equal(controls.url.searchParams.get("parts"), "shown", "explicitly open phone panels must round-trip in URLs");
+  const list = controls.node("#parts-groups");
+  list.children[0].dispatch("click");
+  const selected = list.getAttribute("aria-activedescendant");
+  partsToggle.dispatch("click");
+  assert.equal(controls.node("#parts-sidebar").hidden, true);
+  assert.equal(controls.activeElement, partsToggle);
+  partsToggle.dispatch("click");
+  assert.equal(list.getAttribute("aria-activedescendant"), selected);
+  controls.pressEscape();
+  assert.equal(controls.node("#parts-sidebar").hidden, true);
+  assert.equal(controls.activeElement, partsToggle);
+  assert.equal(list.getAttribute("aria-activedescendant"), selected);
+});
+
+test("parts visibility respects explicit shared URL state on desktop and phones", () => {
+  for (const phoneLayout of [false, true]) for (const state of ["shown", "hidden"]) {
+    const controls = createControls({ phoneLayout, search: `?parts=${state}` });
+    assert.equal(controls.node("#parts-sidebar").hidden, state === "hidden");
+    controls.node("#toggle-parts").dispatch("click");
+    const saved = controls.url.search;
+    controls.restoreURL(saved);
+    assert.equal(controls.node("#parts-sidebar").hidden, state !== "hidden");
   }
 });
 

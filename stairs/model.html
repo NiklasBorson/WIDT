@@ -17,7 +17,7 @@
     </nav>
   </header>
   <p id="view-notice" role="status" hidden></p>
-  <main class="workspace">
+  <main class="workspace" data-parts-collapsed="true">
     <div class="main-content">
       <div class="content-toolbar">
         <div class="tabs" role="tablist" aria-label="Content">
@@ -28,7 +28,6 @@
           <button id="placement-tab" type="button" role="tab" aria-controls="part-details"
             aria-selected="false" tabindex="-1">Part placement</button>
         </div>
-        <button id="toggle-parts" type="button" aria-expanded="true" aria-controls="parts-sidebar">Hide parts</button>
       </div>
       <section id="stairway-panel" class="stairway-panel" role="tabpanel" aria-labelledby="stairway-tab">
     <section class="stage" aria-label="Model preview">
@@ -132,8 +131,11 @@
         <div class="view-controls" role="group" aria-label="3D view controls">
           <button id="reset" type="button">Reset view</button>
           <button id="view-modules" type="button" aria-pressed="false">Split modules</button>
+          <button id="toggle-visibility" class="mobile-panel-control" type="button"
+            aria-expanded="false" aria-controls="stairway-visibility">Show/hide</button>
           <fieldset id="stairway-visibility" class="view-visibility">
             <legend>Show</legend>
+            <button id="close-visibility" class="mobile-panel-control" type="button">Close show/hide</button>
             <label><input id="view-castle" type="checkbox" checked>Castle</label>
             <label><input id="view-foundation" type="checkbox" checked>Foundation</label>
             <label><input id="view-uprights" type="checkbox" checked>Uprights</label>
@@ -210,7 +212,10 @@
     </div>
   </section>
     </div>
-    <aside id="parts-sidebar" class="sidebar" aria-label="Parts">
+    <div class="parts-drawer">
+      <button id="toggle-parts" class="parts-toggle" type="button" aria-expanded="false"
+        aria-controls="parts-sidebar" aria-label="Show parts" title="Show parts"></button>
+    <aside id="parts-sidebar" class="sidebar" aria-label="Parts" hidden>
       <div id="parts-panel" class="tab-panel">
         <section id="parts-visibility" aria-labelledby="parts-filter-heading">
           <h2 id="parts-filter-heading">Filter parts</h2>
@@ -248,6 +253,7 @@
         </div>
       </div>
     </aside>
+    </div>
   </main>
   <div id="placement-neighbor-popup" popover="auto" role="dialog" aria-label="Neighboring part">
     <a id="placement-neighbor-link" href="#placement-instance"></a>
